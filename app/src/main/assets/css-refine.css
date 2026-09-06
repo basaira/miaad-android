@@ -1,0 +1,48 @@
+/* ---------- Impeccable overall v3: mobile-first operational refinement ---------- */
+:root{
+  --bg:#eef1ed; --surface:#fbfcf9; --surface-2:#e3e9e4; --surface-3:#d9e1db;
+  --ink:#102019; --muted:#56675e; --line:#ccd6d0; --deep:#10261f; --deep-2:#17372d;
+  --signal:#d7ff57; --signal-ink:#16230c; --danger:#a94337; --danger-soft:#f2ded9;
+  --amber:#8b6824; --amber-soft:#eee5cf; --blue:#376f82; --blue-soft:#dce9ed;
+  --shadow:0 18px 44px rgba(16,38,31,.13); --shadow-tight:0 8px 24px rgba(16,38,31,.09);
+  --ease-out:cubic-bezier(.16,1,.3,1); --ease-standard:cubic-bezier(.2,.8,.2,1); --radius:14px;
+}
+html{overscroll-behavior-y:none}
+body{background:var(--bg)}
+.mobile-top{background:var(--bg);backdrop-filter:none;border-bottom:1px solid rgba(16,32,25,.07);padding-right:18px;padding-left:18px}
+.mark{border-radius:11px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.icon-btn,.primary-action,.secondary-action,.quick-action,.day-button,.nav-btn,.slot-option,.free-window-card,.save-btn,.delete-btn,.editor-close,.editor-link{
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation
+}
+.icon-btn{transition:background .18s ease,transform .18s var(--ease-out)}
+.icon-btn:active{transform:scale(.94)}
+.mobile-body{padding-top:16px}
+.view{view-transition-name:main-content}.view.active{animation:none}
+html[data-nav-dir="forward"]::view-transition-old(main-content){animation:miadOutForward .16s ease both}
+html[data-nav-dir="forward"]::view-transition-new(main-content){animation:miadInForward .28s var(--ease-out) both}
+html[data-nav-dir="back"]::view-transition-old(main-content){animation:miadOutBack .16s ease both}
+html[data-nav-dir="back"]::view-transition-new(main-content){animation:miadInBack .28s var(--ease-out) both}
+@keyframes miadOutForward{to{opacity:0;transform:translateX(12px) scale(.995);filter:blur(1px)}}
+@keyframes miadInForward{from{opacity:0;transform:translateX(-18px) scale(.995);filter:blur(2px)}}
+@keyframes miadOutBack{to{opacity:0;transform:translateX(-12px) scale(.995);filter:blur(1px)}}
+@keyframes miadInBack{from{opacity:0;transform:translateX(18px) scale(.995);filter:blur(2px)}}
+.view.fallback-in-forward{animation:miadInForward .28s var(--ease-out) both}.view.fallback-in-back{animation:miadInBack .28s var(--ease-out) both}
+@media(prefers-reduced-motion:reduce){
+  html[data-nav-dir]::view-transition-old(main-content),html[data-nav-dir]::view-transition-new(main-content),
+  .view.fallback-in-forward,.view.fallback-in-back{animation:none!important}
+}
+.bottom-nav{right:10px;left:10px;height:66px;padding:5px;background:#0e211b;border-radius:16px;box-shadow:0 14px 34px rgba(11,29,23,.22)}
+.nav-btn{gap:3px;border-radius:11px;transition:background .18s var(--ease-out),color .18s ease,transform .18s var(--ease-out)}
+.nav-btn:before{display:none!important}.nav-btn.active{background:rgba(255,255,255,.08);color:#fff}.nav-btn.active .nav-icon{color:var(--signal)}
+.nav-btn:active{transform:scale(.96)}.nav-btn span:last-child{font-size:8.5px}
+.focus-panel{background:linear-gradient(160deg,#10261f 0%,#153229 100%);box-shadow:0 18px 42px rgba(16,38,31,.17)}
+.focus-panel:before{opacity:.55}.focus-name{letter-spacing:-.015em}.primary-action{transition:transform .16s var(--ease-out),filter .16s ease}
+.primary-action:active{filter:brightness(.96)}
+.week-rail{gap:6px}.day-button{transition:background .18s ease,color .18s ease,transform .16s var(--ease-out)}
+.day-button.active{background:#f9fbf8;box-shadow:0 4px 12px rgba(16,38,31,.05)}
+.agenda{border:1px solid rgba(16,32,25,.055);box-shadow:0 6px 20px rgba(16,38,31,.04)}
+.session-row{transition:background .18s ease}.session-row:active{background:#f4f7f4}.session-row.next-session:after{width:2px}
+.quick-action{min-height:38px;padding:8px 11px;border-color:#cbd6cf;transition:transform .16s var(--ease-out),background .16s ease,border-color .16s ease}
+.gap-row{background:#f1f5f1}.gap-copy span{font-variant-numeric:tabular-nums}
+.smart-strip{box-shadow:0 9px 24px rgba(16,38,31,.10);transition:transform .18s var(--ease-out),box-shadow .18s ease}
+.smart-strip:active{transform:scale(.988);box-shadow:0 5px 15px rgba(16,38,31,.08)}
