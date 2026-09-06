@@ -1,1 +1,181 @@
-PLACEHOLDER
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#112720">
+<title>مِيعاد — لوحة الدروس</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700&family=Changa:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!--
+THESIS: A one-thumb teaching operations board, not a card dashboard; time and action are the interface.
+OWN-WORLD: Fog-white field, charcoal-green control surfaces, one citrine signal, tight rules, Arabic transit-board typography, compact rectangular controls.
+STORY: Omar opens the page, sees the next lesson immediately, selects a day, scans the agenda, and marks what happened in one tap.
+FIRST VIEWPORT: On phone: compact brand bar, today/date line, dark next-lesson command surface, seven-day rail, then the daily timeline; primary action is inside the next-lesson surface within thumb reach.
+FORM: Operational timetable / control board, selected as the replacement world for a mobile-first teacher schedule. Seed key: manual-fallback-operate-2026-09.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+-->
+<div class="app">
+  <header class="mobile-top">
+    <div class="top-row">
+      <div class="wordmark"><div class="mark">م</div><div><b>مِيعاد</b><span>لوحة عمر للدروس</span></div></div>
+      <button class="icon-btn" id="bellBtn" aria-label="إعدادات التنبيهات"></button>
+    </div>
+  </header>
+
+  <nav class="bottom-nav" aria-label="التنقل الرئيسي">
+    <button class="nav-btn active" data-view="today"><span class="nav-icon" data-icon="calendar"></span><span>اليوم</span></button>
+    <button class="nav-btn" data-view="week"><span class="nav-icon" data-icon="week"></span><span>الأسبوع</span></button>
+    <button class="nav-btn" data-view="students"><span class="nav-icon" data-icon="users"></span><span>الطلاب</span></button>
+    <button class="nav-btn" data-view="report"><span class="nav-icon" data-icon="report"></span><span>التقرير</span></button>
+    <button class="nav-btn" data-view="settings"><span class="nav-icon" data-icon="sliders"></span><span>الإعدادات</span></button>
+  </nav>
+
+  <main class="mobile-body">
+    <section class="view active" id="view-today">
+      <div class="date-block">
+        <div><h1 id="todayHeading">اليوم</h1><p id="todayDate">—</p></div>
+        <div class="tiny-state"><span>أسبوع إدريس</span><b id="idrisWeekState">—</b></div>
+      </div>
+
+      <section class="focus-panel" id="focusPanel">
+        <div class="focus-top"><div class="live-label"><i class="live-dot"></i><span id="focusStateLabel">الدرس القادم</span></div><div class="focus-clock" id="clockNow">--:--</div></div>
+        <div class="focus-name" id="focusName">لا يوجد درس قريب</div>
+        <div class="focus-meta" id="focusMeta">—</div>
+        <div class="focus-actions">
+          <button class="primary-action" id="focusEnterBtn"><span class="action-icon" data-icon="check"></span><span>دخلت الدرس</span></button>
+          <button class="secondary-action" id="focusMoreBtn" aria-label="تفاصيل الدرس"><span class="action-icon" data-icon="more"></span></button>
+        </div>
+      </section>
+
+      <div class="week-rail" id="weekRail" aria-label="أيام الأسبوع"></div>
+      <div class="smart-strip" id="smartFreeStrip" role="button" tabindex="0" aria-label="فتح إضافة موعد في الوقت المتاح"><div class="smart-strip-copy"><b>الفراغ الحالي</b><span id="smartFreeLabel">يُحسب لحظيًا من جدولك</span></div><time id="smartFreeClock">—</time></div>
+      <div class="agenda-head"><div><h2 id="agendaTitle">دروس اليوم</h2><span id="agendaSubtitle">—</span></div><span id="agendaCount">0 درس</span></div>
+      <div class="agenda" id="agenda"></div>
+    </section>
+
+    <section class="view" id="view-week">
+      <div class="date-block"><div><h1>الأسبوع كاملًا</h1><p id="weekRange">—</p></div><div class="tiny-state"><span>إجمالي المواعيد</span><b id="weekTotal">0</b></div></div>
+      <div class="week-list" id="weekList"></div>
+    </section>
+
+    <section class="view" id="view-students">
+      <div class="date-block"><div><h1>الطلاب</h1><p>المواعيد المتكررة لكل طالب ومجموعة</p></div><div class="tiny-state"><span>طلاب / مجموعات</span><b id="studentTotal">0</b></div></div>
+      <div class="search-box"><span data-icon="search"></span><input id="studentSearch" placeholder="ابحث باسم الطالب…" autocomplete="off"></div>
+      <div class="student-directory" id="studentDirectory"></div>
+    </section>
+
+
+    <section class="view" id="view-report">
+      <div class="date-block"><div><h1>تقرير الشهر</h1><p>سجلّ الدروس وحالاتها محسوب من الجدول الفعلي</p></div><div class="tiny-state"><span>تغطية السجل</span><b id="reportCoverage">—</b></div></div>
+      <div class="report-toolbar"><input class="month-input" id="reportMonth" type="month"><div class="report-actions"><button class="report-action" id="reportCsv">CSV</button><button class="report-action dark" id="reportPrint">طباعة</button></div></div>
+      <div class="report-summary" id="reportSummary"></div>
+      <div class="report-grid-desktop">
+        <section class="report-section"><div class="report-title"><h3>ملخص الطلاب</h3><span id="reportStudentCount">—</span></div><div id="reportStudents"></div></section>
+        <section class="report-section"><div class="report-title"><h3>السجل التفصيلي</h3><span id="reportRecordCount">—</span></div><div id="reportRecords"></div></section>
+      </div>
+    </section>
+
+    <section class="view" id="view-settings">
+      <div class="date-block"><div><h1>الإعدادات</h1><p>التنبيهات، البيانات، وضبط المواعيد</p></div></div>
+      <div class="settings-stack">
+        <section class="setting-block"><h3>تنبيهات الدروس</h3><p>في تطبيق أندرويد تُجدول التذكيرات محليًا لتصل حتى مع إغلاق واجهة مِيعاد.</p><div class="setting-row"><span id="notifStatus">الإشعارات غير مفعلة</span><button class="small-btn dark" id="enableNotif">تفعيل</button></div></section>
+        <section class="setting-block"><h3>إدريس — أسبوع وأسبوع</h3><p>هذا الضبط يحدد أي أسبوع هو أسبوع الدراسة. تستطيع قلب المرحلة إذا كان الأسبوع الحالي هو أسبوع الراحة.</p><div class="setting-row"><span id="idrisSettingText">—</span><button class="small-btn" id="toggleIdrisPhase">قلب المرحلة</button></div></section>
+        <section class="setting-block"><h3>البيانات</h3><p>تُحفظ البيانات على الجهاز أولًا، ثم تُزامن مع Firebase عندما يكون الاتصال والحساب السحابي جاهزين.</p><div class="setting-row"><span>مزامنة Firebase</span><b id="syncStatus" style="font-size:11px">جارٍ الاتصال…</b></div><div class="setting-row"><span>نسخة احتياطية JSON</span><button class="small-btn" id="exportBtn">تصدير</button></div><div class="setting-row"><span>استيراد / دمج قاعدة JSON</span><button class="small-btn" id="importBtn">استيراد</button><input id="importFile" type="file" accept="application/json,.json" hidden></div><div class="setting-row"><span>إضافة موعد جديد</span><button class="small-btn dark" id="addLessonBtn">إضافة ذكية</button></div></section>
+      </div>
+    </section>
+
+    <aside class="desktop-aside">
+      <section class="desktop-panel"><div class="desktop-panel-title"><h3>التالي</h3><span>توقيت الجهاز</span></div><div class="desktop-next"><time id="deskNextTime">—</time><b id="deskNextName">—</b><p id="deskNextMeta">—</p></div><div class="desktop-stats"><div class="desk-stat"><b id="deskWeekCount">0</b><span>درس هذا الأسبوع</span></div><div class="desk-stat"><b id="deskDoneCount">0</b><span>تم تسجيله</span></div></div></section>
+      <section class="desktop-panel"><div class="desktop-panel-title"><h3>ملاحظات الجدول</h3><span>حقائق غير مفترضة</span></div><div class="desktop-note"><b>محمد — السويد</b>موعده «بعد المغرب» بلا دقيقة محددة؛ يظهر كذلك صراحة.</div><div class="desktop-note"><b>محبة الله — روسيا</b>الأحد 10:00–11:00، والاثنين والأربعاء 09:20–10:20.</div><div class="desktop-note"><b>عمر وموسى وعيسى</b>17:00، لمدة ساعتين ونصف وقد تمتد إلى ثلاث ساعات.</div></section>
+    </aside>
+  </main>
+</div>
+
+<div class="sheet-backdrop" id="sheetBackdrop"></div>
+<aside class="sheet" id="lessonSheet" aria-hidden="true">
+  <div class="editor-shell">
+    <header class="editor-header">
+      <button class="editor-close" id="closeSheetBtn" type="button" aria-label="إغلاق المحرر">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+      <div class="editor-title-wrap">
+        <h2 id="sheetTitle">تفاصيل الدرس</h2>
+        <div class="sheet-sub" id="sheetSub">عدّل كل ما تحتاجه في مكان واحد.</div>
+      </div>
+      <span class="editor-save-state" id="editorSaveState">جاهز</span>
+    </header>
+
+    <div class="editor-scroll" id="editorScroll">
+      <input type="hidden" id="editId">
+
+      <section class="editor-section">
+        <div class="editor-section-title"><b>حالة هذه الحصة</b><span>تُحفظ لهذا التاريخ فقط</span></div>
+        <div class="session-state-picker" id="sessionStatePicker">
+          <button type="button" data-state="entered">دخلت</button>
+          <button type="button" data-state="missed">لم أدخل</button>
+          <button type="button" data-state="absent">غاب الطالب</button>
+          <button type="button" data-state="notheld">لم يتم</button>
+          <button type="button" data-state="">بدون حالة</button>
+        </div>
+      </section>
+
+      <section class="editor-section">
+        <div class="editor-section-title"><b>الموعد الأساسي</b><span>الاسم واليوم والوقت والمدة</span></div>
+        <div class="sheet-grid">
+          <div class="field full"><label>الطالب / المجموعة</label><input id="fName" autocomplete="off" placeholder="اسم الطالب أو المجموعة"></div>
+          <div class="field"><label>اليوم</label><select id="fDay"><option value="0">الأحد</option><option value="1">الاثنين</option><option value="2">الثلاثاء</option><option value="3">الأربعاء</option><option value="4">الخميس</option><option value="5">الجمعة</option><option value="6">السبت</option></select></div>
+          <div class="field"><label>وقت البداية</label><input id="fStart" type="time"></div>
+          <div class="field"><label>المدة المعتادة</label><input id="fDuration" type="number" min="0" step="5" inputmode="numeric" placeholder="بالدقائق"></div>
+          <div class="field"><label>أقصى مدة محتملة</label><input id="fMaxDuration" type="number" min="0" step="5" inputmode="numeric" placeholder="اختياري"></div>
+          <div class="field full"><div class="field-hint">إذا كان الدرس قد يطول أحيانًا، يَحجز المحرك أقصى مدة عند حساب الفراغات حتى لا يقترح موعدًا داخلها.</div></div>
+        </div>
+      </section>
+
+      <section class="availability-engine" id="availabilityEngine">
+        <div class="availability-head">
+          <div><b>المتاح الذكي</b><p id="availabilityCaption">يحلّل اليوم قبل حفظ الموعد.</p></div>
+          <span class="engine-badge">محلي · لحظي</span>
+        </div>
+        <div class="availability-conflict clean" id="availabilityConflict">الوقت المختار متاح.</div>
+        <div class="slot-list" id="slotList"></div>
+        <div class="free-window-toolbar"><b>الفترات الفارغة الواضحة</b><button type="button" class="editor-link" id="toggleFreeWindows">عرض الكل</button></div>
+        <div class="free-windows" id="freeWindows"></div>
+      </section>
+
+      <section class="editor-section">
+        <div class="editor-section-title"><b>التكرار والتنبيه</b><span>كيف يظهر الموعد ويتكرر</span></div>
+        <div class="sheet-grid">
+          <div class="field"><label>التكرار</label><select id="fRepeat"><option value="weekly">كل أسبوع</option><option value="biweekly">أسبوع وأسبوع</option><option value="flex">موعد مرن</option></select></div>
+          <div class="field"><label>التنبيه قبل</label><select id="fReminder"><option value="0">بدون</option><option value="10">10 دقائق</option><option value="20">20 دقيقة</option><option value="30">30 دقيقة</option><option value="60">ساعة</option></select></div>
+          <div class="field full"><label>وصف الوقت الظاهر</label><input id="fDisplayTime" placeholder="مثال: بعد المغرب"></div>
+          <div class="field full"><div class="field-hint">اتركه فارغًا ليظهر الوقت الرقمي، أو اكتب وصفًا مثل «بعد المغرب» إذا كان الموعد مرنًا ولا يملك دقيقة ثابتة.</div></div>
+        </div>
+      </section>
+
+      <section class="editor-section">
+        <div class="editor-section-title"><b>الملاحظات</b><span>ثابتة للموعد أو خاصة بحصة واحدة</span></div>
+        <div class="sheet-grid">
+          <div class="field full"><label>ملاحظة ثابتة</label><textarea id="fNote" placeholder="تظهر مع هذا الموعد كل أسبوع"></textarea></div>
+          <div class="field full"><label>ملاحظة هذه الحصة فقط</label><textarea id="fSessionNote" placeholder="ملاحظة مرتبطة بهذا التاريخ فقط"></textarea></div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="sheet-actions">
+      <button class="delete-btn" id="deleteLesson" type="button" aria-label="حذف الموعد">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M7 6l1 14h8l1-14M10 10v6M14 10v6"/></svg>
+      </button>
+      <button class="save-btn" id="saveLesson" type="button">حفظ التعديلات</button>
+    </footer>
+  </div>
+</aside>
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
