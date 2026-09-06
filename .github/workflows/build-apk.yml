@@ -2,6 +2,8 @@ name: Build Miaad APK
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -14,6 +16,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate local UI JavaScript
+        run: |
+          node --check app/src/main/assets/app-core.js
+          node --check app/src/main/assets/app-engine.js
+          node --check app/src/main/assets/app-render.js
+          node --check app/src/main/assets/app-editor.js
+          node --check app/src/main/assets/app-events.js
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -38,7 +48,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-debug-apk
+          name: miaad-impeccable-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
