@@ -2,8 +2,6 @@ name: Build Miaad APK
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 permissions:
   contents: read
@@ -34,22 +32,13 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
-      - name: Reassemble Miaad source
-        run: |
-          rm -rf buildsrc source.zip
-          cat source_chunks/*.b64 | tr -d '\n\r ' | base64 --decode > source.zip
-          unzip -t source.zip
-          mkdir -p buildsrc
-          unzip -q source.zip -d buildsrc
-
       - name: Build debug APK
-        working-directory: buildsrc/miaad-android
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: miaad-debug-apk
-          path: buildsrc/miaad-android/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
