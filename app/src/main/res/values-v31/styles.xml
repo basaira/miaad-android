@@ -2,11 +2,14 @@
 <resources>
     <style name="Theme.Miaad" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@color/miaad_ink</item>
         <item name="android:statusBarColor">@color/miaad_ink</item>
         <item name="android:navigationBarColor">@color/miaad_ink</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowSplashScreenBackground">@color/miaad_ink</item>
         <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/miaad_ink</item>
         <item name="android:windowSplashScreenAnimationDuration">300</item>
         <item name="android:colorAccent">@color/miaad_signal</item>
         <item name="android:windowNoTitle">true</item>
