@@ -7,9 +7,9 @@
     <application
         android:allowBackup="true"
         android:fullBackupContent="true"
-        android:icon="@drawable/miaad_logo"
+        android:icon="@mipmap/ic_launcher"
         android:label="مِيعاد"
-        android:roundIcon="@drawable/miaad_logo"
+        android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.Miaad"
         android:usesCleartextTraffic="false">
