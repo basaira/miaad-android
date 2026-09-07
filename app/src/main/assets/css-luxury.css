@@ -1,0 +1,104 @@
+/* Chronometric Luxury — premium mobile-first operational layer */
+:root{
+  --bg:#f4f0e7;
+  --surface:#fbf8f1;
+  --surface-2:#ece4d7;
+  --surface-3:#e2d8c7;
+  --ink:#102019;
+  --muted:#6c716a;
+  --line:#d8ccba;
+  --deep:#081f18;
+  --deep-2:#0d2d23;
+  --signal:#d9b768;
+  --signal-ink:#211808;
+  --amber:#9e7934;
+  --amber-soft:#efe3c8;
+  --blue:#496e68;
+  --blue-soft:#dfe8e4;
+  --danger:#a94f43;
+  --danger-soft:#f0dcd7;
+  --shadow:0 20px 54px rgba(8,31,24,.14);
+  --shadow-tight:0 9px 24px rgba(8,31,24,.10);
+  --ease-lux:cubic-bezier(.16,1,.3,1);
+}
+html,body{background:var(--bg)}
+body{background:
+  radial-gradient(circle at 100% -10%,rgba(217,183,104,.10),transparent 34%),
+  var(--bg)}
+.mobile-top{background:rgba(244,240,231,.97);border-bottom-color:rgba(46,35,18,.08)}
+.wordmark{gap:11px}
+.mark{width:38px;height:38px;border-radius:12px;overflow:hidden;background:var(--deep);box-shadow:0 6px 18px rgba(8,31,24,.15);padding:0;color:transparent}
+.mark img{width:100%;height:100%;object-fit:cover;display:block}
+.wordmark b{font-size:19px;color:#102019;letter-spacing:-.02em}
+.wordmark span{color:#716b60}
+.icon-btn{color:var(--deep)}
+.icon-btn:active{background:#e9e0d2}
+.date-block h1{color:#0c231b;letter-spacing:-.025em}
+.date-block p,.tiny-state{color:#756f65}
+.tiny-state b{color:#163128}
+.focus-panel{
+  background:linear-gradient(145deg,#061b15 0%,#0b2a20 66%,#12392b 100%);
+  border:1px solid rgba(217,183,104,.22);
+  box-shadow:0 22px 52px rgba(8,31,24,.22);
+}
+.focus-panel:before{border-color:rgba(217,183,104,.20);box-shadow:0 0 0 28px rgba(217,183,104,.035)}
+.live-dot{background:var(--signal);box-shadow:0 0 0 0 rgba(217,183,104,.33)}
+.live-label,.focus-clock,.focus-meta{color:#d7ddd6}
+.focus-meta .time-strong{color:#efd895}
+.primary-action{background:#e4c779;color:#221a09;box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 8px 22px rgba(217,183,104,.18)}
+.secondary-action{border-color:rgba(232,207,145,.20);background:rgba(255,255,255,.05)}
+.day-button.active{background:#fffaf0;box-shadow:0 5px 16px rgba(70,51,20,.06)}
+.day-button.active .dd{background:var(--deep);color:#f9f2e4;box-shadow:inset 0 0 0 1px rgba(217,183,104,.18)}
+.day-button.active.has-lessons:after{background:#dfbf70}
+.agenda{background:#fffaf2;border-color:rgba(65,50,29,.07);box-shadow:0 9px 28px rgba(55,42,21,.045)}
+.session-row{border-bottom-color:#e1d7c8}
+.session-row:active{background:#f8f1e5}
+.time-gutter{border-right-color:#dfd4c3}
+.status-mark{background:#eee6da}
+.quick-action{background:#fffdf8;border-color:#d9cebe}
+.quick-action.primary{background:var(--deep);border-color:var(--deep);color:#fff8ea}
+.session-row.next-session:after{background:#d9b768}
+.gap-row{background:#f6f0e5;border-bottom-color:#dcd0bd}
+.gap-row .gap-time{border-right-color:#dfd4c3}
+.smart-strip{background:#fff9ee;border:1px solid #dfd0b5;box-shadow:0 10px 26px rgba(70,50,19,.075)}
+.smart-strip b{color:#18342a}
+.smart-strip time{color:#9a762f}
+.bottom-nav{background:#071d16;border:1px solid rgba(217,183,104,.16);box-shadow:0 18px 42px rgba(6,26,19,.28)}
+.nav-btn{color:#b5c1bb}
+.nav-btn.active{background:rgba(255,255,255,.07);color:#fff8ea}
+.nav-btn.active .nav-icon{color:#e0bf70}
+.search-box,.student-card,.setting-block,.report-section,.week-day{background:#fffaf2;border-color:rgba(79,61,35,.08)}
+.search-box input{background:transparent}
+.sheet{background:var(--bg)}
+.editor-header,.sheet-actions{background:#f4f0e7;border-color:rgba(79,61,35,.09)}
+.editor-close{background:#fffaf2}
+.editor-save-state{background:#e9e0d2;color:#70675a}
+.editor-save-state.dirty{background:#ecdfbd;color:#6f531c}
+.editor-section{background:#fffaf2;border:1px solid rgba(79,61,35,.07);box-shadow:0 6px 18px rgba(54,40,18,.035)}
+.editor-section-title{border-color:#e0d4c3}
+.field input,.field select,.field textarea{background:#fffdf8;border-color:#d8ccba}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:#b4944f;box-shadow:0 0 0 3px rgba(180,148,79,.13)}
+.session-state-picker{background:#eee5d8}
+.availability-engine{background:#e9e0d2;border:1px solid rgba(133,104,48,.10)}
+.engine-badge{background:#122f25;color:#f8e7b9}
+.slot-option,.free-window-card{background:#fffaf2;border-color:#d7cbb9}
+.slot-option:active,.free-window-card:active{background:#fffdf8}
+.slot-score{background:#e8dcc3;color:#75591d}
+.free-window-card.soft-risk{background:#f0e4ca;border-color:#d4bd81}
+.free-window-range bdi{background:#fffdf7;color:#173129}
+.editor-link,.free-window-cta{color:#8a6828}
+.save-btn{background:#0b2a20!important;color:#fff7e8!important;box-shadow:0 10px 24px rgba(8,31,24,.15)}
+.delete-btn{background:#f1ded9;color:#9a493e}
+/* Brand signature inside settings */
+.miaad-brand-signature{display:grid;grid-template-columns:56px minmax(0,1fr);gap:13px;align-items:center;background:#071d16;color:#fff8ea;border-radius:16px;padding:14px 15px;margin:0 0 12px;border:1px solid rgba(217,183,104,.18);box-shadow:0 14px 34px rgba(7,29,22,.16)}
+.miaad-brand-signature img{width:56px;height:56px;border-radius:14px;object-fit:cover;box-shadow:0 8px 20px rgba(0,0,0,.20)}
+.miaad-brand-signature b{font-family:"Changa";font-size:20px;line-height:1.1;color:#f5dfa2}.miaad-brand-signature span{display:block;font-size:10px;color:#c7d0ca;margin-top:5px}.miaad-brand-signature small{display:block;margin-top:5px;color:#dcbf79;font-size:9px;letter-spacing:.02em}
+/* Overdrive motion: one authored system, not scattered animation */
+::view-transition-old(main-content){animation-duration:.14s}
+::view-transition-new(main-content){animation-duration:.30s}
+.sheet{will-change:transform,opacity}
+.sheet.show{animation:luxuryEditorIn .34s var(--ease-lux) both}
+@keyframes luxuryEditorIn{0%{opacity:.35;transform:translateY(20px) scale(.992);filter:blur(2px)}100%{opacity:1;transform:none;filter:none}}
+.focus-panel{view-transition-name:focus-card}
+@media(prefers-reduced-motion:reduce){.sheet.show{animation:none}}
+@media(min-width:700px){.sheet.show{animation:luxuryEditorDesktop .34s var(--ease-lux) both}@keyframes luxuryEditorDesktop{from{opacity:.45;transform:translateX(-18px) scale(.994)}to{opacity:1;transform:none}}}
