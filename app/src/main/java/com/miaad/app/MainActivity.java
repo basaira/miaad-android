@@ -97,6 +97,8 @@ public class MainActivity extends Activity {
         webSettings.setDisplayZoomControls(false);
         webSettings.setSupportZoom(false);
         webSettings.setTextZoom(100);
+        // Prepare the covered WebView's first frame before the splash fades.
+        webSettings.setOffscreenPreRaster(true);
 
         bridge = new MiaadBridge(this, webView);
         webView.addJavascriptInterface(bridge, "AndroidBridge");
@@ -105,12 +107,14 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                android.util.Log.i("MiaadStartup", "page-finished");
                 bridge.setPageReady(true);
                 bridge.pullCloudToWeb();
                 // The static HTML loads the final local theme and brand scripts.
                 // Reveal only after WebView confirms the frame can be drawn.
                 view.postVisualStateCallback(0, new WebView.VisualStateCallback() {
                     @Override public void onComplete(long requestId) {
+                        android.util.Log.i("MiaadStartup", "first-frame-ready");
                         hideSplash();
                     }
                 });
@@ -130,6 +134,13 @@ public class MainActivity extends Activity {
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
+                if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
+                    android.util.Log.e("MiaadWeb", message.message() + " line " + message.lineNumber());
+                }
+                return true;
+            }
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (fileCallback != null) fileCallback.onReceiveValue(null);
@@ -211,6 +222,8 @@ public class MainActivity extends Activity {
                         root.removeView(splashOverlay);
                     }
                     splashOverlay = null;
+                    webView.getSettings().setOffscreenPreRaster(false);
+                    android.util.Log.i("MiaadStartup", "content-ready");
                     requestNotificationPermissionIfNeeded();
                 })
                 .start();
