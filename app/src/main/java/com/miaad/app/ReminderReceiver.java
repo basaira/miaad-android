@@ -36,7 +36,8 @@ public class ReminderReceiver extends BroadcastReceiver {
         int id = intent.getIntExtra("notification_id", 1001);
 
         Intent open = new Intent(context, MainActivity.class)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra("entity", intent.getStringExtra("entity"));
         PendingIntent contentIntent = PendingIntent.getActivity(
                 context,
                 id,
@@ -58,5 +59,9 @@ public class ReminderReceiver extends BroadcastReceiver {
                 .build();
 
         manager.notify(id, notification);
+        android.content.SharedPreferences prefs = context.getSharedPreferences("miaad_native_v1", Context.MODE_PRIVATE);
+        java.util.Set<String> delivered = new java.util.HashSet<>(prefs.getStringSet("delivered_reminders", new java.util.HashSet<>()));
+        String dedup = intent.getStringExtra("dedup");
+        if (dedup != null) { delivered.add(dedup); prefs.edit().putStringSet("delivered_reminders", delivered).apply(); }
     }
 }

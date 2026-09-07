@@ -80,17 +80,38 @@ public class MiaadBridge {
             updatedAt = obj.optLong("updatedAt", updatedAt);
         } catch (Exception ignored) { }
 
+        final long revision = updatedAt;
+        final String generation = java.util.UUID.randomUUID().toString();
+        final com.google.firebase.firestore.DocumentReference main = firestore.collection("users")
+                .document(currentUid).collection("state").document("main");
+        if (json.getBytes(StandardCharsets.UTF_8).length < 700_000) {
+            Map<String, Object> state = new HashMap<>();
+            state.put("payload", json);
+            state.put("updatedAt", revision);
+            state.put("serverUpdatedAt", Timestamp.now());
+            main.set(state).addOnSuccessListener(v -> pushNativeStatus("synced"))
+                    .addOnFailureListener(e -> pushNativeStatus("cloud-pending"));
+            return;
+        }
+        com.google.firebase.firestore.WriteBatch batch = firestore.batch();
+        // UTF-16 chunks are capped well below Firestore's per-document byte limit.
+        int chunkSize = 120_000;
+        int count = (json.length() + chunkSize - 1) / chunkSize;
+        if (count > 450) { pushNativeStatus("cloud-pending"); return; }
+        for (int i = 0; i < count; i++) {
+            Map<String, Object> chunk = new HashMap<>();
+            chunk.put("payload", json.substring(i * chunkSize, Math.min(json.length(), (i + 1) * chunkSize)));
+            chunk.put("createdAt", revision);
+            batch.set(main.collection("snapshots").document(generation + "-" + i), chunk);
+        }
         Map<String, Object> data = new HashMap<>();
-        data.put("payload", json);
-        data.put("updatedAt", updatedAt);
+        data.put("generation", generation);
+        data.put("chunkCount", count);
+        data.put("updatedAt", revision);
         data.put("serverUpdatedAt", Timestamp.now());
         data.put("platform", "android");
-
-        firestore.collection("users")
-                .document(currentUid)
-                .collection("state")
-                .document("main")
-                .set(data, SetOptions.merge())
+        batch.set(main, data);
+        batch.commit().addOnSuccessListener(v -> pushNativeStatus("synced"))
                 .addOnFailureListener(e -> pushNativeStatus("cloud-pending"));
     }
 
@@ -114,12 +135,32 @@ public class MiaadBridge {
             pushNativeStatus("cloud-ready");
             return;
         }
-        String payload = doc.getString("payload");
+        if (doc.contains("generation")) {
+            String generation = doc.getString("generation");
+            Long countValue = doc.getLong("chunkCount");
+            int count = countValue == null ? 0 : countValue.intValue();
+            if (count < 1 || count > 450) { pushNativeStatus("cloud-pending"); return; }
+            java.util.List<com.google.android.gms.tasks.Task<DocumentSnapshot>> tasks = new java.util.ArrayList<>();
+            for (int i = 0; i < count; i++) tasks.add(doc.getReference().collection("snapshots")
+                    .document(generation + "-" + i).get());
+            com.google.android.gms.tasks.Tasks.whenAllSuccess(tasks).addOnSuccessListener(results -> {
+                StringBuilder payload = new StringBuilder();
+                for (Object result : results) {
+                    String part = ((DocumentSnapshot) result).getString("payload");
+                    if (part == null) { pushNativeStatus("cloud-pending"); return; }
+                    payload.append(part);
+                }
+                deliverPayload(payload.toString());
+            }).addOnFailureListener(e -> pushNativeStatus("cloud-pending"));
+        } else {
+            deliverPayload(doc.getString("payload"));
+        }
+    }
+
+    private void deliverPayload(String payload) {
         if (payload == null || payload.isEmpty()) return;
         activity.runOnUiThread(() -> webView.evaluateJavascript(
-                "window.__miaadReceiveCloud && window.__miaadReceiveCloud(" + JSONObject.quote(payload) + ");",
-                null));
-        pushNativeStatus("synced");
+                "window.__miaadReceiveCloud && window.__miaadReceiveCloud(" + JSONObject.quote(payload) + ");", null));
     }
 
     void pushNativeStatus(String status) {
@@ -146,52 +187,25 @@ public class MiaadBridge {
 
     @JavascriptInterface
     public void syncReminders(String json) {
-        try {
-            JSONArray arr = new JSONArray(json == null ? "[]" : json);
-            AlarmManager alarmManager = (AlarmManager) activity.getSystemService(Context.ALARM_SERVICE);
-
-            Set<String> previous = new HashSet<>(prefs.getStringSet(REMINDER_CODES, new HashSet<>()));
-            for (String codeString : previous) {
-                try {
-                    int code = Integer.parseInt(codeString);
-                    PendingIntent pi = reminderPendingIntent(code, "", "", 0L);
-                    alarmManager.cancel(pi);
-                    pi.cancel();
-                } catch (Exception ignored) { }
-            }
-
-            Set<String> nextCodes = new HashSet<>();
-            long now = System.currentTimeMillis();
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject item = arr.getJSONObject(i);
-                String id = item.optString("id", "reminder-" + i);
-                String title = item.optString("title", "موعد درس");
-                String body = item.optString("body", "لديك درس قريب");
-                long at = item.optLong("at", 0L);
-                if (at <= now + 15_000L) continue;
-
-                int code = id.hashCode() & 0x7fffffff;
-                PendingIntent pi = reminderPendingIntent(code, title, body, at);
-                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
-                nextCodes.add(String.valueOf(code));
-            }
-            prefs.edit().putStringSet(REMINDER_CODES, nextCodes).apply();
-        } catch (Exception e) {
-            pushNativeStatus("reminder-error");
-        }
+        try { ReminderScheduler.sync(activity, json == null ? "[]" : json); }
+        catch (Exception e) { pushNativeStatus("reminder-error"); }
     }
 
-    private PendingIntent reminderPendingIntent(int code, String title, String body, long at) {
-        Intent intent = new Intent(activity, ReminderReceiver.class)
-                .putExtra("title", title)
-                .putExtra("body", body)
-                .putExtra("notification_id", code)
-                .putExtra("at", at);
-        return PendingIntent.getBroadcast(
-                activity,
-                code,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    private WebView printView;
+    @JavascriptInterface
+    public void printReport(String html, String title) {
+        activity.runOnUiThread(() -> {
+            printView = new WebView(activity);
+            printView.setWebViewClient(new android.webkit.WebViewClient() {
+                @Override public void onPageFinished(WebView view, String url) {
+                    android.print.PrintManager manager = (android.print.PrintManager)
+                            activity.getSystemService(Context.PRINT_SERVICE);
+                    manager.print(title, view.createPrintDocumentAdapter(title),
+                            new android.print.PrintAttributes.Builder().build());
+                }
+            });
+            printView.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null);
+        });
     }
 
     @JavascriptInterface

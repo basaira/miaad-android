@@ -26,6 +26,7 @@ const SmartScheduleEngine=(()=>{
  }
  function merge(list){if(!list.length)return[];const a=list.map(x=>({...x})).sort((x,y)=>x.start-y.start),out=[a[0]];for(let i=1;i<a.length;i++){const last=out[out.length-1],cur=a[i];if(cur.start<=last.end)last.end=Math.max(last.end,cur.end);else out.push(cur)}return out}
  function freeWindows(date,excludeId=''){
+   if(typeof domain!=='undefined')return domain.availability(dateKey(date),excludeId).map(w=>({start:w.start*60,end:w.end*60,seconds:w.minutes*60,softRisks:w.soft}));
    const bs=blocks(date,excludeId),hard=merge(bs.filter(b=>!b.soft)),soft=bs.filter(b=>b.soft),out=[];let cursor=0;
    for(const b of hard){if(b.start>cursor)out.push({start:cursor,end:b.start});cursor=Math.max(cursor,b.end)}if(cursor<DAY)out.push({start:cursor,end:DAY});
    return out.map(w=>({...w,seconds:w.end-w.start,softRisks:soft.filter(s=>overlaps(w,s))}))
@@ -65,7 +66,6 @@ const SmartScheduleEngine=(()=>{
 })();
 
 function buildOccurrences(daysAhead=21){const base=getSunday(new Date()),out=[];for(let i=0;i<=daysAhead+6;i++){const d=addDays(base,i);lessonsForDate(d).filter(hasFixedTime).forEach(l=>out.push({lesson:l,date:d,start:timeDate(d,l.start)}))}return out.sort((a,b)=>a.start-b.start)}
-function buildNativeReminders(daysAhead=30){const now=Date.now();return buildOccurrences(daysAhead).filter(x=>hasFixedTime(x.lesson)&&(x.lesson.reminder||0)>0).map(x=>{const at=x.start.getTime()-(x.lesson.reminder||0)*60000;return{id:`${keyFor(x.lesson,x.date)}-${x.lesson.reminder}`,at,title:`درس ${x.lesson.name}`,body:`يبدأ ${x.lesson.displayTime||`الساعة ${x.lesson.start}`} — بعد ${x.lesson.reminder} دقيقة`}}).filter(x=>x.at>now+15000)}
 function syncNativeReminders(){if(!NATIVE||typeof NATIVE.syncReminders!=='function')return;try{NATIVE.syncReminders(JSON.stringify(buildNativeReminders()))}catch{}}
 function nextOccurrence(){const now=new Date();return buildOccurrences(21).find(x=>x.start>=new Date(now.getTime()-10*60000))||null}
 function currentOrNextOccurrence(){

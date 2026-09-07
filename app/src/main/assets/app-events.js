@@ -31,17 +31,18 @@ document.getElementById('saveLesson').onclick=()=>{
  if(maxDuration>duration)obj.maxDuration=maxDuration;
  const check=hasFixedTime(obj)?SmartScheduleEngine.conflict(chosenSheetDate(),toSeconds(obj.start),maxDuration||30,oldId):{hard:[],soft:[]};
  if(check.hard.length&&!confirm(`يوجد تعارض مع ${check.hard.map(x=>x.name).join('، ')}. هل تريد حفظ الموعد رغم ذلك؟`))return;
- const idx=lessons.findIndex(x=>x.id===obj.id);if(idx>=0)lessons[idx]=obj;else lessons.push(obj);
+ const previous=lessons.find(x=>x.id===obj.id);obj.studentId=previous?.studentId||domain.studentFor(name).id;domain.saveSchedule(obj);const idx=lessons.findIndex(x=>x.id===obj.id);if(idx>=0)lessons[idx]=obj;else lessons.push(obj);
  const chosenState=document.querySelector('#sessionStatePicker button.active')?.dataset.state??'';
- if(oldId)setSessionState(obj,sheetContextDate||selectedDate,chosenState,'detail-editor');
+ // Occurrence status is edited separately, without changing recurrence history.
  const note=document.getElementById('fSessionNote').value.trim(),k=keyFor(obj,sheetContextDate||selectedDate);
  if(note)sessionNotes[k]=note;else delete sessionNotes[k];
+ if(oldId){const r=domain.occurrences(dateKey(sheetContextDate||selectedDate)).find(x=>x.id===k);if(r)domain.record({...r,status:chosenState||'pending',note})}
  persist();editorDirty=false;closeSheet(true);renderAll();showToast('حُفظت التعديلات')
 };
 document.getElementById('deleteLesson').onclick=()=>{
  const id=document.getElementById('editId').value;if(!id)return;
  if(confirm('سيُحذف هذا الموعد المتكرر من الجدول. متابعة؟')){
-   lessons=lessons.filter(x=>x.id!==id);persist();editorDirty=false;closeSheet(true);renderAll();showToast('تم حذف الموعد')
+   domain.deleteSchedule(id);lessons=lessons.filter(x=>x.id!==id);persist();editorDirty=false;closeSheet(true);renderAll();showToast('تم حذف الموعد')
  }
 };
 
@@ -75,10 +76,10 @@ document.getElementById('addLessonBtn').onclick=()=>openSheet(null,selectedDate)
 document.getElementById('smartFreeStrip').onclick=()=>openSheet(null,new Date());document.getElementById('smartFreeStrip').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openSheet(null,new Date())}};
 document.getElementById('toggleIdrisPhase').onclick=()=>{idrisPhase=idrisPhase?0:1;persist();renderAll();showToast('تم قلب أسبوع إدريس')};
 document.getElementById('enableNotif').onclick=async()=>{if(NATIVE&&typeof NATIVE.requestNotificationPermission==='function'){try{NATIVE.requestNotificationPermission();setTimeout(renderHeader,350);showToast('تم طلب إذن تنبيهات أندرويد');return}catch{}}if(!('Notification'in window)){showToast('هذا المتصفح لا يدعم الإشعارات');return}const p=await Notification.requestPermission();renderHeader();showToast(p==='granted'?'تم تفعيل الإشعارات':'لم يُمنح الإذن')};
-document.getElementById('reportMonth').addEventListener('change',renderReport);document.getElementById('reportCsv').onclick=exportReportCsv;document.getElementById('reportPrint').onclick=()=>window.print();
-document.getElementById('exportBtn').onclick=()=>{const data={schemaVersion:2,generatedAt:new Date().toISOString(),lessons,sessionState,sessionNotes,sessionAudit,idrisPhase};downloadBlob(JSON.stringify(data,null,2),`miad-backup-${dateKey(new Date())}.json`,'application/json');showToast('تم تجهيز النسخة الاحتياطية')};
-document.getElementById('importBtn').onclick=()=>document.getElementById('importFile').click();document.getElementById('importFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.lessons))throw new Error('صيغة غير صحيحة');const existing=new Map(lessons.map(x=>[x.id,x]));data.lessons.forEach(x=>existing.set(x.id,x));lessons=normalizeSchedule([...existing.values()]);sessionState={...sessionState,...(data.sessionState||{})};sessionNotes={...sessionNotes,...(data.sessionNotes||{})};for(const [k,v] of Object.entries(data.sessionAudit||{}))sessionAudit[k]=[...(sessionAudit[k]||[]),...v].sort((a,b)=>String(a.at).localeCompare(String(b.at)));if(Number.isFinite(Number(data.idrisPhase)))idrisPhase=Number(data.idrisPhase);persist();renderAll();showToast('تم دمج قاعدة البيانات بنجاح')}catch(err){showToast('تعذر استيراد الملف: صيغة JSON غير متوافقة')}finally{e.target.value=''}};
+document.getElementById('reportMonth').addEventListener('change',renderReport);document.getElementById('reportCsv').onclick=()=>exportReportCsv();document.getElementById('reportPrint').onclick=()=>window.print();
+document.getElementById('exportBtn').onclick=()=>{const data={...snapshotData(),generatedAt:new Date().toISOString()};downloadBlob(JSON.stringify(data,null,2),`miad-backup-${dateKey(new Date())}.json`,'application/json');showToast('تم تجهيز النسخة الاحتياطية')};
+document.getElementById('importBtn').onclick=()=>document.getElementById('importFile').click();document.getElementById('importFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.lessons))throw new Error('صيغة غير صحيحة');domain.merge(data.domain);const existing=new Map(lessons.map(x=>[x.id,x]));data.lessons.forEach(x=>existing.set(x.id,x));lessons=normalizeSchedule([...existing.values()]);sessionState={...sessionState,...(data.sessionState||{})};sessionNotes={...sessionNotes,...(data.sessionNotes||{})};for(const [k,v] of Object.entries(data.sessionAudit||{}))sessionAudit[k]=[...(sessionAudit[k]||[]),...v].sort((a,b)=>String(a.at).localeCompare(String(b.at)));if(Number.isFinite(Number(data.idrisPhase)))idrisPhase=Number(data.idrisPhase);domain.replace(domain.data,{lessons,sessionState,sessionNotes,sessionAudit,idrisPhase});persist();renderAll();showToast('تم دمج قاعدة البيانات بنجاح')}catch(err){showToast('تعذر استيراد الملف: صيغة JSON غير متوافقة')}finally{e.target.value=''}};
 
-setInterval(()=>{renderClock();renderFocus();if(!('Notification'in window)||Notification.permission!=='granted')return;const now=new Date();buildOccurrences(1).forEach(x=>{const r=x.lesson.reminder||0;if(!r)return;const mins=Math.floor((x.start-now)/60000),token=`miad-notified-${keyFor(x.lesson,x.date)}-${r}`;if(mins===r&&!sessionStorage.getItem(token)){new Notification(`درس ${x.lesson.name}`,{body:`يبدأ ${x.lesson.displayTime||`الساعة ${x.lesson.start}`} — بعد ${r} دقيقة`});sessionStorage.setItem(token,'1')}})},1000);
+setInterval(()=>{renderClock();renderFocus()},1000);
 renderAll();
 window.__miaadNativeStatus(nativeSyncState);

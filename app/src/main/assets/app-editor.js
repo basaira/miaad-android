@@ -55,7 +55,7 @@ function openSheet(l=null,d=selectedDate,focusNote=false){
  document.getElementById('fName').value=l?.name||'';
  document.getElementById('fDay').value=l?.day??d.getDay();
  document.getElementById('fStart').value=l?(l.start||''):'17:00';
- document.getElementById('fDuration').value=l?.duration??30;
+ document.getElementById('fDuration').value=l?.duration??domain.data.settings.duration;
  document.getElementById('fMaxDuration').value=l?.maxDuration||'';
  document.getElementById('fRepeat').value=l?.repeat||'weekly';
  document.getElementById('fReminder').value=l?.reminder??20;

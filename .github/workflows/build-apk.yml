@@ -21,6 +21,7 @@ jobs:
         run: |
           python3 scripts/audit_brand.py
           node scripts/test-schedule.cjs
+          node scripts/test-domain.cjs
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -60,7 +61,7 @@ jobs:
       - name: Upload audited APK
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-chronometric-luxury-v1.1.2
+          name: miaad-chronometric-luxury-v1.2.0
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
@@ -68,7 +69,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-brand-audit-v1.1.2
+          name: miaad-brand-audit-v1.2.0
           path: audit/
           if-no-files-found: ignore
           retention-days: 30

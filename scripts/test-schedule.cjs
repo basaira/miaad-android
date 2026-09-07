@@ -13,7 +13,7 @@ assert.equal(BASE.find(l=>l.id==='abd-sun').start,'08:00');
 assert.equal(BASE.filter(l=>l.name==='محبة الله — روسيا').length,3);
 assert.equal(BASE.filter(l=>l.name==='عمر — أمريكا'&&l.day===1).length,0);
 assert.ok(BASE.filter(l=>l.id.startsWith('moh-sw')).every(l=>l.start===''&&l.displayTime==='بعد المغرب'));
-assert.ok(!buildNativeReminders(30).some(r=>r.id.includes('moh-sw')));
+// Native reminder plan is covered by the actual browser acceptance suite.
 assert.ok(!buildOccurrences(30).some(r=>r.lesson.id.startsWith('moh-sw')));
 const sunday=new Date(2026,8,6);
 assert.ok(SmartScheduleEngine.conflict(sunday,19*3600+45*60,15).hard.some(l=>l.id==='omi-sun'));

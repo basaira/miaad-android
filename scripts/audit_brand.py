@@ -104,7 +104,7 @@ def apk_audit(apk, output, source):
     assert package.is_valid_APK()
     assert package.get_package() == 'com.miaad.app'
     assert package.get_app_name() == 'مِيعاد'
-    assert package.get_androidversion_code() == '4'
+    assert package.get_androidversion_code() == '5'
     manifest = package.get_android_manifest_xml()
     app = manifest.find('application')
     resources = package.get_android_resources()

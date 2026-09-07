@@ -1,0 +1,14 @@
+const legacyRenderAll=renderAll;
+renderAll=function(){legacyRenderAll();renderAttention()};
+const originalOpenSheet=openSheet;
+openSheet=function(l,d=selectedDate,focusNote=false){if(l?.recordId&&!lessons.some(x=>x.id===l.id)){selectedStudent=l.studentId;switchView('students');renderStudents();const r=domain.occurrences(dateKey(d)).find(x=>x.id===l.recordId);if(r)openRecordForm(r,l.studentId,el('profileInline'));return}originalOpenSheet(l,d,focusNote)};
+handleSessionAction=function(action,l,d){attempt(()=>{const r=domain.occurrences(dateKey(d)).find(x=>x.id===keyFor(l,d));if(!r)return;if(['entered','missed','absent','notheld'].includes(action)){domain.record({...r,status:action});domainCommit()}else{selectedStudent=r.studentId;switchView('students');renderStudents();openRecordForm(r,r.studentId,el('profileInline'))}})};
+el('reportPrint').onclick=printProfessionalReport;
+el('bellBtn').onclick=openNotificationCenter;
+el('focusMoreBtn').onclick=()=>{if(currentFocus)handleSessionAction('note',currentFocus.lesson,currentFocus.date)};
+el('studentSearch').oninput=e=>{selectedStudent='';renderStudents(e.target.value)};
+el('sessionStatePicker').innerHTML=domain.states.map(s=>`<button type="button" data-state="${s==='pending'?'':s}">${statusLabel(s)}</button>`).join('');el('sessionStatePicker').querySelectorAll('button').forEach(b=>b.onclick=()=>{el('sessionStatePicker').querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));markEditorDirty()});
+el('toggleIdrisPhase').onclick=()=>{idrisPhase=idrisPhase?0:1;lessons.forEach(l=>{if(l.repeat==='biweekly')domain.saveSchedule({...l,phase:idrisPhase})});domainCommit();showToast('حُفظت مرحلة إدريس للمواعيد القادمة')};
+window.__miaadOpenNotification=key=>{domain.notifications();openNotification(key)};
+renderFeatureSettings();domain.notifications();saveLocalState();renderAll();syncNativeReminders();
+setInterval(()=>{const before=JSON.stringify(domain.data.notifications);domain.notifications();if(before!==JSON.stringify(domain.data.notifications)){persist();renderAttention();if(el('notificationCenter'))openNotificationCenter()}if(!NATIVE&&'Notification'in window&&Notification.permission==='granted'){const fresh=Object.values(domain.data.notifications).filter(n=>n.active&&!n.read&&!n.deliveredAt&&n.snoozeUntil<=Date.now());if(fresh.length){const n=fresh[0],notice=new Notification(fresh.length>1?`${fresh.length} تنبيهات من مِيعاد`:n.title,{body:n.body,tag:'miaad-attention'});notice.onclick=()=>{window.focus();openNotification(n.id)};fresh.forEach(n=>n.deliveredAt=Date.now());persist()}}},60000);

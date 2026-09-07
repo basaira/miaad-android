@@ -82,10 +82,10 @@ let selectedDate=startOfDay(new Date()),currentFocus=null,sheetContextDate=null,
 let currentView='today',freeWindowsExpanded=false,editorDirty=false;
 const viewScroll={today:0,week:0,students:0,report:0,settings:0};
 
-function snapshotData(){return{schemaVersion:3,updatedAt:lastUpdatedAt,lessons,sessionState,sessionNotes,sessionAudit,idrisPhase}}
-function saveLocalState(){store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
-function persist(){lastUpdatedAt=Date.now();saveLocalState();if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){try{NATIVE.saveSnapshot(JSON.stringify(snapshotData()))}catch{}}syncNativeReminders()}
-window.__miaadReceiveCloud=function(raw){try{const data=JSON.parse(raw);const incoming=Number(data.updatedAt||0);if(!Array.isArray(data.lessons)||incoming<=lastUpdatedAt)return;lessons=normalizeSchedule(data.lessons);sessionState=data.sessionState||{};sessionNotes=data.sessionNotes||{};sessionAudit=data.sessionAudit||{};idrisPhase=Number(data.idrisPhase||0);lastUpdatedAt=incoming;saveLocalState();nativeSyncState='synced';if(typeof renderAll==='function')renderAll();if(typeof showToast==='function')showToast('تمت مزامنة بيانات مِيعاد')}catch{}};
+function snapshotData(){return{schemaVersion:4,updatedAt:lastUpdatedAt,lessons,sessionState,sessionNotes,sessionAudit,idrisPhase,domain:domain.data}}
+function saveLocalState(){store.set("miaadDomainV4",JSON.stringify(domain.data));store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
+function persist(){domain.notifications();lastUpdatedAt=Math.max(Date.now(),lastUpdatedAt+1);saveLocalState();if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){try{NATIVE.saveSnapshot(JSON.stringify(snapshotData()))}catch{}}syncNativeReminders()}
+window.__miaadReceiveCloud=function(raw){try{const data=JSON.parse(raw);const incoming=Number(data.updatedAt||0);if(!Array.isArray(data.lessons)||incoming<=lastUpdatedAt)return;lessons=normalizeSchedule(data.lessons);sessionState=data.sessionState||{};sessionNotes=data.sessionNotes||{};sessionAudit=data.sessionAudit||{};idrisPhase=Number(data.idrisPhase||0);domain.replace(data.domain||domain.data,data);lastUpdatedAt=incoming;saveLocalState();nativeSyncState='synced';if(typeof renderAll==='function')renderAll();if(typeof showToast==='function')showToast('تمت مزامنة بيانات مِيعاد')}catch{}};
 window.__miaadNativeStatus=function(status){nativeSyncState=status||'local-only';const el=document.getElementById('syncStatus');if(el){const labels={connecting:'جارٍ الاتصال…','cloud-ready':'Firebase جاهز',synced:'متزامن الآن','cloud-pending':'محفوظ محليًا · المزامنة معلقة','local-only':'محلي فقط',browser:'نسخة ويب','reminder-error':'مشكلة في جدولة التنبيه'};el.textContent=labels[nativeSyncState]||nativeSyncState}if(typeof renderHeader==='function')renderHeader()};
 function startOfDay(d){const x=new Date(d);x.setHours(0,0,0,0);return x}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
@@ -108,12 +108,12 @@ function editorState(text,dirty=false){const el=document.getElementById('editorS
 function markEditorDirty(){editorDirty=true;editorState('غير محفوظ',true)}
 
 function endLabel(l){if(!l.duration||!hasFixedTime(l))return '';return secToClock(toSeconds(l.start)+l.duration*60)}
-function keyFor(l,d){return `${dateKey(d)}__${l.id}`}
+function keyFor(l,d){return l.recordId||`${dateKey(d)}__${l.id}`}
 function initials(name){return name.replace(/—.*/,'').trim().split(/\s+/).slice(0,2).map(x=>x[0]).join('')}
 function palette(name){let s=0;for(const c of name)s+=c.charCodeAt(0);return PALETTES[s%PALETTES.length]}
-function lessonsForDate(d){return lessons.filter(l=>l.day===d.getDay()&&occurs(l,d)).sort((a,b)=>String(a.start||'99:99').localeCompare(String(b.start||'99:99')))}
+function lessonsForDate(d){if(typeof domain==='undefined')return lessons.filter(l=>l.day===d.getDay()&&occurs(l,d));return domain.occurrences(dateKey(d)).filter(r=>!['student_cancelled','missed','notheld','rescheduled'].includes(r.status)).map(r=>({...r.schedule,id:r.scheduleId||r.id,recordId:r.id,studentId:r.studentId,name:r.name,start:r.time,displayTime:r.displayTime,duration:r.duration,maxDuration:r.maxDuration,day:d.getDay(),status:r.status}))}
 function stateText(s){return s==='entered'?'دخلت':s==='missed'?'لم أدخل':s==='absent'?'غاب':s==='notheld'?'لم يتم':s==='unmarked'?'بلا تسجيل':s==='upcoming'?'قادم':'قادم'}
 function stateClass(s){return s||''}
 function tap(){if(navigator.vibrate)navigator.vibrate(10)}
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),1900)}
-function setSessionState(l,d,state,source='tap'){const k=keyFor(l,d),prev=sessionState[k]||'';if(state)sessionState[k]=state;else delete sessionState[k];if(!sessionAudit[k])sessionAudit[k]=[];sessionAudit[k].push({at:new Date().toISOString(),state,previous:prev,source});persist()}
+function setSessionState(l,d,state,source='tap'){const k=keyFor(l,d),prev=sessionState[k]||'',r=domain.occurrences(dateKey(d)).find(x=>x.id===k);if(!r)return;domain.record({...r,status:state||'pending',note:sessionNotes[k]||r.note});if(state)sessionState[k]=state;else delete sessionState[k];if(!sessionAudit[k])sessionAudit[k]=[];sessionAudit[k].push({at:new Date().toISOString(),state,previous:prev,source});persist()}

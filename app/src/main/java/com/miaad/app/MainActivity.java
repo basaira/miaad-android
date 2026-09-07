@@ -109,6 +109,7 @@ public class MainActivity extends Activity {
                 super.onPageFinished(view, url);
                 android.util.Log.i("MiaadStartup", "page-finished");
                 bridge.setPageReady(true);
+                openNotificationIntent(getIntent());
                 bridge.pullCloudToWeb();
                 // The static HTML loads the final local theme and brand scripts.
                 // Reveal only after WebView confirms the frame can be drawn.
@@ -160,6 +161,20 @@ public class MainActivity extends Activity {
 
         authenticateForCloudSync();
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    private void openNotificationIntent(Intent intent) {
+        String entity = intent == null ? null : intent.getStringExtra("entity");
+        if (entity == null || entity.isEmpty()) return;
+        intent.removeExtra("entity");
+        webView.evaluateJavascript("window.__miaadOpenNotification && window.__miaadOpenNotification(" +
+                org.json.JSONObject.quote(entity) + ");", null);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        openNotificationIntent(intent);
     }
 
     private int dp(int value) {
