@@ -1,5 +1,5 @@
 (()=>{
-  const logo='file:///android_res/drawable/miaad_logo.png';
+  const logo='file:///android_asset/brand/miaad-logo.webp';
   document.documentElement.classList.add('chronometric-luxury');
   const theme=document.querySelector('meta[name="theme-color"]');
   if(theme)theme.setAttribute('content','#081f18');
