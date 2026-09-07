@@ -6,15 +6,22 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.view.Gravity;
+import android.view.View;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
@@ -26,31 +33,47 @@ public class MainActivity extends Activity {
     private WebView webView;
     private MiaadBridge bridge;
     private ValueCallback<Uri[]> fileCallback;
+    private FrameLayout root;
+    private View splashOverlay;
+    private boolean splashHidden = false;
 
     @Override
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        getWindow().setStatusBarColor(Color.rgb(16, 37, 31));
-        getWindow().setNavigationBarColor(Color.rgb(16, 37, 31));
+        final int deepGreen = Color.rgb(8, 31, 24);
+        getWindow().setStatusBarColor(deepGreen);
+        getWindow().setNavigationBarColor(deepGreen);
 
+        root = new FrameLayout(this);
         webView = new WebView(this);
-        setContentView(webView);
+        webView.setBackgroundColor(Color.rgb(244, 240, 231));
+        root.addView(webView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
 
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
-        settings.setJavaScriptCanOpenWindowsAutomatically(false);
-        settings.setMediaPlaybackRequiresUserGesture(true);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-        settings.setBuiltInZoomControls(false);
-        settings.setDisplayZoomControls(false);
-        settings.setSupportZoom(false);
-        settings.setTextZoom(100);
+        splashOverlay = createBrandedSplash();
+        root.addView(splashOverlay, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        setContentView(root);
+
+        WebSettings webSettings = webView.getSettings();
+        webSettings.setJavaScriptEnabled(true);
+        webSettings.setDomStorageEnabled(true);
+        webSettings.setDatabaseEnabled(true);
+        webSettings.setAllowFileAccess(true);
+        webSettings.setAllowContentAccess(true);
+        webSettings.setJavaScriptCanOpenWindowsAutomatically(false);
+        webSettings.setMediaPlaybackRequiresUserGesture(true);
+        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        webSettings.setBuiltInZoomControls(false);
+        webSettings.setDisplayZoomControls(false);
+        webSettings.setSupportZoom(false);
+        webSettings.setTextZoom(100);
 
         bridge = new MiaadBridge(this, webView);
         webView.addJavascriptInterface(bridge, "AndroidBridge");
@@ -61,11 +84,15 @@ public class MainActivity extends Activity {
                 super.onPageFinished(view, url);
                 bridge.setPageReady(true);
                 bridge.pullCloudToWeb();
+                installChronometricLuxury(view);
+                view.postDelayed(MainActivity.this::hideSplash, 260);
             }
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (url == null || url.startsWith("file:///android_asset/")) return false;
+                if (url == null || url.startsWith("file:///android_asset/") || url.startsWith("file:///android_res/")) {
+                    return false;
+                }
                 if (url.startsWith("https://") || url.startsWith("http://")) {
                     startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
                     return true;
@@ -95,6 +122,95 @@ public class MainActivity extends Activity {
         authenticateForCloudSync();
         requestNotificationPermissionIfNeeded();
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    private View createBrandedSplash() {
+        FrameLayout splash = new FrameLayout(this);
+        splash.setBackgroundColor(Color.rgb(6, 27, 21));
+        splash.setClickable(true);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(Gravity.CENTER);
+        content.setPadding(dp(34), dp(34), dp(34), dp(34));
+
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.miaad_logo);
+        logo.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(148), dp(148));
+        logoParams.bottomMargin = dp(20);
+        content.addView(logo, logoParams);
+
+        TextView title = new TextView(this);
+        title.setText("مِيعاد");
+        title.setTextColor(Color.rgb(239, 216, 154));
+        title.setTextSize(32);
+        title.setGravity(Gravity.CENTER);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setLetterSpacing(-0.02f);
+        content.addView(title);
+
+        TextView latin = new TextView(this);
+        latin.setText("M I A A D");
+        latin.setTextColor(Color.rgb(201, 187, 151));
+        latin.setTextSize(11);
+        latin.setGravity(Gravity.CENTER);
+        latin.setLetterSpacing(0.24f);
+        LinearLayout.LayoutParams latinParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        latinParams.topMargin = dp(5);
+        content.addView(latin, latinParams);
+
+        TextView tagline = new TextView(this);
+        tagline.setText("لكل موعد قيمة");
+        tagline.setTextColor(Color.rgb(238, 231, 213));
+        tagline.setTextSize(13);
+        tagline.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams tagParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        tagParams.topMargin = dp(16);
+        content.addView(tagline, tagParams);
+
+        FrameLayout.LayoutParams contentParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+        );
+        splash.addView(content, contentParams);
+        return splash;
+    }
+
+    private void installChronometricLuxury(WebView view) {
+        String js = "(function(){" +
+                "if(!document.getElementById('chronometricLuxuryCss')){" +
+                "var l=document.createElement('link');l.id='chronometricLuxuryCss';l.rel='stylesheet';l.href='file:///android_asset/css-luxury.css';document.head.appendChild(l);}" +
+                "if(!document.getElementById('chronometricLuxuryJs')){" +
+                "var s=document.createElement('script');s.id='chronometricLuxuryJs';s.src='file:///android_asset/app-luxury.js';document.body.appendChild(s);}" +
+                "})();";
+        view.evaluateJavascript(js, null);
+    }
+
+    private void hideSplash() {
+        if (splashHidden || splashOverlay == null || root == null) return;
+        splashHidden = true;
+        splashOverlay.animate()
+                .alpha(0f)
+                .setDuration(260)
+                .withEndAction(() -> {
+                    if (splashOverlay != null && splashOverlay.getParent() == root) {
+                        root.removeView(splashOverlay);
+                    }
+                    splashOverlay = null;
+                })
+                .start();
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void authenticateForCloudSync() {
