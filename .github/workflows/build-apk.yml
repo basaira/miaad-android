@@ -23,7 +23,26 @@ jobs:
         run: python3 -m pip install --quiet pillow==11.3.0
 
       - name: Materialize approved MIAAD branding
-        run: python3 tools/materialize_brand.py
+        run: |
+          set +e
+          python3 tools/materialize_brand.py > /tmp/miaad-materialize.log 2>&1
+          code=$?
+          cat /tmp/miaad-materialize.log
+          if [ "$code" -ne 0 ]; then
+            PUB="$(mktemp -d)"
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git worktree add --detach "$PUB" "$GITHUB_SHA"
+            cd "$PUB"
+            git switch --orphan build-diagnostics
+            git rm -rf . >/dev/null 2>&1 || true
+            cp /tmp/miaad-materialize.log materialize-error.txt
+            printf '%s\n' "$GITHUB_SHA" > source-commit.txt
+            git add -A
+            git commit -m "Publish MIAAD materialize diagnostic ${GITHUB_SHA}"
+            git push origin HEAD:build-diagnostics --force
+            exit "$code"
+          fi
 
       - name: Validate source branding
         run: |
@@ -131,34 +150,26 @@ jobs:
           from pathlib import Path
           from PIL import Image
           from io import BytesIO
-          import hashlib, json, re
+          import hashlib, re
 
           apk = Path('app/build/outputs/apk/debug/app-debug.apk')
           audit = Path('app/build/outputs/apk/debug/audit')
           expected = {'mdpi':48, 'hdpi':72, 'xhdpi':96, 'xxhdpi':144, 'xxxhdpi':192}
-          report = []
-          report.append(f'APK: {apk.name}')
-          report.append(f'APK bytes: {apk.stat().st_size}')
-          report.append(f'APK sha256: {hashlib.sha256(apk.read_bytes()).hexdigest()}')
+          report = [f'APK: {apk.name}', f'APK bytes: {apk.stat().st_size}', f'APK sha256: {hashlib.sha256(apk.read_bytes()).hexdigest()}']
 
           with ZipFile(apk) as z:
               names = z.namelist()
               assert 'assets/app-luxury.js' in names
               assert 'assets/css-luxury.css' in names
-              for asset, minimum in {
-                  'assets/brand/miaad-logo.webp': 20_000,
-                  'assets/brand/miaad-logo-final.png': 20_000,
-              }.items():
+              for asset, minimum in {'assets/brand/miaad-logo.webp':20_000,'assets/brand/miaad-logo-final.png':20_000}.items():
                   assert asset in names, f'Missing APK asset: {asset}'
                   data = z.read(asset)
                   assert len(data) >= minimum
-                  with Image.open(BytesIO(data)) as im:
-                      im.verify()
+                  with Image.open(BytesIO(data)) as im: im.verify()
                   report.append(f'{asset}: {len(data)} bytes sha256={hashlib.sha256(data).hexdigest()}')
 
               luxury = z.read('assets/app-luxury.js').decode('utf-8')
               assert 'file:///android_asset/brand/miaad-logo.webp' in luxury
-
               assert any(n.endswith('/miaad_logo.webp') for n in names), 'Native logo drawable missing'
               assert any('ic_launcher_foreground' in n for n in names), 'Adaptive foreground missing'
               assert any('mipmap-anydpi-v26' in n and n.endswith('/ic_launcher.xml') for n in names), 'Adaptive launcher XML missing'
@@ -169,10 +180,8 @@ jobs:
                       candidates = [n for n in names if f'mipmap-{density}' in n and n.endswith('/' + icon_name)]
                       assert candidates, f'Missing {density} {icon_name}'
                       data = z.read(candidates[0])
-                      with Image.open(BytesIO(data)) as im:
-                          im.verify()
-                      with Image.open(BytesIO(data)) as im:
-                          assert im.size == (size, size), f'Wrong {density} {icon_name}: {im.size}'
+                      with Image.open(BytesIO(data)) as im: im.verify()
+                      with Image.open(BytesIO(data)) as im: assert im.size == (size,size), f'Wrong {density} {icon_name}: {im.size}'
                       report.append(f'{candidates[0]}: {len(data)} bytes {size}x{size} sha256={hashlib.sha256(data).hexdigest()}')
                       if density == 'xxxhdpi' and icon_name == 'ic_launcher.png':
                           (audit / 'icon-from-apk.png').write_bytes(data)
@@ -181,12 +190,13 @@ jobs:
               assert not forbidden, f'Placeholder/migration payload leaked into APK: {forbidden}'
               assert any(n == 'classes.dex' or re.fullmatch(r'classes\d+\.dex', n) for n in names)
 
-          (audit / 'audit-report.txt').write_text('\n'.join(report) + '\n', encoding='utf-8')
+          (audit / 'audit-report.txt').write_text('\n'.join(report)+'\n', encoding='utf-8')
           print('\n'.join(report))
           PY
 
+          AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
           AAPT2="${ANDROID_HOME}/build-tools/36.0.0/aapt2"
-          "$AAPT2" dump badging "$APK" | tee "$AUDIT/aapt-badging.txt"
+          "$AAPT" dump badging "$APK" | tee "$AUDIT/aapt-badging.txt"
           "$AAPT2" dump xmltree "$APK" AndroidManifest.xml > "$AUDIT/manifest-xmltree.txt"
           "$AAPT2" dump resources "$APK" > "$AUDIT/resources.txt"
 
