@@ -6,11 +6,14 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.view.Gravity;
 import android.view.View;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -19,6 +22,8 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
@@ -26,7 +31,7 @@ import com.google.firebase.auth.FirebaseUser;
 public class MainActivity extends Activity {
     private static final int REQ_NOTIFICATIONS = 4101;
     private static final int REQ_FILE = 4102;
-    private static final long MIN_BRANDED_SPLASH_MS = 650L;
+    private static final long MIN_BRANDED_SPLASH_MS = 720L;
 
     private WebView webView;
     private MiaadBridge bridge;
@@ -45,8 +50,11 @@ public class MainActivity extends Activity {
         final int deepGreen = Color.rgb(8, 31, 24);
         getWindow().setStatusBarColor(deepGreen);
         getWindow().setNavigationBarColor(deepGreen);
+        getWindow().getDecorView().setBackgroundColor(deepGreen);
 
         root = new FrameLayout(this);
+        root.setBackgroundColor(deepGreen);
+
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(244, 240, 231));
         root.addView(webView, new FrameLayout.LayoutParams(
@@ -85,7 +93,7 @@ public class MainActivity extends Activity {
                 bridge.setPageReady(true);
                 bridge.pullCloudToWeb();
                 installChronometricLuxury(view);
-                view.post(MainActivity.this::hideSplash);
+                view.postDelayed(MainActivity.this::hideSplash, 80L);
             }
 
             @Override
@@ -125,19 +133,88 @@ public class MainActivity extends Activity {
     }
 
     private View createBrandedSplash() {
+        final int deepGreen = Color.rgb(8, 31, 24);
+        final int ivory = Color.rgb(246, 241, 230);
+        final int gold = Color.rgb(217, 183, 104);
+        final int muted = Color.rgb(188, 202, 194);
+
         FrameLayout splash = new FrameLayout(this);
-        splash.setBackgroundColor(Color.rgb(6, 27, 21));
+        splash.setBackgroundColor(deepGreen);
         splash.setClickable(true);
+        splash.setContentDescription("مِيعاد — لكل موعد قيمة");
+
+        LinearLayout stack = new LinearLayout(this);
+        stack.setOrientation(LinearLayout.VERTICAL);
+        stack.setGravity(Gravity.CENTER_HORIZONTAL);
+        stack.setPadding(dp(28), dp(28), dp(28), dp(28));
 
         ImageView artwork = new ImageView(this);
-        artwork.setImageResource(R.drawable.miaad_splash);
+        artwork.setImageResource(R.drawable.miaad_logo);
         artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        artwork.setContentDescription("مِيعاد — لكل موعد قيمة");
-        splash.addView(artwork, new FrameLayout.LayoutParams(
+        artwork.setContentDescription("شعار مِيعاد");
+        LinearLayout.LayoutParams artParams = new LinearLayout.LayoutParams(dp(190), dp(190));
+        artParams.bottomMargin = dp(24);
+        stack.addView(artwork, artParams);
+
+        TextView arabicName = splashText("مِيعاد", 34f, ivory, Typeface.BOLD);
+        stack.addView(arabicName, wrapCentered());
+
+        TextView latinName = splashText("MIAAD", 13f, muted, Typeface.NORMAL);
+        LinearLayout.LayoutParams latinParams = wrapCentered();
+        latinParams.topMargin = dp(2);
+        stack.addView(latinName, latinParams);
+
+        View divider = new View(this);
+        GradientDrawable dividerBg = new GradientDrawable();
+        dividerBg.setColor(gold);
+        dividerBg.setCornerRadius(dp(2));
+        divider.setBackground(dividerBg);
+        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(dp(44), dp(2));
+        dividerParams.topMargin = dp(14);
+        dividerParams.bottomMargin = dp(13);
+        dividerParams.gravity = Gravity.CENTER_HORIZONTAL;
+        stack.addView(divider, dividerParams);
+
+        TextView tagline = splashText("لكل موعد قيمة", 17f, gold, Typeface.NORMAL);
+        stack.addView(tagline, wrapCentered());
+
+        TextView signature = splashText("CHRONOMETRIC LUXURY", 8f, muted, Typeface.NORMAL);
+        signature.setLetterSpacing(0.12f);
+        LinearLayout.LayoutParams signatureParams = wrapCentered();
+        signatureParams.topMargin = dp(82);
+        stack.addView(signature, signatureParams);
+
+        FrameLayout.LayoutParams stackParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-        ));
+                FrameLayout.LayoutParams.WRAP_CONTENT
+        );
+        stackParams.gravity = Gravity.CENTER;
+        splash.addView(stack, stackParams);
         return splash;
+    }
+
+    private TextView splashText(String text, float sp, int color, int style) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextColor(color);
+        view.setTextSize(sp);
+        view.setGravity(Gravity.CENTER);
+        view.setTypeface(Typeface.create("sans-serif", style));
+        view.setIncludeFontPadding(false);
+        return view;
+    }
+
+    private LinearLayout.LayoutParams wrapCentered() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        params.gravity = Gravity.CENTER_HORIZONTAL;
+        return params;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void installChronometricLuxury(WebView view) {
@@ -162,7 +239,7 @@ public class MainActivity extends Activity {
         splashHidden = true;
         splashOverlay.animate()
                 .alpha(0f)
-                .setDuration(280)
+                .setDuration(260)
                 .withEndAction(() -> {
                     if (splashOverlay != null && splashOverlay.getParent() == root) {
                         root.removeView(splashOverlay);
