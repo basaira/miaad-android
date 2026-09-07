@@ -1,1 +1,2 @@
-Miaad approved brand assets are wired by the Chronometric Luxury build.
+Approved user artwork. Full-resolution source: miaad-logo-final.png.
+Density resources are reproducible with scripts/generate_brand.py.

@@ -1,18 +1,18 @@
 function renderAvailability(){
  const wrap=document.getElementById('availabilityEngine');if(!wrap)return;
  const day=+document.getElementById('fDay').value,
-   duration=Math.max(10,+document.getElementById('fDuration').value||30),
+   duration=Math.max(10,+document.getElementById('fDuration').value||30,+document.getElementById('fMaxDuration').value||0),
    start=toSeconds(document.getElementById('fStart').value||'00:00'),
    excludeId=document.getElementById('editId').value,
    date=SmartScheduleEngine.nearestDateForDay(day,sheetContextDate||selectedDate),
-   conf=SmartScheduleEngine.conflict(date,start,duration,excludeId),
+   conf=document.getElementById('fStart').value?SmartScheduleEngine.conflict(date,start,duration,excludeId):{hard:[],soft:[]},
    box=document.getElementById('availabilityConflict');
 
  box.className='availability-conflict '+(conf.hard.length?'hard':conf.soft.length?'soft':'clean');
- box.textContent=conf.hard.length
+ box.textContent=!document.getElementById('fStart').value?'وقت البداية غير محدد؛ لا يمكن تأكيد التعارض حتى إدخال ساعة.':conf.hard.length
    ?`هذا الوقت يتعارض مع: ${conf.hard.map(x=>`${x.name} (${x.label})`).join('، ')}`
    :conf.soft.length
-     ?`الوقت متاح حسابيًا، لكنه قريب من موعد مرن: ${conf.soft.map(x=>`${x.name} — ${x.label}`).join('، ')}`
+     ?`الوقت متاح حسابيًا، لكنه يوجد في هذا اليوم موعد غير محدد الساعة: ${conf.soft.map(x=>`${x.name} — ${x.label}`).join('، ')}`
      :'الوقت المختار متاح بلا تعارض قطعي.';
  document.getElementById('availabilityCaption').textContent=`${DAYS[day]} · يحتاج ${duration} دقيقة · المواعيد الممتدة تُحجز بأقصى مدتها`;
 
@@ -37,7 +37,7 @@ function renderAvailability(){
  free.innerHTML=visible.length?visible.map(w=>`
    <button type="button" class="free-window-card${w.softRisks.length?' soft-risk':''}" data-free-start="${secToClock(w.start)}">
      <span class="free-window-range">${freeWindowLabel(w)}</span>
-     <span class="free-window-duration">مدة الفراغ: ${humanDuration(w.seconds)}${w.softRisks.length?` · <span class="free-window-risk">قرب موعد مرن</span>`:''}</span>
+     <span class="free-window-duration">مدة الفراغ: ${humanDuration(w.seconds)}${w.softRisks.length?` · <span class="free-window-risk">يوجد موعد غير محدد الساعة</span>`:''}</span>
      <span class="free-window-cta">استخدم البداية</span>
    </button>`).join(''):'<div class="availability-empty">لا توجد فترات فارغة كافية لهذه المدة.</div>';
  free.querySelectorAll('[data-free-start]').forEach(b=>b.onclick=()=>{document.getElementById('fStart').value=b.dataset.freeStart;markEditorDirty();renderAvailability();tap();showToast(`بدأ الموعد عند ${b.dataset.freeStart}`)})
@@ -54,8 +54,8 @@ function openSheet(l=null,d=selectedDate,focusNote=false){
  document.getElementById('editId').value=l?.id||'';
  document.getElementById('fName').value=l?.name||'';
  document.getElementById('fDay').value=l?.day??d.getDay();
- document.getElementById('fStart').value=l?.start||'17:00';
- document.getElementById('fDuration').value=l?.duration||30;
+ document.getElementById('fStart').value=l?(l.start||''):'17:00';
+ document.getElementById('fDuration').value=l?.duration??30;
  document.getElementById('fMaxDuration').value=l?.maxDuration||'';
  document.getElementById('fRepeat').value=l?.repeat||'weekly';
  document.getElementById('fReminder').value=l?.reminder??20;

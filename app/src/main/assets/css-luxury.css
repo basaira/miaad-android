@@ -102,3 +102,6 @@ body{background:
 .focus-panel{view-transition-name:focus-card}
 @media(prefers-reduced-motion:reduce){.sheet.show{animation:none}}
 @media(min-width:700px){.sheet.show{animation:luxuryEditorDesktop .34s var(--ease-lux) both}@keyframes luxuryEditorDesktop{from{opacity:.45;transform:translateX(-18px) scale(.994)}to{opacity:1;transform:none}}}
+
+/* Reduced motion takes precedence at every editor breakpoint. */
+@media(prefers-reduced-motion:reduce){.sheet,.sheet.show,.sheet-backdrop{animation:none!important;transition:none!important}}

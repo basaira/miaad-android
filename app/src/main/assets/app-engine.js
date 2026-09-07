@@ -8,10 +8,21 @@
 const SmartScheduleEngine=(()=>{
  const DAY=86400,GRID=300,UNCERTAIN_DEFAULT=1800;
  const overlaps=(a,b)=>Math.max(a.start,b.start)<Math.min(a.end,b.end);
- function isSoft(l){return l.repeat==='flex'||Boolean(l.displayTime&&l.displayTime!==l.start)}
+ function isSoft(l){return !hasFixedTime(l)}
  function effectiveSeconds(l){return Math.max(60,(l.maxDuration||l.duration||UNCERTAIN_DEFAULT/60)*60)}
  function blocks(date,excludeId=''){
-   return lessonsForDate(date).filter(l=>l.id!==excludeId).map(l=>({id:l.id,name:l.name,start:toSeconds(l.start),end:Math.min(DAY,toSeconds(l.start)+effectiveSeconds(l)),soft:isSoft(l),label:l.displayTime||l.start,lesson:l})).sort((a,b)=>a.start-b.start)
+   const out=[];
+   // Include yesterday's overruns. Unknown clock times remain whole-day
+   // uncertainty, never a fabricated minute or a guaranteed free interval.
+   for(const offset of [-1,0]){
+     for(const l of lessonsForDate(addDays(date,offset)).filter(l=>l.id!==excludeId)){
+       const soft=isSoft(l);
+       if(soft){if(offset===0)out.push({id:l.id,name:l.name,start:0,end:DAY,soft:true,label:l.displayTime||'وقت غير محدد',lesson:l});continue}
+       const start=offset*DAY+toSeconds(l.start),end=start+effectiveSeconds(l);
+       if(end>0&&start<DAY)out.push({id:l.id,name:l.name,start:Math.max(0,start),end:Math.min(DAY,end),soft:false,label:l.displayTime||l.start,lesson:l});
+     }
+   }
+   return out.sort((a,b)=>a.start-b.start)
  }
  function merge(list){if(!list.length)return[];const a=list.map(x=>({...x})).sort((x,y)=>x.start-y.start),out=[a[0]];for(let i=1;i<a.length;i++){const last=out[out.length-1],cur=a[i];if(cur.start<=last.end)last.end=Math.max(last.end,cur.end);else out.push(cur)}return out}
  function freeWindows(date,excludeId=''){
@@ -20,10 +31,16 @@ const SmartScheduleEngine=(()=>{
    return out.map(w=>({...w,seconds:w.end-w.start,softRisks:soft.filter(s=>overlaps(w,s))}))
  }
  function conflict(date,startSec,durationMin,excludeId=''){
-   const probe={start:startSec,end:startSec+Math.max(1,durationMin)*60},hits=blocks(date,excludeId).filter(b=>overlaps(probe,b));return{hard:hits.filter(x=>!x.soft),soft:hits.filter(x=>x.soft)}
+   const end=startSec+Math.max(1,durationMin)*60,hits=[];
+   for(let day=0;day<=Math.floor((end-1)/DAY);day++){
+     const probe={start:Math.max(0,startSec-day*DAY),end:Math.min(DAY,end-day*DAY)};
+     hits.push(...blocks(addDays(date,day),excludeId).filter(b=>overlaps(probe,b)));
+   }
+   const unique=[...new Map(hits.map(b=>[b.id,b])).values()];
+   return {hard:unique.filter(b=>!b.soft),soft:unique.filter(b=>b.soft)}
  }
  function affinity(startMin){
-   const starts=lessons.filter(l=>l.repeat!=='flex').map(l=>toMinutes(l.start));if(!starts.length)return .5;
+   const starts=lessons.filter(hasFixedTime).map(l=>toMinutes(l.start));if(!starts.length)return .5;
    let sum=0;for(const x of starts){const dist=Math.min(Math.abs(startMin-x),1440-Math.abs(startMin-x));sum+=Math.exp(-(dist*dist)/(2*120*120))}return Math.min(1,sum/Math.max(2,starts.length*.23))
  }
  function scoreCandidates(date,durationMin,excludeId=''){
@@ -47,8 +64,15 @@ const SmartScheduleEngine=(()=>{
  return{blocks,freeWindows,conflict,scoreCandidates,liveFree,activeBlock,nearestDateForDay,effectiveSeconds};
 })();
 
-function buildOccurrences(daysAhead=21){const base=getSunday(new Date()),out=[];for(let i=0;i<=daysAhead+6;i++){const d=addDays(base,i);lessonsForDate(d).forEach(l=>out.push({lesson:l,date:d,start:timeDate(d,l.start)}))}return out.sort((a,b)=>a.start-b.start)}
-function buildNativeReminders(daysAhead=30){const now=Date.now();return buildOccurrences(daysAhead).filter(x=>x.lesson.repeat!=='flex'&&(x.lesson.reminder||0)>0).map(x=>{const at=x.start.getTime()-(x.lesson.reminder||0)*60000;return{id:`${keyFor(x.lesson,x.date)}-${x.lesson.reminder}`,at,title:`درس ${x.lesson.name}`,body:`يبدأ ${x.lesson.displayTime||`الساعة ${x.lesson.start}`} — بعد ${x.lesson.reminder} دقيقة`}}).filter(x=>x.at>now+15000)}
+function buildOccurrences(daysAhead=21){const base=getSunday(new Date()),out=[];for(let i=0;i<=daysAhead+6;i++){const d=addDays(base,i);lessonsForDate(d).filter(hasFixedTime).forEach(l=>out.push({lesson:l,date:d,start:timeDate(d,l.start)}))}return out.sort((a,b)=>a.start-b.start)}
+function buildNativeReminders(daysAhead=30){const now=Date.now();return buildOccurrences(daysAhead).filter(x=>hasFixedTime(x.lesson)&&(x.lesson.reminder||0)>0).map(x=>{const at=x.start.getTime()-(x.lesson.reminder||0)*60000;return{id:`${keyFor(x.lesson,x.date)}-${x.lesson.reminder}`,at,title:`درس ${x.lesson.name}`,body:`يبدأ ${x.lesson.displayTime||`الساعة ${x.lesson.start}`} — بعد ${x.lesson.reminder} دقيقة`}}).filter(x=>x.at>now+15000)}
 function syncNativeReminders(){if(!NATIVE||typeof NATIVE.syncReminders!=='function')return;try{NATIVE.syncReminders(JSON.stringify(buildNativeReminders()))}catch{}}
 function nextOccurrence(){const now=new Date();return buildOccurrences(21).find(x=>x.start>=new Date(now.getTime()-10*60000))||null}
-function currentOrNextOccurrence(){const now=new Date(),today=startOfDay(now),active=lessonsForDate(today).map(l=>({lesson:l,date:today,start:timeDate(today,l.start),end:new Date(timeDate(today,l.start).getTime()+SmartScheduleEngine.effectiveSeconds(l)*1000)})).filter(x=>x.start<=now&&x.end>now&&x.lesson.repeat!=='flex').sort((a,b)=>b.start-a.start)[0];return active?{...active,inProgress:true}:nextOccurrence()}
+function currentOrNextOccurrence(){
+ const now=new Date(),today=startOfDay(now),candidates=[];
+ for(const date of [addDays(today,-1),today])for(const lesson of lessonsForDate(date).filter(hasFixedTime)){
+   const start=timeDate(date,lesson.start),end=new Date(start.getTime()+SmartScheduleEngine.effectiveSeconds(lesson)*1000);
+   if(start<=now&&end>now)candidates.push({lesson,date,start,end,inProgress:true});
+ }
+ return candidates.sort((a,b)=>b.start-a.start)[0]||nextOccurrence();
+}

@@ -3,257 +3,72 @@ name: Build Miaad APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, chronometric-luxury-final ]
+    branches: [ main, chronometric-luxury-final, chronometric-luxury-audited-20260908 ]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install brand tooling
-        run: python3 -m pip install --quiet pillow==11.3.0
-
-      - name: Materialize approved MIAAD branding
+      - name: Install audit dependencies
+        run: python3 -m pip install Pillow==11.3.0 androguard==4.1.3
+      - name: Validate source artwork and JavaScript
         run: |
-          set +e
-          python3 tools/materialize_brand.py > /tmp/miaad-materialize.log 2>&1
-          code=$?
-          cat /tmp/miaad-materialize.log
-          if [ "$code" -ne 0 ]; then
-            PUB="$(mktemp -d)"
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git worktree add --detach "$PUB" "$GITHUB_SHA"
-            cd "$PUB"
-            git switch --orphan build-diagnostics
-            git rm -rf . >/dev/null 2>&1 || true
-            cp /tmp/miaad-materialize.log materialize-error.txt
-            printf '%s\n' "$GITHUB_SHA" > source-commit.txt
-            git add -A
-            git commit -m "Publish MIAAD materialize diagnostic ${GITHUB_SHA}"
-            git push origin HEAD:build-diagnostics --force
-            exit "$code"
-          fi
-
-      - name: Validate source branding
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          from PIL import Image
-          import json
-
-          master = Path('app/src/main/assets/brand-source/miaad-logo-master.webp')
-          assert master.exists() and master.stat().st_size > 20_000
-          with Image.open(master) as im:
-              im.verify()
-          with Image.open(master) as im:
-              assert im.width >= 400 and im.height >= 400
-
-          sizes = {'mdpi':48, 'hdpi':72, 'xhdpi':96, 'xxhdpi':144, 'xxxhdpi':192}
-          for density, size in sizes.items():
-              for name in ('ic_launcher.png', 'ic_launcher_round.png'):
-                  path = Path(f'app/src/main/res/mipmap-{density}/{name}')
-                  assert path.exists(), f'Missing {path}'
-                  assert path.stat().st_size > 1_500, f'Placeholder-like icon: {path}'
-                  with Image.open(path) as im:
-                      im.verify()
-                  with Image.open(path) as im:
-                      assert im.size == (size, size), f'Wrong size for {path}: {im.size}'
-
-          for path, minimum in {
-              Path('app/src/main/assets/brand/miaad-logo.webp'): 20_000,
-              Path('app/src/main/assets/brand/miaad-logo-final.png'): 20_000,
-              Path('app/src/main/res/drawable-nodpi/miaad_logo.webp'): 20_000,
-              Path('app/src/main/res/drawable-nodpi/ic_launcher_foreground.webp'): 10_000,
-          }.items():
-              assert path.exists() and path.stat().st_size >= minimum, f'Missing/placeholder {path}'
-              with Image.open(path) as im:
-                  im.verify()
-
-          assert Path('app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml').exists()
-          assert Path('app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml').exists()
-          assert not Path('BRAND-MIGRATION.tmp').exists()
-          assert not Path('app/src/main/res/mipmap-mdpi/placeholder.txt').exists()
-          assert not Path('app/src/main/res/drawable/ic_launcher.xml').exists()
-          assert not Path('app/src/main/res/drawable-nodpi/miaad_logo.png').exists()
-
-          manifest = Path('app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
-          assert 'android:icon="@mipmap/ic_launcher"' in manifest
-          assert 'android:roundIcon="@mipmap/ic_launcher_round"' in manifest
-          assert 'android:label="مِيعاد"' in manifest
-
-          v31 = Path('app/src/main/res/values-v31/styles.xml').read_text(encoding='utf-8')
-          assert 'android:windowSplashScreenBackground' in v31
-          assert '@mipmap/ic_launcher' in v31
-          main = Path('app/src/main/java/com/miaad/app/MainActivity.java').read_text(encoding='utf-8')
-          assert 'R.drawable.miaad_logo' in main
-          assert 'لكل موعد قيمة' in main
-
-          luxury = Path('app/src/main/assets/app-luxury.js').read_text(encoding='utf-8')
-          assert "file:///android_asset/brand/miaad-logo.webp" in luxury
-          assert Path('app/src/main/assets/css-luxury.css').stat().st_size > 4_000
-
-          firebase = json.loads(Path('app/google-services.json').read_text(encoding='utf-8'))
-          clients = firebase.get('client', [])
-          assert any(c.get('client_info',{}).get('android_client_info',{}).get('package_name') == 'com.miaad.app' for c in clients)
-          print('Source brand/Firebase verification passed.')
-          PY
-
-      - name: Validate local UI JavaScript
-        run: |
-          node --check app/src/main/assets/app-core.js
-          node --check app/src/main/assets/app-engine.js
-          node --check app/src/main/assets/app-render.js
-          node --check app/src/main/assets/app-editor.js
-          node --check app/src/main/assets/app-events.js
-          node --check app/src/main/assets/app-luxury.js
-
+          python3 scripts/audit_brand.py
+          node scripts/test-schedule.cjs
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
       - name: Install Android SDK 36
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.6.0'
-
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
-
-      - name: Deep post-build APK audit
+      - name: Decode and audit built APK
         run: |
-          set -euo pipefail
-          APK='app/build/outputs/apk/debug/app-debug.apk'
-          AUDIT='app/build/outputs/apk/debug/audit'
-          mkdir -p "$AUDIT"
-          unzip -t "$APK" >/dev/null
-
-          python3 - <<'PY'
-          from zipfile import ZipFile
-          from pathlib import Path
-          from PIL import Image
-          from io import BytesIO
-          import hashlib, re
-
-          apk = Path('app/build/outputs/apk/debug/app-debug.apk')
-          audit = Path('app/build/outputs/apk/debug/audit')
-          expected = {'mdpi':48, 'hdpi':72, 'xhdpi':96, 'xxhdpi':144, 'xxxhdpi':192}
-          report = [f'APK: {apk.name}', f'APK bytes: {apk.stat().st_size}', f'APK sha256: {hashlib.sha256(apk.read_bytes()).hexdigest()}']
-
-          with ZipFile(apk) as z:
-              names = z.namelist()
-              assert 'assets/app-luxury.js' in names
-              assert 'assets/css-luxury.css' in names
-              for asset, minimum in {'assets/brand/miaad-logo.webp':20_000,'assets/brand/miaad-logo-final.png':20_000}.items():
-                  assert asset in names, f'Missing APK asset: {asset}'
-                  data = z.read(asset)
-                  assert len(data) >= minimum
-                  with Image.open(BytesIO(data)) as im: im.verify()
-                  report.append(f'{asset}: {len(data)} bytes sha256={hashlib.sha256(data).hexdigest()}')
-
-              luxury = z.read('assets/app-luxury.js').decode('utf-8')
-              assert 'file:///android_asset/brand/miaad-logo.webp' in luxury
-              assert any(n.endswith('/miaad_logo.webp') for n in names), 'Native logo drawable missing'
-              assert any('ic_launcher_foreground' in n for n in names), 'Adaptive foreground missing'
-              assert any('mipmap-anydpi-v26' in n and n.endswith('/ic_launcher.xml') for n in names), 'Adaptive launcher XML missing'
-              assert any('mipmap-anydpi-v26' in n and n.endswith('/ic_launcher_round.xml') for n in names), 'Adaptive round launcher XML missing'
-
-              for density, size in expected.items():
-                  for icon_name in ('ic_launcher.png', 'ic_launcher_round.png'):
-                      candidates = [n for n in names if f'mipmap-{density}' in n and n.endswith('/' + icon_name)]
-                      assert candidates, f'Missing {density} {icon_name}'
-                      data = z.read(candidates[0])
-                      with Image.open(BytesIO(data)) as im: im.verify()
-                      with Image.open(BytesIO(data)) as im: assert im.size == (size,size), f'Wrong {density} {icon_name}: {im.size}'
-                      report.append(f'{candidates[0]}: {len(data)} bytes {size}x{size} sha256={hashlib.sha256(data).hexdigest()}')
-                      if density == 'xxxhdpi' and icon_name == 'ic_launcher.png':
-                          (audit / 'icon-from-apk.png').write_bytes(data)
-
-              forbidden = [n for n in names if 'placeholder' in n.lower() or 'BRAND-MIGRATION' in n]
-              assert not forbidden, f'Placeholder/migration payload leaked into APK: {forbidden}'
-              assert any(n == 'classes.dex' or re.fullmatch(r'classes\d+\.dex', n) for n in names)
-
-          (audit / 'audit-report.txt').write_text('\n'.join(report)+'\n', encoding='utf-8')
-          print('\n'.join(report))
-          PY
-
-          AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
-          AAPT2="${ANDROID_HOME}/build-tools/36.0.0/aapt2"
-          "$AAPT" dump badging "$APK" | tee "$AUDIT/aapt-badging.txt"
-          "$AAPT2" dump xmltree "$APK" AndroidManifest.xml > "$AUDIT/manifest-xmltree.txt"
-          "$AAPT2" dump resources "$APK" > "$AUDIT/resources.txt"
-
-          grep -F "package: name='com.miaad.app'" "$AUDIT/aapt-badging.txt"
-          grep -F "application-label:'مِيعاد'" "$AUDIT/aapt-badging.txt"
-          grep -F 'ic_launcher_round' "$AUDIT/resources.txt"
-          grep -F 'google_app_id' "$AUDIT/resources.txt"
-          grep -F 'miaad_logo' "$AUDIT/resources.txt"
-          grep -F 'windowSplashScreen' app/src/main/res/values-v31/styles.xml
-
-          printf '\nSource commit: %s\n' "$GITHUB_SHA" >> "$AUDIT/audit-report.txt"
-          printf 'Post-build audit passed.\n' | tee -a "$AUDIT/audit-report.txt"
-
-      - name: Upload audited APK artifact
+          python3 scripts/audit_brand.py --apk app/build/outputs/apk/debug/app-debug.apk --output audit
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk > audit/aapt-badging.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump resources app/build/outputs/apk/debug/app-debug.apk > audit/aapt-resources.txt
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk > audit/apk-signature.txt
+          grep -q 'miaad_splash_icon' audit/aapt-resources.txt
+      - name: Enable emulator KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android 12 offline launch smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: bash scripts/emulator_smoke.sh
+      - name: Upload audited APK
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-chronometric-luxury-audited
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/debug/audit/**
+          name: miaad-chronometric-luxury-v1.1.2
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
-
-      - name: Publish latest audited APK for direct retrieval
-        env:
-          SOURCE_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          APK="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
-          AUDIT="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/audit"
-          PUB="$(mktemp -d)"
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin build-output:refs/remotes/origin/build-output || true
-
-          if git show-ref --verify --quiet refs/remotes/origin/build-output; then
-            git worktree add --detach "$PUB" refs/remotes/origin/build-output
-            cd "$PUB"
-            git switch -C build-output
-            find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          else
-            git worktree add --detach "$PUB" "$SOURCE_SHA"
-            cd "$PUB"
-            git switch --orphan build-output
-            git rm -rf . >/dev/null 2>&1 || true
-          fi
-
-          mkdir -p dist
-          cp "$APK" dist/miaad-chronometric-luxury-debug.apk
-          cp "$AUDIT/audit-report.txt" dist/audit-report.txt
-          cp "$AUDIT/aapt-badging.txt" dist/aapt-badging.txt
-          cp "$AUDIT/manifest-xmltree.txt" dist/manifest-xmltree.txt
-          cp "$AUDIT/icon-from-apk.png" dist/icon-from-apk.png
-          printf '%s\n' "$SOURCE_SHA" > dist/source-commit.txt
-          sha256sum dist/miaad-chronometric-luxury-debug.apk > dist/miaad-chronometric-luxury-debug.apk.sha256
-
-          git add -A
-          git commit -m "Publish audited MIAAD APK ${SOURCE_SHA}"
-          git push origin HEAD:build-output --force
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-brand-audit-v1.1.2
+          path: audit/
+          if-no-files-found: ignore
+          retention-days: 30

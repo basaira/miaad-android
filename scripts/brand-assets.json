@@ -1,0 +1,138 @@
+{
+  "source": "User approved image, Sep 7 2026 18:14:51",
+  "assets": {
+    "app/src/main/res/mipmap-mdpi/ic_launcher.png": {
+      "size": [
+        48,
+        48
+      ],
+      "sha256": "eb544aae2b687d58eb1cfe49b1497aacd3284662d1296bf85e49c23f054dc88c"
+    },
+    "app/src/main/res/mipmap-mdpi/ic_launcher_round.png": {
+      "size": [
+        48,
+        48
+      ],
+      "sha256": "e3e1db3a96181f475bfd1cd6670f9d6fc1ef412226c7a12dc0a932215df43dd3"
+    },
+    "app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png": {
+      "size": [
+        108,
+        108
+      ],
+      "sha256": "340b7b8782f5dcaff9424eae7dff5965f305c2a47a070c79f3648cfda26b139b"
+    },
+    "app/src/main/res/mipmap-hdpi/ic_launcher.png": {
+      "size": [
+        72,
+        72
+      ],
+      "sha256": "581afd237147ad587476a931b8e6c5291d4ac5304ebec6cb51d22c16dbb7ecbc"
+    },
+    "app/src/main/res/mipmap-hdpi/ic_launcher_round.png": {
+      "size": [
+        72,
+        72
+      ],
+      "sha256": "25b11bc1e070a9b5d933bafed7443fb9b658221000a3c99eea8d3af7aa7d200d"
+    },
+    "app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png": {
+      "size": [
+        162,
+        162
+      ],
+      "sha256": "0c3b3b996cf3d24429fd6280f4be0c85d912a34736489dbfe3a0cb37280159b3"
+    },
+    "app/src/main/res/mipmap-xhdpi/ic_launcher.png": {
+      "size": [
+        96,
+        96
+      ],
+      "sha256": "1fb57757da9885674b556f9583b3b4e877041d9b2f19cdb4c976af1a8adbd44a"
+    },
+    "app/src/main/res/mipmap-xhdpi/ic_launcher_round.png": {
+      "size": [
+        96,
+        96
+      ],
+      "sha256": "2a8038d7a052fb8200ce7e2cd00c83d21e268954dd220fbf950c51b2e692107c"
+    },
+    "app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png": {
+      "size": [
+        216,
+        216
+      ],
+      "sha256": "abfa73ccc6dd9c51c78d4fdbbd9af5456ee6bb51fb2df615927386d4db893d53"
+    },
+    "app/src/main/res/mipmap-xxhdpi/ic_launcher.png": {
+      "size": [
+        144,
+        144
+      ],
+      "sha256": "daa07a1f3ce201eac6c683498c1d42e4c9b48a6aa4569aff61430da2f995572a"
+    },
+    "app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png": {
+      "size": [
+        144,
+        144
+      ],
+      "sha256": "4b311e045c5c33666b71fde5d9d340e08fe371f696598529c3b54652b5cf7f8a"
+    },
+    "app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png": {
+      "size": [
+        324,
+        324
+      ],
+      "sha256": "387c1d86d267317b48d6d1c94edf8217823d5a660f56334cf7194a2588be76c8"
+    },
+    "app/src/main/res/mipmap-xxxhdpi/ic_launcher.png": {
+      "size": [
+        192,
+        192
+      ],
+      "sha256": "9b86658345256ff14328f44cf68d951512ed993e19bbd9976b4caf3419488406"
+    },
+    "app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png": {
+      "size": [
+        192,
+        192
+      ],
+      "sha256": "0fc4d3becc581238aee960250cf58ca401945b19347446b0a87f1a58c884dbdb"
+    },
+    "app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png": {
+      "size": [
+        432,
+        432
+      ],
+      "sha256": "7925736651abffcbd85706f7557f3bff232a8857816afd3d5351c66573f2b043"
+    },
+    "app/src/main/assets/brand/miaad-logo.webp": {
+      "size": [
+        256,
+        256
+      ],
+      "sha256": "70eca73f522c65610d5024169722e0aacad8ae84cd06075ff5781dfaca5d9026"
+    },
+    "app/src/main/res/drawable-nodpi/miaad_logo.png": {
+      "size": [
+        640,
+        640
+      ],
+      "sha256": "97a0d52caab49337e0a7ab1fa70c7b542080eb07195502d1637f16c964cb80ad"
+    },
+    "app/src/main/res/drawable-xxxhdpi/miaad_splash_icon.png": {
+      "size": [
+        864,
+        864
+      ],
+      "sha256": "c14d14506c6481a8b615797ca4e3c55b9a522ddf39194af79746336697afdbe6"
+    },
+    "app/src/main/assets/brand/miaad-logo-final.png": {
+      "size": [
+        1254,
+        1254
+      ],
+      "sha256": "869d95f2c1d896a1dcf8293363ebcf93d0cfdf3e3aabe096129adb851d1e850f"
+    }
+  }
+}

@@ -26,9 +26,9 @@ const BASE=[
 {id:'omi-tue',name:'عمر وموسى وعيسى',day:2,start:'17:00',duration:150,maxDuration:180,repeat:'weekly',reminder:30,note:'بعد العصر · المدة المعتادة 2:30 وقد تمتد إلى 3:00'},
 {id:'omi-thu',name:'عمر وموسى وعيسى',day:4,start:'17:00',duration:150,maxDuration:180,repeat:'weekly',reminder:30,note:'بعد العصر · المدة المعتادة 2:30 وقد تمتد إلى 3:00'},
 
-{id:'moh-sw-sat',name:'محمد — السويد',day:6,start:'18:30',duration:30,repeat:'flex',reminder:20,displayTime:'بعد المغرب',note:'الوقت بالدقيقة غير محدد؛ 18:30 للترتيب الداخلي فقط.'},
-{id:'moh-sw-mon',name:'محمد — السويد',day:1,start:'18:30',duration:30,repeat:'flex',reminder:20,displayTime:'بعد المغرب',note:'الوقت بالدقيقة غير محدد؛ 18:30 للترتيب الداخلي فقط.'},
-{id:'moh-sw-wed',name:'محمد — السويد',day:3,start:'18:30',duration:30,repeat:'flex',reminder:20,displayTime:'بعد المغرب',note:'الوقت بالدقيقة غير محدد؛ 18:30 للترتيب الداخلي فقط.'},
+{id:'moh-sw-sat',name:'محمد — السويد',day:6,start:'',duration:30,repeat:'flex',reminder:20,displayTime:'بعد المغرب',note:'الوقت بالدقيقة غير محدد؛ يُعرض بعد المغرب حتى تحدد ساعة.'},
+{id:'moh-sw-mon',name:'محمد — السويد',day:1,start:'',duration:30,repeat:'flex',reminder:20,displayTime:'بعد المغرب',note:'الوقت بالدقيقة غير محدد؛ يُعرض بعد المغرب حتى تحدد ساعة.'},
+{id:'moh-sw-wed',name:'محمد — السويد',day:3,start:'',duration:30,repeat:'flex',reminder:20,displayTime:'بعد المغرب',note:'الوقت بالدقيقة غير محدد؛ يُعرض بعد المغرب حتى تحدد ساعة.'},
 
 {id:'mah-rus-sun',name:'محبة الله — روسيا',day:0,start:'10:00',duration:60,repeat:'weekly',reminder:20,note:'10:00–11:00'},
 {id:'mah-rus-mon',name:'محبة الله — روسيا',day:1,start:'09:20',duration:60,repeat:'weekly',reminder:20,note:'09:20–10:20'},
@@ -44,7 +44,7 @@ const BASE=[
 {id:'omar-us-thu',name:'عمر — أمريكا',day:4,start:'00:00',duration:60,repeat:'weekly',reminder:30,note:'منتصف الليل (12:00 صباحًا)'},
 
 {id:'abd-sat',name:'عبد الرحمن',day:6,start:'10:30',duration:30,repeat:'weekly',reminder:20,note:'درس نصف ساعة'},
-{id:'abd-sun',name:'عبد الرحمن',day:0,start:'20:00',duration:30,repeat:'weekly',reminder:20,note:'درس نصف ساعة'},
+{id:'abd-sun',name:'عبد الرحمن',day:0,start:'08:00',duration:30,repeat:'weekly',reminder:20,note:'درس نصف ساعة'},
 {id:'abd-mon',name:'عبد الرحمن',day:1,start:'01:00',duration:30,repeat:'weekly',reminder:20,note:'01:00 بعد منتصف الليل · نصف ساعة'},
 {id:'abd-wed',name:'عبد الرحمن',day:3,start:'01:00',duration:30,repeat:'weekly',reminder:20,note:'01:00 بعد منتصف الليل · نصف ساعة'},
 
@@ -63,8 +63,15 @@ const store={get(key){try{return window.localStorage.getItem(key)}catch{return O
 function loadJSON(key,fallback){try{return JSON.parse(store.get(key)||'null')??fallback}catch{return fallback}}
 const NATIVE=typeof window.AndroidBridge!=='undefined'?window.AndroidBridge:null;
 function nativeSeed(){if(!NATIVE||typeof NATIVE.loadSnapshot!=='function')return null;try{const raw=NATIVE.loadSnapshot();return raw?JSON.parse(raw):null}catch{return null}}
+function normalizeSchedule(items){return items.map(l=>{
+ if(l.id?.startsWith('moh-sw-')&&l.start==='18:30'&&l.repeat==='flex'&&l.displayTime==='بعد المغرب'&&l.note==='الوقت بالدقيقة غير محدد؛ 18:30 للترتيب الداخلي فقط.')
+   return {...l,start:'',note:'الوقت بالدقيقة غير محدد؛ يُعرض بعد المغرب حتى تحدد ساعة.'};
+ return l;
+})}
+function hasFixedTime(l){return /^([01]\d|2[0-3]):[0-5]\d$/.test(l.start||'')}
 const nativeInitial=nativeSeed();
 let lessons=Array.isArray(nativeInitial?.lessons)?nativeInitial.lessons:loadJSON(STORAGE.lessons,loadJSON('miadLessonsV1',BASE));
+lessons=normalizeSchedule(lessons);
 let sessionState=nativeInitial?.sessionState&&typeof nativeInitial.sessionState==='object'?nativeInitial.sessionState:loadJSON(STORAGE.state,loadJSON('miadSessionStateV1',{}));
 let sessionNotes=nativeInitial?.sessionNotes&&typeof nativeInitial.sessionNotes==='object'?nativeInitial.sessionNotes:loadJSON(STORAGE.notes,loadJSON('miadSessionNotesV1',{}));
 let sessionAudit=nativeInitial?.sessionAudit&&typeof nativeInitial.sessionAudit==='object'?nativeInitial.sessionAudit:loadJSON(STORAGE.audit,{});
@@ -78,7 +85,7 @@ const viewScroll={today:0,week:0,students:0,report:0,settings:0};
 function snapshotData(){return{schemaVersion:3,updatedAt:lastUpdatedAt,lessons,sessionState,sessionNotes,sessionAudit,idrisPhase}}
 function saveLocalState(){store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
 function persist(){lastUpdatedAt=Date.now();saveLocalState();if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){try{NATIVE.saveSnapshot(JSON.stringify(snapshotData()))}catch{}}syncNativeReminders()}
-window.__miaadReceiveCloud=function(raw){try{const data=JSON.parse(raw);const incoming=Number(data.updatedAt||0);if(!Array.isArray(data.lessons)||incoming<=lastUpdatedAt)return;lessons=data.lessons;sessionState=data.sessionState||{};sessionNotes=data.sessionNotes||{};sessionAudit=data.sessionAudit||{};idrisPhase=Number(data.idrisPhase||0);lastUpdatedAt=incoming;saveLocalState();nativeSyncState='synced';if(typeof renderAll==='function')renderAll();if(typeof showToast==='function')showToast('تمت مزامنة بيانات مِيعاد')}catch{}};
+window.__miaadReceiveCloud=function(raw){try{const data=JSON.parse(raw);const incoming=Number(data.updatedAt||0);if(!Array.isArray(data.lessons)||incoming<=lastUpdatedAt)return;lessons=normalizeSchedule(data.lessons);sessionState=data.sessionState||{};sessionNotes=data.sessionNotes||{};sessionAudit=data.sessionAudit||{};idrisPhase=Number(data.idrisPhase||0);lastUpdatedAt=incoming;saveLocalState();nativeSyncState='synced';if(typeof renderAll==='function')renderAll();if(typeof showToast==='function')showToast('تمت مزامنة بيانات مِيعاد')}catch{}};
 window.__miaadNativeStatus=function(status){nativeSyncState=status||'local-only';const el=document.getElementById('syncStatus');if(el){const labels={connecting:'جارٍ الاتصال…','cloud-ready':'Firebase جاهز',synced:'متزامن الآن','cloud-pending':'محفوظ محليًا · المزامنة معلقة','local-only':'محلي فقط',browser:'نسخة ويب','reminder-error':'مشكلة في جدولة التنبيه'};el.textContent=labels[nativeSyncState]||nativeSyncState}if(typeof renderHeader==='function')renderHeader()};
 function startOfDay(d){const x=new Date(d);x.setHours(0,0,0,0);return x}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
@@ -94,17 +101,17 @@ function toSeconds(t){const [h,m,s=0]=String(t||'00:00').split(':').map(Number);
 function timeDate(d,t){const x=new Date(d),[h,m,s=0]=String(t||'00:00').split(':').map(Number);x.setHours(h,m,s,0);return x}
 function secondsLabel(sec){sec=Math.max(0,Math.floor(sec));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),ss=sec%60;return `${pad(h)}:${pad(m)}:${pad(ss)}`}
 function secToClock(sec){sec=((Math.round(sec)%86400)+86400)%86400;return `${pad(Math.floor(sec/3600))}:${pad(Math.floor((sec%3600)/60))}`}
-function humanDuration(sec,{withSeconds=false}={}){sec=Math.max(0,Math.floor(sec));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),ss=sec%60,parts=[];if(h)parts.push(`${h} س`);if(m)parts.push(`${m} د`);if(withSeconds&&ss)parts.push(`${ss} ث`);return parts.join(' و ')||(withSeconds?`${ss} ث`:'أقل من دقيقة')}
+function humanDuration(sec,{withSeconds=false}={}){sec=Math.max(0,Math.floor(sec));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),ss=sec%60,parts=[];if(h)parts.push(h===1?'ساعة':h===2?'ساعتان':`${h} ساعات`);if(m)parts.push(m===1?'دقيقة':m===2?'دقيقتان':`${m} دقيقة`);if(withSeconds&&ss)parts.push(`${ss} ث`);return parts.join(' و ')||(withSeconds?`${ss} ث`:'أقل من دقيقة')}
 function bdiTime(sec){return `<bdi dir="ltr">${secToClock(sec)}</bdi>`}
 function freeWindowLabel(w){const start=bdiTime(w.start),end=w.end>=86400?'نهاية اليوم':bdiTime(w.end);return `من ${start} إلى ${end}`}
 function editorState(text,dirty=false){const el=document.getElementById('editorSaveState');if(!el)return;el.textContent=text;el.classList.toggle('dirty',dirty)}
 function markEditorDirty(){editorDirty=true;editorState('غير محفوظ',true)}
 
-function endLabel(l){if(!l.duration)return '';return secToClock(toSeconds(l.start)+l.duration*60)}
+function endLabel(l){if(!l.duration||!hasFixedTime(l))return '';return secToClock(toSeconds(l.start)+l.duration*60)}
 function keyFor(l,d){return `${dateKey(d)}__${l.id}`}
 function initials(name){return name.replace(/—.*/,'').trim().split(/\s+/).slice(0,2).map(x=>x[0]).join('')}
 function palette(name){let s=0;for(const c of name)s+=c.charCodeAt(0);return PALETTES[s%PALETTES.length]}
-function lessonsForDate(d){return lessons.filter(l=>l.day===d.getDay()&&occurs(l,d)).sort((a,b)=>a.start.localeCompare(b.start))}
+function lessonsForDate(d){return lessons.filter(l=>l.day===d.getDay()&&occurs(l,d)).sort((a,b)=>String(a.start||'99:99').localeCompare(String(b.start||'99:99')))}
 function stateText(s){return s==='entered'?'دخلت':s==='missed'?'لم أدخل':s==='absent'?'غاب':s==='notheld'?'لم يتم':s==='unmarked'?'بلا تسجيل':s==='upcoming'?'قادم':'قادم'}
 function stateClass(s){return s||''}
 function tap(){if(navigator.vibrate)navigator.vibrate(10)}
