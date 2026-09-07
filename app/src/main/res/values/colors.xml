@@ -3,4 +3,5 @@
     <color name="miaad_ink">#081F18</color>
     <color name="miaad_paper">#F4F0E7</color>
     <color name="miaad_signal">#D9B768</color>
+    <color name="miaad_icon_bg">#081F18</color>
 </resources>
