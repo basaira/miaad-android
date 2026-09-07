@@ -6,12 +6,11 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.provider.Settings;
-import android.view.Gravity;
 import android.view.View;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -20,8 +19,6 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
@@ -29,6 +26,7 @@ import com.google.firebase.auth.FirebaseUser;
 public class MainActivity extends Activity {
     private static final int REQ_NOTIFICATIONS = 4101;
     private static final int REQ_FILE = 4102;
+    private static final long MIN_BRANDED_SPLASH_MS = 650L;
 
     private WebView webView;
     private MiaadBridge bridge;
@@ -36,11 +34,13 @@ public class MainActivity extends Activity {
     private FrameLayout root;
     private View splashOverlay;
     private boolean splashHidden = false;
+    private long splashStartedAt;
 
     @Override
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        splashStartedAt = SystemClock.uptimeMillis();
 
         final int deepGreen = Color.rgb(8, 31, 24);
         getWindow().setStatusBarColor(deepGreen);
@@ -85,7 +85,7 @@ public class MainActivity extends Activity {
                 bridge.setPageReady(true);
                 bridge.pullCloudToWeb();
                 installChronometricLuxury(view);
-                view.postDelayed(MainActivity.this::hideSplash, 260);
+                view.post(MainActivity.this::hideSplash);
             }
 
             @Override
@@ -129,58 +129,14 @@ public class MainActivity extends Activity {
         splash.setBackgroundColor(Color.rgb(6, 27, 21));
         splash.setClickable(true);
 
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setGravity(Gravity.CENTER);
-        content.setPadding(dp(34), dp(34), dp(34), dp(34));
-
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.miaad_logo);
-        logo.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(148), dp(148));
-        logoParams.bottomMargin = dp(20);
-        content.addView(logo, logoParams);
-
-        TextView title = new TextView(this);
-        title.setText("مِيعاد");
-        title.setTextColor(Color.rgb(239, 216, 154));
-        title.setTextSize(32);
-        title.setGravity(Gravity.CENTER);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setLetterSpacing(-0.02f);
-        content.addView(title);
-
-        TextView latin = new TextView(this);
-        latin.setText("M I A A D");
-        latin.setTextColor(Color.rgb(201, 187, 151));
-        latin.setTextSize(11);
-        latin.setGravity(Gravity.CENTER);
-        latin.setLetterSpacing(0.24f);
-        LinearLayout.LayoutParams latinParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        latinParams.topMargin = dp(5);
-        content.addView(latin, latinParams);
-
-        TextView tagline = new TextView(this);
-        tagline.setText("لكل موعد قيمة");
-        tagline.setTextColor(Color.rgb(238, 231, 213));
-        tagline.setTextSize(13);
-        tagline.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams tagParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        tagParams.topMargin = dp(16);
-        content.addView(tagline, tagParams);
-
-        FrameLayout.LayoutParams contentParams = new FrameLayout.LayoutParams(
+        ImageView artwork = new ImageView(this);
+        artwork.setImageResource(R.drawable.miaad_splash);
+        artwork.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        artwork.setContentDescription("مِيعاد — لكل موعد قيمة");
+        splash.addView(artwork, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-        );
-        splash.addView(content, contentParams);
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
         return splash;
     }
 
@@ -196,10 +152,17 @@ public class MainActivity extends Activity {
 
     private void hideSplash() {
         if (splashHidden || splashOverlay == null || root == null) return;
+
+        long elapsed = SystemClock.uptimeMillis() - splashStartedAt;
+        if (elapsed < MIN_BRANDED_SPLASH_MS) {
+            root.postDelayed(this::hideSplash, MIN_BRANDED_SPLASH_MS - elapsed);
+            return;
+        }
+
         splashHidden = true;
         splashOverlay.animate()
                 .alpha(0f)
-                .setDuration(260)
+                .setDuration(280)
                 .withEndAction(() -> {
                     if (splashOverlay != null && splashOverlay.getParent() == root) {
                         root.removeView(splashOverlay);
@@ -207,10 +170,6 @@ public class MainActivity extends Activity {
                     splashOverlay = null;
                 })
                 .start();
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void authenticateForCloudSync() {
