@@ -17,6 +17,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate branded resources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+
+          icons = {
+              'app/src/main/res/mipmap-mdpi/ic_launcher.png': (48, 48),
+              'app/src/main/res/mipmap-hdpi/ic_launcher.png': (72, 72),
+              'app/src/main/res/mipmap-xhdpi/ic_launcher.png': (96, 96),
+              'app/src/main/res/mipmap-xxhdpi/ic_launcher.png': (144, 144),
+              'app/src/main/res/mipmap-xxxhdpi/ic_launcher.png': (192, 192),
+          }
+          for path, expected in icons.items():
+              data = Path(path).read_bytes()
+              assert data[:8] == b'\x89PNG\r\n\x1a\n', f'Invalid PNG signature: {path}'
+              width, height = struct.unpack('>II', data[16:24])
+              assert (width, height) == expected, f'Wrong icon size {path}: {(width, height)} != {expected}'
+              assert len(data) > 1500, f'Icon looks like a placeholder: {path}'
+
+          webp_assets = {
+              'app/src/main/assets/brand/miaad-logo.webp': 4000,
+              'app/src/main/assets/brand/miaad-splash.webp': 10000,
+              'app/src/main/res/drawable-nodpi/miaad_splash.webp': 10000,
+          }
+          for path, minimum in webp_assets.items():
+              data = Path(path).read_bytes()
+              assert data[:4] == b'RIFF' and data[8:12] == b'WEBP', f'Invalid WebP: {path}'
+              assert len(data) >= minimum, f'Asset too small / placeholder: {path}'
+
+          final_logo = Path('app/src/main/assets/brand/miaad-logo-final.png').read_bytes()
+          assert final_logo[:8] == b'\x89PNG\r\n\x1a\n' and len(final_logo) > 10000
+
+          luxury = Path('app/src/main/assets/app-luxury.js').read_text(encoding='utf-8')
+          assert "file:///android_asset/brand/miaad-logo.webp" in luxury
+          manifest = Path('app/src/main/AndroidManifest.xml').read_text(encoding='utf-8')
+          assert 'android:icon="@mipmap/ic_launcher"' in manifest
+          assert 'android:roundIcon="@mipmap/ic_launcher"' in manifest
+          main = Path('app/src/main/java/com/miaad/app/MainActivity.java').read_text(encoding='utf-8')
+          assert 'R.drawable.miaad_splash' in main
+          assert not Path('app/src/main/res/mipmap-mdpi/placeholder.txt').exists()
+          print('Source brand verification passed.')
+          PY
+
       - name: Validate local UI JavaScript
         run: |
           node --check app/src/main/assets/app-core.js
@@ -46,10 +90,46 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
+      - name: Verify built APK payload
+        run: |
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          import struct
+
+          apk = 'app/build/outputs/apk/debug/app-debug.apk'
+          with ZipFile(apk) as z:
+              names = z.namelist()
+              for asset, minimum in {
+                  'assets/brand/miaad-logo.webp': 4000,
+                  'assets/brand/miaad-logo-final.png': 10000,
+                  'assets/brand/miaad-splash.webp': 10000,
+              }.items():
+                  assert asset in names, f'Missing APK asset: {asset}'
+                  assert len(z.read(asset)) >= minimum, f'APK asset too small: {asset}'
+
+              luxury = z.read('assets/app-luxury.js').decode('utf-8')
+              assert 'file:///android_asset/brand/miaad-logo.webp' in luxury
+
+              splash_candidates = [n for n in names if 'miaad_splash' in n and n.endswith('.webp')]
+              assert splash_candidates, 'Compiled native splash is missing from APK'
+              assert max(len(z.read(n)) for n in splash_candidates) >= 10000
+
+              expected = {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}
+              for density, size in expected.items():
+                  candidates = [n for n in names if f'mipmap-{density}' in n and n.endswith('/ic_launcher.png')]
+                  assert candidates, f'Missing launcher icon density: {density}'
+                  data = z.read(candidates[0])
+                  assert data[:8] == b'\x89PNG\r\n\x1a\n'
+                  width, height = struct.unpack('>II', data[16:24])
+                  assert (width, height) == (size, size), f'Wrong APK icon {density}: {(width, height)}'
+          print('Built APK brand verification passed.')
+          PY
+          unzip -t app/build/outputs/apk/debug/app-debug.apk >/dev/null
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-chronometric-luxury-apk
+          name: miaad-chronometric-luxury-v1.1.1
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
