@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,7 +49,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Android 12 offline launch smoke test
+      - name: Android 12 / API 31 compatibility test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 31
@@ -57,7 +57,16 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: false
-          script: bash scripts/emulator_smoke.sh
+          script: MIAAD_API_LEVEL=31 bash scripts/emulator_smoke.sh
+      - name: Android 16 / API 36 modern-platform test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: MIAAD_API_LEVEL=36 bash scripts/emulator_smoke.sh
       - name: Upload audited APK
         uses: actions/upload-artifact@v4
         with:
