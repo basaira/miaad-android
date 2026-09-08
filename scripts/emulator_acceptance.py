@@ -38,12 +38,11 @@ def start_app():
     result=adb_run('shell','am','start','-W','-n',ACTIVITY)
     if result.returncode!=0:
         raise AssertionError('App restart command failed: '+(result.stderr or result.stdout))
-    # Android 16 may return from am start before the app process/WebView is
-    # observable through pidof/devtools. Wait for the actual process instead
-    # of relying on a fixed sleep.
+    # Newer Android releases can return from am start before the app process
+    # and WebView debugging socket are observable.
     return process_pid(45)
 
-def connect(timeout=45):
+def connect(timeout=60):
     deadline=time.time()+timeout
     last_error=None
     while time.time()<deadline:
@@ -51,7 +50,12 @@ def connect(timeout=45):
             pid=process_pid(min(10,max(1,int(deadline-time.time()))))
             adb('forward','tcp:9222','localabstract:webview_devtools_remote_'+pid)
             tabs=json.load(urllib.request.urlopen('http://127.0.0.1:9222/json',timeout=2))
-            page=next(t for t in tabs if t.get('type')=='page')
+            pages=[t for t in tabs if t.get('type')=='page']
+            if not pages:
+                raise RuntimeError('No WebView page target yet')
+            # Prefer the real local application page if DevTools reports more
+            # than one transient target during startup.
+            page=next((t for t in pages if 'android_asset' in (t.get('url') or '')),pages[0])
             return websocket.create_connection(page['webSocketDebuggerUrl'],suppress_origin=True,timeout=5)
         except Exception as exc:
             last_error=exc
@@ -70,7 +74,23 @@ def evaluate(ws,expression):
         assert 'exceptionDetails' not in result,result
         return result['result'].get('value')
 
+def wait_runtime_ready(ws,timeout=60):
+    """Wait for Miaad's own JS domain, not merely a visible WebView page."""
+    deadline=time.time()+timeout
+    last=None
+    while time.time()<deadline:
+        try:
+            ready=evaluate(ws,"typeof domain!=='undefined' && typeof renderAll==='function' && typeof AndroidBridge!=='undefined' && document.readyState==='complete'")
+            if ready:
+                return
+            last='runtime not ready'
+        except Exception as exc:
+            last=exc
+        time.sleep(1)
+    raise AssertionError(f'Miaad JavaScript runtime did not become ready: {last}')
+
 ws=connect()
+wait_runtime_ready(ws)
 result=evaluate(ws,"""(()=>{
  const assert=(value,label)=>{if(!value)throw Error(label)};
  const today=dateKey(new Date()),past=domain.plus(today,-1);
@@ -95,12 +115,13 @@ result['apiLevel']=API_LEVEL
 Path(f'audit/native-acceptance-{SUFFIX}.json').write_text(json.dumps(result,indent=2))
 ws.close()
 
-# Test a genuine process restart. Do not use a fixed delay: newer Android
-# releases can expose the restarted process/WebView later than older releases.
+# Test a genuine process restart. Wait for process, WebView and the Miaad JS
+# runtime independently; fixed sleeps are unreliable across Android releases.
 adb('shell','am','force-stop',PACKAGE)
 wait_stopped()
 start_app()
 ws=connect(60)
+wait_runtime_ready(ws,60)
 assert evaluate(ws,f"domain.data.records[{json.dumps(result['recordId'])}].status")=='entered'
 assert evaluate(ws,f"domain.cycleStats(domain.cycle({json.dumps(result['studentId'])})).counted")==11
 assert evaluate(ws,f"domain.data.students[{json.dumps(result['studentId'])}].timeZone")=='America/Los_Angeles'
