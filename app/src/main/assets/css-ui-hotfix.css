@@ -1,0 +1,239 @@
+/* Miaad UI/UX clarity hotfix — loaded last, intentionally conservative. */
+:root{
+  --ui-gutter:18px;
+  --ui-nav-height:72px;
+  --ui-card-radius:18px;
+  --ui-header-bg:#f4f0e7;
+}
+html,body{max-width:100%;overflow-x:hidden}
+body{line-height:1.55}
+
+/* Android already applies system-bar insets to the native WebView root.
+   Do not count env(safe-area-*) a second time inside that padded viewport. */
+html.native-shell{--safe-bottom:10px}
+html.native-shell .mobile-top{padding:10px var(--ui-gutter)!important}
+html.native-shell .bottom-nav{bottom:10px!important}
+
+/* Shell: opaque, compact and predictable. */
+.mobile-top{
+  position:sticky;top:0;z-index:80;
+  background:var(--ui-header-bg)!important;
+  border-bottom:1px solid rgba(8,31,24,.09)!important;
+  box-shadow:0 4px 18px rgba(8,31,24,.035);
+  backdrop-filter:none!important;
+}
+.top-row{height:52px;min-height:52px}
+.wordmark{min-width:0}.wordmark>div:last-child{min-width:0}
+.wordmark b{white-space:nowrap}.wordmark span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
+.mobile-body{
+  width:100%;max-width:760px;
+  padding:18px var(--ui-gutter) calc(var(--ui-nav-height) + 42px + var(--safe-bottom));
+}
+.view{min-width:0;scroll-margin-top:78px}
+.view>*{max-width:100%}
+.date-block{align-items:flex-start;margin:4px 0 18px;gap:12px;min-width:0}
+.date-block>div:first-child{min-width:0}
+.date-block h1{font-size:clamp(27px,7.4vw,34px);line-height:1.2;overflow-wrap:anywhere}
+.date-block p{font-size:12px;line-height:1.7;max-width:34rem}
+.tiny-state{flex:0 0 auto;padding-top:3px}
+
+.bottom-nav{
+  z-index:90;right:12px;left:12px;
+  height:var(--ui-nav-height);border-radius:20px;
+  padding:6px;max-width:560px;
+}
+.nav-btn{min-width:0;min-height:54px;font-size:9px}
+.nav-btn span:last-child{font-size:9px!important;white-space:nowrap}
+.nav-icon svg{width:21px;height:21px}
+
+/* Today is for today. Month/day browsing belongs in Week. */
+#view-today .week-rail{display:none!important}
+.today-browse-days{
+  width:100%;min-height:48px;margin:12px 0 0;padding:10px 14px;
+  border:1px solid var(--line);border-radius:14px;background:var(--surface);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  text-align:start;color:var(--ink)
+}
+.today-browse-days b{font-size:13px}.today-browse-days span{font-size:10px;color:var(--muted)}
+.focus-panel{padding:18px;border-radius:20px}
+.focus-name{font-size:clamp(23px,7vw,31px);line-height:1.28;overflow-wrap:anywhere}
+.focus-meta{line-height:1.75}
+.smart-strip{margin-top:14px;border-radius:16px;padding:14px 15px}
+.smart-strip-copy span{white-space:normal;line-height:1.55}
+.agenda-head{padding:24px 2px 10px;align-items:flex-end;gap:12px}
+.agenda-head h2{font-size:22px;line-height:1.25}
+.agenda{border-radius:18px;overflow:hidden}
+.session-row.feature-session{
+  direction:ltr;grid-template-columns:78px minmax(0,1fr);min-height:116px;
+}
+.feature-session .time-gutter{
+  grid-column:1;direction:ltr;text-align:center;padding:17px 8px;
+  border-right:1px solid var(--line);border-left:0;min-width:0
+}
+.feature-session .session-main{grid-column:2;direction:rtl;text-align:start;padding:16px 14px;min-width:0}
+.feature-session .session-topline{align-items:flex-start;gap:8px}
+.feature-session .session-topline h3{font-family:"Changa";font-size:17px;line-height:1.35;margin:0;min-width:0;overflow-wrap:anywhere}
+.feature-session .status-mark{font-size:10px;line-height:1.4;padding:5px 7px;white-space:normal;text-align:center;max-width:92px}
+.time-main{display:block;font-size:14px;line-height:1.3;overflow-wrap:anywhere}
+.time-context{display:block;margin-top:5px;font-size:8.5px;color:var(--muted);line-height:1.45}
+.feature-session .student-local-time{font-size:8.5px!important;line-height:1.45!important;overflow-wrap:anywhere}
+.lesson-note{font-size:11px;margin:10px 0 0;line-height:1.75;color:#4f5b54}
+.session-actions{flex-wrap:wrap;overflow:visible;margin-top:13px}
+.quick-action{min-height:40px;font-size:10.5px}
+
+#todayAvailability,#todayAttention{margin:28px 0 0;padding:0;scroll-margin-top:82px}
+.section-heading{align-items:flex-start;gap:12px;margin-bottom:12px}
+.section-heading h2,.section-heading h3{font-family:"Changa";line-height:1.3;margin:0;color:var(--deep)}
+.section-heading h3{font-size:23px}
+.section-heading>span{font-size:11px;color:var(--muted);padding-top:6px;text-align:end}
+#todayAvailability .free-window-card{
+  width:100%;display:grid;grid-template-columns:minmax(126px,.8fr) minmax(0,1.2fr);
+  align-items:center;gap:14px;margin:8px 0;padding:14px 15px;
+  border:1px solid var(--line);border-radius:15px;background:var(--surface);
+  text-align:start;min-height:66px
+}
+#todayAvailability .free-window-card b{font-size:14px;line-height:1.5;color:#19402f;overflow-wrap:anywhere}
+#todayAvailability .free-window-card span{font-size:11px;line-height:1.65;color:#526157;overflow-wrap:anywhere}
+#todayAttention .history-row{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;margin:8px 0}
+
+/* Students: the DOM has three logical zones; make those zones explicit. */
+.search-box{margin:4px 0 14px;border-radius:14px;background:var(--surface)!important;min-height:50px}
+.search-box input{height:48px;font-size:13px;min-width:0}
+.student-directory{background:transparent!important;border-radius:0!important;overflow:visible!important;display:grid!important;gap:10px}
+#studentDirectory>#createStudent{justify-self:start;margin-bottom:2px;min-height:44px;padding-inline:15px}
+.student-summary.profile-link{
+  width:100%;display:grid!important;grid-template-columns:46px minmax(0,1fr) auto;
+  align-items:center;gap:12px;padding:14px!important;margin:0;
+  background:var(--surface)!important;border:1px solid rgba(79,61,35,.10)!important;
+  border-radius:var(--ui-card-radius)!important;box-shadow:0 7px 22px rgba(55,42,21,.04);
+  text-align:start;min-height:86px;overflow:hidden
+}
+.student-summary .avatar{width:44px;height:44px;border-radius:13px;font-size:14px;flex:none}
+.student-summary-copy{display:block;min-width:0}
+.student-summary-copy b{display:block;font-family:"Changa";font-size:17px;line-height:1.35;white-space:normal;overflow-wrap:anywhere;color:var(--deep)}
+.student-summary-copy small{display:block;margin-top:3px;font-size:10px;line-height:1.5;color:var(--muted)}
+.student-summary .student-count{min-width:70px;text-align:end;padding-inline-start:8px}
+.student-summary .student-count b{display:block;font-family:"Changa";font-size:17px;line-height:1.2;color:var(--deep);white-space:nowrap}
+.student-summary .student-count small{display:block;margin-top:5px;font-size:9px;line-height:1.35;color:var(--muted);white-space:nowrap}
+.profile-heading{gap:12px}.profile-heading h2{margin:0;line-height:1.3;overflow-wrap:anywhere}.profile-heading p{font-size:12px}
+.profile-cycle,.profile-section{scroll-margin-top:84px}
+.history-row{line-height:1.55;min-width:0}.history-row>*{min-width:0}.history-row small{overflow-wrap:anywhere}
+
+/* Calendar / day navigator. */
+.month-calendar-shell{
+  background:var(--surface);border:1px solid rgba(79,61,35,.10);border-radius:20px;
+  padding:15px;margin:0 0 14px;box-shadow:0 8px 26px rgba(55,42,21,.045)
+}
+.month-calendar-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.month-calendar-title{min-width:0}.month-calendar-title b{font-family:"Changa";font-size:19px;display:block;line-height:1.25}.month-calendar-title span{display:block;font-size:10px;color:var(--muted);margin-top:3px}
+.month-calendar-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.month-calendar-actions button{min-width:40px;min-height:40px;border:1px solid var(--line);background:#fffdf8;border-radius:11px;font-weight:700;color:var(--deep)}
+.month-calendar-actions .month-today{padding-inline:10px;font-size:10px}
+.month-weekdays,.month-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));direction:rtl;gap:4px}
+.month-weekdays{margin-bottom:5px}
+.month-weekdays span{text-align:center;font-size:9px;color:var(--muted);padding:5px 0}
+.month-day-blank{min-height:42px}
+.month-day{
+  position:relative;min-width:0;min-height:44px;border:0;border-radius:12px;background:transparent;
+  display:grid;place-items:center;padding:4px;color:var(--ink);font-variant-numeric:tabular-nums
+}
+.month-day .month-day-number{font-size:12px;font-weight:650;line-height:1}
+.month-day.today{box-shadow:inset 0 0 0 1.5px rgba(8,31,24,.38)}
+.month-day.selected{background:var(--deep);color:#fff8ea;box-shadow:0 6px 15px rgba(8,31,24,.16)}
+.month-day.has-lessons:after{content:"";position:absolute;bottom:5px;width:4px;height:4px;border-radius:50%;background:#9a762f}
+.month-day.selected.has-lessons:after{background:#efd895}
+.selected-day-panel{margin-top:15px;border-top:1px solid var(--line);padding-top:15px}
+.selected-day-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.selected-day-head b{font-family:"Changa";font-size:18px;line-height:1.25}.selected-day-head span{display:block;font-size:10px;color:var(--muted);margin-top:2px}.selected-day-count{flex:0 0 auto;background:var(--surface-2);border-radius:9px;padding:6px 8px;font-size:9px;color:var(--muted)}
+.selected-day-session{display:grid;grid-template-columns:64px minmax(0,1fr) auto;direction:ltr;align-items:center;gap:10px;padding:11px 0;border-top:1px solid rgba(79,61,35,.09)}
+.selected-day-session:first-of-type{border-top:0}
+.selected-day-session time{direction:ltr;font-size:11px;font-weight:750;text-align:center;overflow-wrap:anywhere}
+.selected-day-session .selected-day-copy{direction:rtl;text-align:start;min-width:0}
+.selected-day-session .selected-day-copy b{display:block;font-size:12px;line-height:1.45;overflow-wrap:anywhere}.selected-day-session .selected-day-copy small{display:block;margin-top:3px;font-size:9px;line-height:1.5;color:var(--muted)}
+.selected-day-session .small-btn{direction:rtl;min-height:38px;padding-inline:9px}
+.selected-day-record-host{grid-column:1/-1;direction:rtl}
+.calendar-empty{padding:18px 8px 6px;text-align:center;color:var(--muted);font-size:11px;line-height:1.7}
+.calendar-empty .small-btn{display:block;margin:10px auto 0}
+.week-overview{margin:14px 0 0;background:var(--surface);border:1px solid rgba(79,61,35,.09);border-radius:17px;overflow:hidden}
+.week-overview>summary{list-style:none;cursor:pointer;min-height:52px;padding:14px 15px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-family:"Changa";font-size:15px;font-weight:650}
+.week-overview>summary::-webkit-details-marker{display:none}.week-overview>summary:after{content:"⌄";font-size:18px;color:var(--muted)}.week-overview[open]>summary:after{transform:rotate(180deg)}
+.week-overview .week-list{padding:0 10px 10px}.week-overview .week-day{box-shadow:none;border:1px solid rgba(79,61,35,.08)}
+
+/* Reports: controls first, explanation next, then data. */
+#view-report .date-block{margin-bottom:14px}
+#reportOptions{display:grid!important;grid-template-columns:1fr!important;gap:10px;margin:0 0 12px;padding:14px;background:var(--surface);border:1px solid rgba(79,61,35,.09);border-radius:17px}
+#reportOptions label{font-size:11px;font-weight:650;color:#405249}
+#reportOptions select{margin-top:6px}
+.report-toolbar{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+.report-month-control{display:grid;gap:6px;flex:1 1 180px;font-size:10px;color:var(--muted)}
+.month-input{width:100%;height:46px;font-size:12px;background:var(--surface)}
+.report-actions{display:flex;gap:7px;flex:0 0 auto}.report-action{height:46px;min-width:62px;font-size:10px}
+#reportDocument{min-width:0}
+.professional-report{padding:10px 0 8px;min-width:0}
+.professional-report>header{gap:14px;padding-bottom:18px;align-items:flex-start}
+.professional-report>header>div{min-width:0}.professional-report>header img{flex:0 0 auto;width:50px;height:50px}
+.professional-report h1{font-size:22px;line-height:1.35;overflow-wrap:anywhere}.professional-report h2{font-size:20px;line-height:1.4;overflow-wrap:anywhere}
+.professional-report h3{font-family:"Changa";font-size:20px;margin-block:24px 12px}
+.report-totals{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:8px 0}
+.report-totals>div{background:var(--surface);border:1px solid rgba(79,61,35,.09);border-radius:14px;padding:12px;min-width:0}
+.report-totals dt{font-size:11px;color:#526157}.report-totals dd{font-size:28px;line-height:1;margin:8px 0 0}
+.report-context-note{margin:10px 0 0;padding:12px 13px;border-radius:13px;background:#eee6d8;color:#425149;font-size:10.5px;line-height:1.75}
+.report-secondary{font-size:11px;line-height:1.8;padding:10px 0;margin:4px 0;color:#526157}
+.professional-report table{font-size:12px}
+.professional-report td,.professional-report th{overflow-wrap:anywhere}
+#reportNoteForm{padding:14px;background:var(--surface);border:1px solid rgba(79,61,35,.09);border-radius:17px;margin-top:14px}
+
+/* Settings: section cards and a non-obstructive save action. */
+.settings-stack{gap:14px}
+#featureSettings{min-width:0}
+#globalSettings.feature-form{display:block;margin:0}
+#globalSettings>.feature-error:empty{display:none}
+#globalSettings>details,#teacherZoneSection{
+  margin:0 0 12px;padding:14px 15px;background:var(--surface);border:1px solid rgba(79,61,35,.10);border-radius:17px
+}
+#globalSettings>details>summary{font-family:"Changa";font-size:18px;line-height:1.35;min-height:44px;padding:5px 0;list-style-position:inside}
+#globalSettings>details[open]>summary{padding-bottom:12px;border-bottom:1px solid var(--line);margin-bottom:14px}
+#teacherZoneSection h4{font-family:"Changa";font-size:18px;margin:0 0 5px}#teacherZoneSection p{font-size:10px;color:var(--muted);line-height:1.7;margin:0 0 12px}
+.feature-fields{grid-template-columns:1fr!important;gap:12px}
+.feature-form label,.feature-fields label{font-size:12px;line-height:1.55;min-width:0}
+.feature-fields input,.feature-form input,.feature-form select,.feature-fields select,.feature-form textarea{min-height:48px;font-size:14px;border-radius:12px;padding:11px 12px}
+#globalSettings input[name^="working_"],#globalSettings input[name="teacherTimeZone"]{direction:ltr;text-align:left;font-variant-numeric:tabular-nums}
+.feature-form fieldset{margin:8px 0 0;padding:15px 0 0}.feature-form legend{font-size:13px}
+.feature-form .check-field{padding:7px 0;line-height:1.6}
+.feature-form button.save-btn{position:static!important;bottom:auto!important;width:100%!important;min-height:52px;margin:2px 0 4px;border-radius:14px;z-index:auto!important}
+.setting-block{padding:16px;border-radius:17px}.setting-block h3{font-size:17px;line-height:1.4}.setting-block p{font-size:11px;line-height:1.75}.setting-row{min-height:52px;align-items:center}.setting-row span{font-size:11px;line-height:1.55;min-width:0}.setting-row b{overflow-wrap:anywhere}
+.miaad-brand-signature{border-radius:18px;margin-bottom:14px}
+
+/* Programmatic scroll targets should never land underneath the sticky header. */
+.profile-section,.notification-center,.record-form,#reportLanguageIntegrity,.editor-section{scroll-margin-top:82px}
+
+@media(max-width:430px){
+  :root{--ui-gutter:14px}
+  .mobile-body{padding-left:var(--ui-gutter);padding-right:var(--ui-gutter)}
+  .student-summary.profile-link{grid-template-columns:42px minmax(0,1fr) auto;gap:9px;padding:12px!important}
+  .student-summary .avatar{width:40px;height:40px}.student-summary-copy b{font-size:15.5px}.student-summary .student-count{min-width:62px}.student-summary .student-count b{font-size:15px}
+  #todayAvailability .free-window-card{grid-template-columns:1fr;gap:5px}
+  .selected-day-session{grid-template-columns:58px minmax(0,1fr)}.selected-day-session>.small-btn{grid-column:1/-1;width:100%}
+  .month-day{min-height:42px}
+}
+
+@media(min-width:700px){
+  .feature-fields{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  #reportOptions{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+  .report-totals{grid-template-columns:repeat(5,minmax(0,1fr))}
+}
+
+@media(min-width:920px){
+  html.native-shell .mobile-top{padding:0 0 16px!important}
+  .mobile-body{padding:0}
+  .bottom-nav{height:54px}
+  #view-today .week-rail{display:none!important}
+  .month-calendar-shell{padding:18px}.month-day{min-height:48px}
+  .student-directory{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  #studentDirectory>#createStudent{grid-column:1/-1}
+  .feature-form button.save-btn{width:280px!important;justify-self:start}
+}
+
+@media print{
+  .report-context-note{background:white;border:1px solid #ddd}
+}
