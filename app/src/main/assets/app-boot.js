@@ -3,6 +3,7 @@ renderAll=function(){legacyRenderAll();renderAttention()};
 const originalOpenSheet=openSheet;
 openSheet=function(l,d=selectedDate,focusNote=false){if(l?.recordId&&!lessons.some(x=>x.id===l.id)){selectedStudent=l.studentId;switchView('students');renderStudents();const r=domain.occurrences(dateKey(d)).find(x=>x.id===l.recordId);if(r)openRecordForm(r,l.studentId,el('profileInline'));return}originalOpenSheet(l,d,focusNote)};
 handleSessionAction=function(action,l,d){attempt(()=>{const r=domain.occurrences(dateKey(d)).find(x=>x.id===keyFor(l,d));if(!r)return;if(['entered','missed','absent','notheld'].includes(action)){domain.record({...r,status:action});domainCommit()}else{selectedStudent=r.studentId;switchView('students');renderStudents();openRecordForm(r,r.studentId,el('profileInline'))}})};
+const saveRecurring=el('saveLesson').onclick;el('saveLesson').onclick=()=>attempt(saveRecurring);
 el('reportPrint').onclick=printProfessionalReport;
 el('bellBtn').onclick=openNotificationCenter;
 el('focusMoreBtn').onclick=()=>{if(currentFocus)handleSessionAction('note',currentFocus.lesson,currentFocus.date)};

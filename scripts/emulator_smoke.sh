@@ -31,3 +31,4 @@ adb exec-out screencap -p > audit/miaad-content-api31.png
 adb shell uiautomator dump /sdcard/miaad.xml || true
 adb pull /sdcard/miaad.xml audit/miaad-ui-api31.xml || true
 echo 'Offline Android 12 first-frame handoff: PASS'
+python3 scripts/emulator_acceptance.py

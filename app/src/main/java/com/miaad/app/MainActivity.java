@@ -56,6 +56,8 @@ public class MainActivity extends Activity {
         getWindow().setBackgroundDrawable(new ColorDrawable(deepGreen));
         root = new FrameLayout(this);
         root.setBackgroundColor(deepGreen);
+        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0)
+            WebView.setWebContentsDebuggingEnabled(true);
         webView = new WebView(this);
         webView.setBackgroundColor(deepGreen);
         root.addView(webView, new FrameLayout.LayoutParams(

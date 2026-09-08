@@ -6,7 +6,7 @@ const d=make(),s=d.saveStudent({name:'Acceptance student',startDate:'2026-09-01'
 const c=d.cycle(sid);d.setTarget(sid,12);
 const add=(date,status='entered',time='17:00',duration=30)=>d.record({studentId:sid,date,time,duration,status,note:'Teacher note'});
 const records=[];for(let i=1;i<=11;i++)records.push(add(`2026-09-${String(i).padStart(2,'0')}`));
-assert.equal(d.cycleStats(c).counted,11);const twelfth=add('2026-09-12');assert.equal(d.cycleStats(c).counted,12);
+assert.throws(()=>add('2026-09-01'));assert.equal(d.cycleStats(c).counted,11);const twelfth=add('2026-09-12');assert.equal(d.cycleStats(c).counted,12);
 d.notifications();d.notifications();assert.equal(Object.values(d.data.notifications).filter(n=>n.type==='cycle'&&n.active).length,1);
 d.record({...twelfth,status:'student_cancelled'});assert.equal(d.cycleStats(c).counted,11);d.notifications();assert.equal(d.data.notifications['cycle:'+c.id].active,false);
 d.record({...twelfth,status:'entered'});d.notifications();assert.equal(Object.values(d.data.notifications).filter(n=>n.type==='cycle').length,1);
