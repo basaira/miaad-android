@@ -1,0 +1,3 @@
+# TASK: Miaad UI/UX Clarity + Calendar/Day Navigation Hotfix
+
+Implement a focused, production-safe UI/UX repair in the existing Miaad Android app. Do not rewrite the app, do not change stored-data meaning, and preserve the existing green/ivory luxury brand. Fix header/bottom-nav overlap, RTL clipping, card/list clarity, Today/Week/Students/Reports/Settings hierarchy, empty states, and reliable month/day navigation including selecting day 1, previous/next month, and jump to today. Preserve all working student, lesson, cycle, period, timezone, notification, archive, and report logic. Verify no overlap, safe RTL, clear reports/settings, calendar day selection, and no logic regressions.
