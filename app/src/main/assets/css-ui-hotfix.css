@@ -36,6 +36,7 @@ html.native-shell .bottom-nav{bottom:10px!important}
 .date-block h1{font-size:clamp(27px,7.4vw,34px);line-height:1.2;overflow-wrap:anywhere}
 .date-block p{font-size:12px;line-height:1.7;max-width:34rem}
 .tiny-state{flex:0 0 auto;padding-top:3px}
+#reportCoverage{direction:ltr;unicode-bidi:isolate;display:block;text-align:left}
 
 .bottom-nav{
   z-index:90;right:12px;left:12px;
@@ -115,7 +116,11 @@ html.native-shell .bottom-nav{bottom:10px!important}
 .student-summary .student-count{min-width:70px;text-align:end;padding-inline-start:8px}
 .student-summary .student-count b{display:block;font-family:"Changa";font-size:17px;line-height:1.2;color:var(--deep);white-space:nowrap}
 .student-summary .student-count small{display:block;margin-top:5px;font-size:9px;line-height:1.35;color:var(--muted);white-space:nowrap}
-.profile-heading{gap:12px}.profile-heading h2{margin:0;line-height:1.3;overflow-wrap:anywhere}.profile-heading p{font-size:12px}
+.profile-heading{gap:12px;align-items:flex-start;flex-wrap:wrap}
+.profile-heading>div{min-width:0;flex:1 1 220px}
+.profile-heading h2{margin:0;font-size:clamp(21px,6vw,26px);line-height:1.35;overflow-wrap:anywhere;word-break:normal}
+.profile-heading p{font-size:12px}
+.profile-heading #profileEdit{flex:0 0 auto;align-self:flex-start}
 .profile-cycle,.profile-section{scroll-margin-top:84px}
 .history-row{line-height:1.55;min-width:0}.history-row>*{min-width:0}.history-row small{overflow-wrap:anywhere}
 
@@ -161,6 +166,7 @@ html.native-shell .bottom-nav{bottom:10px!important}
 
 /* Reports: controls first, explanation next, then data. */
 #view-report .date-block{margin-bottom:14px}
+#reportCoverage{font-variant-numeric:tabular-nums}
 #reportOptions{display:grid!important;grid-template-columns:1fr!important;gap:10px;margin:0 0 12px;padding:14px;background:var(--surface);border:1px solid rgba(79,61,35,.09);border-radius:17px}
 #reportOptions label{font-size:11px;font-weight:650;color:#405249}
 #reportOptions select{margin-top:6px}
@@ -182,6 +188,17 @@ html.native-shell .bottom-nav{bottom:10px!important}
 .professional-report table{font-size:12px}
 .professional-report td,.professional-report th{overflow-wrap:anywhere}
 #reportNoteForm{padding:14px;background:var(--surface);border:1px solid rgba(79,61,35,.09);border-radius:17px;margin-top:14px}
+#reportLanguageIntegrity{
+  margin:14px 0;padding:14px;background:#fffaf2;border:1px solid #d8c7a7;border-radius:17px;
+  box-shadow:0 6px 18px rgba(79,61,35,.035)
+}
+#reportLanguageIntegrity .section-heading{margin:0 0 9px;align-items:flex-start}
+#reportLanguageIntegrity .section-heading h3{font-size:16px!important;line-height:1.55!important;margin:0!important}
+#reportLanguageIntegrity .section-heading p{font-size:10px;line-height:1.7;margin:5px 0 0;color:var(--muted)}
+#reportLanguageIntegrity .section-heading>span{padding-top:2px;min-width:26px;text-align:center;background:#eee3cf;border-radius:9px;padding:5px 7px;color:#75591d}
+#reportLanguageIntegrity .feature-form{gap:11px;margin:0}
+#reportLanguageIntegrity label{font-size:11px}
+#reportLanguageIntegrity textarea{font-size:13px;line-height:1.65}
 
 /* Settings: section cards and a non-obstructive save action. */
 .settings-stack{gap:14px}
