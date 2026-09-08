@@ -1,7 +1,7 @@
 """Capture deterministic installed-APK UI evidence after transitions have settled.
 This is test-only: it never mutates production source or persisted user data.
 """
-import json, os, subprocess, time, urllib.request
+import base64, json, os, subprocess, time, urllib.request
 from pathlib import Path
 import websocket
 
@@ -40,24 +40,41 @@ def connect(timeout=45):
 
 
 seq=0
-def evaluate(ws,expression):
+def cdp(ws,method,params=None):
     global seq
     seq+=1
-    ws.send(json.dumps({'id':seq,'method':'Runtime.evaluate','params':{'expression':expression,'returnByValue':True,'awaitPromise':True}}))
+    ws.send(json.dumps({'id':seq,'method':method,'params':params or {}}))
     while True:
         msg=json.loads(ws.recv())
-        if msg.get('id')!=seq: continue
-        result=msg['result']
-        assert 'exceptionDetails' not in result,result
-        return result['result'].get('value')
+        if msg.get('id')!=seq:
+            continue
+        assert 'error' not in msg,msg
+        return msg.get('result',{})
 
 
-def screenshot(name):
+def evaluate(ws,expression):
+    result=cdp(ws,'Runtime.evaluate',{'expression':expression,'returnByValue':True,'awaitPromise':True})
+    assert 'exceptionDetails' not in result,result
+    return result['result'].get('value')
+
+
+def webview_screenshot(ws,name):
+    # Capture directly from the WebView renderer. adb screencap can briefly
+    # return an older Surface frame even after the DOM has switched screens.
+    data=cdp(ws,'Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False}).get('data')
+    assert data,f'No DevTools screenshot bytes for {name}'
+    Path(f'audit/{name}-{SUFFIX}.png').write_bytes(base64.b64decode(data))
+
+
+def device_screenshot(name):
+    # Keep one system-compositor image for native frame/status-bar evidence,
+    # but do not use it to identify which WebView screen is active.
     with open(f'audit/{name}-{SUFFIX}.png','wb') as f:
         subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
 
 
 ws=connect()
+cdp(ws,'Page.enable')
 ready=evaluate(ws,"typeof domain!=='undefined' && window.__miaadUiHotfixApplied===true && document.readyState==='complete'")
 assert ready,'Miaad UI runtime not ready'
 
@@ -84,15 +101,15 @@ for view in views:
       if(target==='settings')renderFeatureSettings();
       window.scrollTo(0,0);
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-      await new Promise(r=>setTimeout(r,180));
+      await new Promise(r=>setTimeout(r,350));
       const active=document.querySelector('.view.active');
       const ok=currentView===target && active?.id===`view-${{target}}` && getComputedStyle(active).display!=='none';
-      return {{target,currentView,activeId:active?.id||'',ok,scrollWidth:document.documentElement.scrollWidth,innerWidth:window.innerWidth}};
+      return {{target,currentView,activeId:active?.id||'',heading:active?.querySelector('.date-block h1')?.textContent?.trim()||'',ok,scrollWidth:document.documentElement.scrollWidth,innerWidth:window.innerWidth}};
     }})()""")
     assert state['ok'],state
     assert state['scrollWidth']<=state['innerWidth']+3,state
     checks[view]=state
-    screenshot(f'miaad-stable-{view}')
+    webview_screenshot(ws,f'miaad-webview-{view}')
 
 # Capture a real persisted student profile after the same stable-state gate.
 profile=evaluate(ws,"""(async()=>{
@@ -101,12 +118,16 @@ profile=evaluate(ws,"""(async()=>{
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='view-students'));
   currentView='students';selectedStudent=s.id;renderStudents();window.scrollTo(0,0);
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-  await new Promise(r=>setTimeout(r,180));
-  return {ok:currentView==='students'&&!!document.querySelector('#view-students.view.active .profile-heading'),studentId:s.id};
+  await new Promise(r=>setTimeout(r,350));
+  return {ok:currentView==='students'&&!!document.querySelector('#view-students.view.active .profile-heading'),studentId:s.id,heading:document.querySelector('#view-students .profile-heading h2')?.textContent?.trim()||''};
 })()""")
 assert profile['ok'],profile
-screenshot('miaad-stable-student-profile')
+webview_screenshot(ws,'miaad-webview-student-profile')
 checks['student-profile']=profile
-Path(f'audit/ui-capture-{SUFFIX}.json').write_text(json.dumps(checks,indent=2))
+
+# One device-level image proves the native WebView is on screen with Android
+# system bars. Screen-specific visual review uses the renderer captures above.
+device_screenshot('miaad-device-final')
+Path(f'audit/ui-capture-{SUFFIX}.json').write_text(json.dumps(checks,indent=2,ensure_ascii=False))
 ws.close()
-print(f'Stable installed-APK UI capture on API {API_LEVEL}: PASS')
+print(f'Stable installed-APK WebView capture on API {API_LEVEL}: PASS')
