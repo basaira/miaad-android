@@ -7,6 +7,7 @@ import android.animation.ValueAnimator;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.Typeface;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.content.Intent;
@@ -161,8 +162,32 @@ public class MainActivity extends Activity {
             }
         });
 
+        // Android 13+ uses the predictive-back dispatcher. This preserves the
+        // existing WebView history behavior while avoiding deprecated onBackPressed().
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    () -> handleBackNavigation()
+            );
+        }
+
         authenticateForCloudSync();
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    private void handleBackNavigation() {
+        if (webView != null && webView.canGoBack()) webView.goBack();
+        else finish();
+    }
+
+    /** Compatibility path for Android 8–12, where the predictive-back API does not exist. */
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && Build.VERSION.SDK_INT < 33) {
+            handleBackNavigation();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
     }
 
     private void openNotificationIntent(Intent intent) {
@@ -293,12 +318,6 @@ public class MainActivity extends Activity {
             fileCallback.onReceiveValue(result);
             fileCallback = null;
         }
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
     }
 
     @Override
