@@ -6,17 +6,58 @@ from pathlib import Path
 
 API_LEVEL=os.environ.get('MIAAD_API_LEVEL','31')
 SUFFIX=f'api{API_LEVEL}'
+PACKAGE='com.miaad.app'
+ACTIVITY=f'{PACKAGE}/.MainActivity'
 
-def adb(*args): return subprocess.check_output(['adb',*args],text=True).strip()
-def connect():
-    pid=adb('shell','pidof','com.miaad.app')
-    adb('forward','tcp:9222','localabstract:webview_devtools_remote_'+pid)
-    for _ in range(30):
+def adb(*args):
+    return subprocess.check_output(['adb',*args],text=True).strip()
+
+def adb_run(*args):
+    return subprocess.run(['adb',*args],text=True,capture_output=True)
+
+def process_pid(timeout=45):
+    deadline=time.time()+timeout
+    while time.time()<deadline:
+        result=adb_run('shell','pidof',PACKAGE)
+        pid=result.stdout.strip()
+        if result.returncode==0 and pid:
+            return pid.split()[0]
+        time.sleep(1)
+    raise AssertionError(f'{PACKAGE} process did not appear within {timeout}s')
+
+def wait_stopped(timeout=20):
+    deadline=time.time()+timeout
+    while time.time()<deadline:
+        result=adb_run('shell','pidof',PACKAGE)
+        if result.returncode!=0 or not result.stdout.strip():
+            return
+        time.sleep(.5)
+    raise AssertionError(f'{PACKAGE} did not stop within {timeout}s')
+
+def start_app():
+    result=adb_run('shell','am','start','-W','-n',ACTIVITY)
+    if result.returncode!=0:
+        raise AssertionError('App restart command failed: '+(result.stderr or result.stdout))
+    # Android 16 may return from am start before the app process/WebView is
+    # observable through pidof/devtools. Wait for the actual process instead
+    # of relying on a fixed sleep.
+    return process_pid(45)
+
+def connect(timeout=45):
+    deadline=time.time()+timeout
+    last_error=None
+    while time.time()<deadline:
         try:
-            tabs=json.load(urllib.request.urlopen('http://127.0.0.1:9222/json'))
-            return websocket.create_connection(next(t['webSocketDebuggerUrl'] for t in tabs if t.get('type')=='page'),suppress_origin=True)
-        except Exception: time.sleep(1)
-    raise AssertionError('WebView debugging connection unavailable')
+            pid=process_pid(min(10,max(1,int(deadline-time.time()))))
+            adb('forward','tcp:9222','localabstract:webview_devtools_remote_'+pid)
+            tabs=json.load(urllib.request.urlopen('http://127.0.0.1:9222/json',timeout=2))
+            page=next(t for t in tabs if t.get('type')=='page')
+            return websocket.create_connection(page['webSocketDebuggerUrl'],suppress_origin=True,timeout=5)
+        except Exception as exc:
+            last_error=exc
+            time.sleep(1)
+    raise AssertionError(f'WebView debugging connection unavailable: {last_error}')
+
 seq=0
 def evaluate(ws,expression):
     global seq
@@ -53,19 +94,23 @@ result=evaluate(ws,"""(()=>{
 result['apiLevel']=API_LEVEL
 Path(f'audit/native-acceptance-{SUFFIX}.json').write_text(json.dumps(result,indent=2))
 ws.close()
-adb('shell','am','force-stop','com.miaad.app')
-adb('shell','am','start','-W','-n','com.miaad.app/.MainActivity')
-time.sleep(3)
-ws=connect()
+
+# Test a genuine process restart. Do not use a fixed delay: newer Android
+# releases can expose the restarted process/WebView later than older releases.
+adb('shell','am','force-stop',PACKAGE)
+wait_stopped()
+start_app()
+ws=connect(60)
 assert evaluate(ws,f"domain.data.records[{json.dumps(result['recordId'])}].status")=='entered'
 assert evaluate(ws,f"domain.cycleStats(domain.cycle({json.dumps(result['studentId'])})).counted")==11
 assert evaluate(ws,f"domain.data.students[{json.dumps(result['studentId'])}].timeZone")=='America/Los_Angeles'
 evaluate(ws,f"selectedStudent={json.dumps(result['studentId'])};switchView('students');renderStudents();true")
 time.sleep(1)
-with open(f'audit/miaad-student-{SUFFIX}.png','wb') as f: subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
+with open(f'audit/miaad-student-{SUFFIX}.png','wb') as f:
+    subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
 alarms=adb('shell','dumpsys','alarm')
 Path(f'audit/alarms-{SUFFIX}.txt').write_text(alarms)
-assert 'com.miaad.app' in alarms,'Native alarm plan not registered'
+assert PACKAGE in alarms,'Native alarm plan not registered'
 result['processRestart']=True
 result['nativeAlarmRegistration']=True
 Path(f'audit/native-acceptance-{SUFFIX}.json').write_text(json.dumps(result,indent=2))
