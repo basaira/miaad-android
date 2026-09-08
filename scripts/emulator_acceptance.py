@@ -9,11 +9,14 @@ SUFFIX=f'api{API_LEVEL}'
 PACKAGE='com.miaad.app'
 ACTIVITY=f'{PACKAGE}/.MainActivity'
 
+
 def adb(*args):
     return subprocess.check_output(['adb',*args],text=True).strip()
 
+
 def adb_run(*args):
     return subprocess.run(['adb',*args],text=True,capture_output=True)
+
 
 def process_pid(timeout=45):
     deadline=time.time()+timeout
@@ -25,6 +28,7 @@ def process_pid(timeout=45):
         time.sleep(1)
     raise AssertionError(f'{PACKAGE} process did not appear within {timeout}s')
 
+
 def wait_stopped(timeout=20):
     deadline=time.time()+timeout
     while time.time()<deadline:
@@ -34,6 +38,7 @@ def wait_stopped(timeout=20):
         time.sleep(.5)
     raise AssertionError(f'{PACKAGE} did not stop within {timeout}s')
 
+
 def start_app():
     result=adb_run('shell','am','start','-W','-n',ACTIVITY)
     if result.returncode!=0:
@@ -41,6 +46,7 @@ def start_app():
     # Newer Android releases can return from am start before the app process
     # and WebView debugging socket are observable.
     return process_pid(45)
+
 
 def connect(timeout=60):
     deadline=time.time()+timeout
@@ -56,11 +62,16 @@ def connect(timeout=60):
             # Prefer the real local application page if DevTools reports more
             # than one transient target during startup.
             page=next((t for t in pages if 'android_asset' in (t.get('url') or '')),pages[0])
-            return websocket.create_connection(page['webSocketDebuggerUrl'],suppress_origin=True,timeout=5)
+            # API 36 can take materially longer than API 31 to execute the full
+            # installed-APK acceptance expression. A 5-second recv timeout was
+            # causing a false CI failure even though the app had launched and
+            # rendered correctly. Keep a bounded but realistic DevTools timeout.
+            return websocket.create_connection(page['webSocketDebuggerUrl'],suppress_origin=True,timeout=60)
         except Exception as exc:
             last_error=exc
             time.sleep(1)
     raise AssertionError(f'WebView debugging connection unavailable: {last_error}')
+
 
 seq=0
 def evaluate(ws,expression):
@@ -69,10 +80,12 @@ def evaluate(ws,expression):
     ws.send(json.dumps({'id':seq,'method':'Runtime.evaluate','params':{'expression':expression,'returnByValue':True,'awaitPromise':True}}))
     while True:
         msg=json.loads(ws.recv())
-        if msg.get('id')!=seq: continue
+        if msg.get('id')!=seq:
+            continue
         result=msg['result']
         assert 'exceptionDetails' not in result,result
         return result['result'].get('value')
+
 
 def wait_runtime_ready(ws,timeout=60):
     """Wait for Miaad's own JS domain, not merely a visible WebView page."""
@@ -88,6 +101,7 @@ def wait_runtime_ready(ws,timeout=60):
             last=exc
         time.sleep(1)
     raise AssertionError(f'Miaad JavaScript runtime did not become ready: {last}')
+
 
 ws=connect()
 wait_runtime_ready(ws)
