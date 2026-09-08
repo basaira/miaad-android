@@ -3,7 +3,12 @@ set -euo pipefail
 mkdir -p audit
 API_LEVEL="${MIAAD_API_LEVEL:-31}"
 SUFFIX="api${API_LEVEL}"
-trap 'adb logcat -d > "audit/logcat-'"$SUFFIX"'.txt"; adb shell dumpsys activity activities > "audit/activity-'"$SUFFIX"'.txt"; adb exec-out screencap -p > "audit/miaad-ready-'"$SUFFIX"'.png"' EXIT
+cleanup(){
+  adb logcat -d > "audit/logcat-${SUFFIX}.txt" || true
+  adb shell dumpsys activity activities > "audit/activity-${SUFFIX}.txt" || true
+  adb exec-out screencap -p > "audit/miaad-ready-${SUFFIX}.png" || true
+}
+trap cleanup EXIT
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell svc wifi disable
 adb shell svc data disable
