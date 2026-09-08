@@ -1,4 +1,4 @@
-"""Exercise the installed APK's real WebView, native snapshot and alarm bridge.
+"""Exercise the installed APK's real WebView, native snapshot, UI and alarm bridge.
 Test records exist only in the isolated offline CI emulator, never in the APK."""
 import json, os, subprocess, time, urllib.request
 import websocket
@@ -55,9 +55,6 @@ def start_app(timeout=60):
         result=adb_run('shell','am','start','-W','-n',ACTIVITY)
         last_output=((result.stdout or '')+'\n'+(result.stderr or '')).strip()
         if result.returncode==0:
-            # Give each launch attempt a short window to materialize a process.
-            # If API 36 merely delivered to a stale closing task, retry launch
-            # instead of waiting out the whole timeout on an impossible pid.
             try:
                 remaining=max(1,int(deadline-time.time()))
                 return process_pid(min(6,remaining))
@@ -81,13 +78,7 @@ def connect(timeout=60):
             pages=[t for t in tabs if t.get('type')=='page']
             if not pages:
                 raise RuntimeError('No WebView page target yet')
-            # Prefer the real local application page if DevTools reports more
-            # than one transient target during startup.
             page=next((t for t in pages if 'android_asset' in (t.get('url') or '')),pages[0])
-            # API 36 can take materially longer than API 31 to execute the full
-            # installed-APK acceptance expression. A 5-second recv timeout was
-            # causing a false CI failure even though the app had launched and
-            # rendered correctly. Keep a bounded but realistic DevTools timeout.
             return websocket.create_connection(page['webSocketDebuggerUrl'],suppress_origin=True,timeout=60)
         except Exception as exc:
             last_error=exc
@@ -110,19 +101,24 @@ def evaluate(ws,expression):
 
 
 def wait_runtime_ready(ws,timeout=60):
-    """Wait for Miaad's own JS domain, not merely a visible WebView page."""
+    """Wait for Miaad's own JS domain and final UI hotfix, not merely a WebView page."""
     deadline=time.time()+timeout
     last=None
     while time.time()<deadline:
         try:
-            ready=evaluate(ws,"typeof domain!=='undefined' && typeof renderAll==='function' && typeof AndroidBridge!=='undefined' && document.readyState==='complete'")
+            ready=evaluate(ws,"typeof domain!=='undefined' && typeof renderAll==='function' && typeof AndroidBridge!=='undefined' && document.readyState==='complete' && window.__miaadUiHotfixApplied===true")
             if ready:
                 return
-            last='runtime not ready'
+            last='runtime/UI hotfix not ready'
         except Exception as exc:
             last=exc
         time.sleep(1)
     raise AssertionError(f'Miaad JavaScript runtime did not become ready: {last}')
+
+
+def screenshot(name):
+    with open(f'audit/{name}-{SUFFIX}.png','wb') as f:
+        subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
 
 
 ws=connect()
@@ -130,7 +126,7 @@ wait_runtime_ready(ws)
 result=evaluate(ws,"""(()=>{
  const assert=(value,label)=>{if(!value)throw Error(label)};
  const today=dateKey(new Date()),past=domain.plus(today,-1);
- const s=domain.saveStudent({name:'CI acceptance student',startDate:domain.plus(today,-20),timeZone:'America/Los_Angeles',custom:true,settings:{...domain.copy(domain.data.settings),target:12}});
+ const s=domain.saveStudent({name:'CI acceptance student with a deliberately long readable name',startDate:domain.plus(today,-20),timeZone:'America/Los_Angeles',custom:true,settings:{...domain.copy(domain.data.settings),target:12}});
  const c=domain.cycle(s.id),r=[];
  for(let i=0;i<12;i++)r.push(domain.record({studentId:s.id,date:past,time:'08:'+String(i).padStart(2,'0'),duration:30,status:'entered',note:'Native acceptance record'}));
  r[0]=domain.record({...r[0],note:'تحسن واضح',noteAr:'تحسن واضح',noteEn:'Clear improvement'});
@@ -143,12 +139,65 @@ result=evaluate(ws,"""(()=>{
  assert(englishMarkup.includes('Clear improvement')&&!englishMarkup.includes('تحسن واضح'),'localized English note');
  assert(miaadStudentTimeLabel(r[0],'en').length>0,'student time zone display');
  const missingRow={...r[0],noteEn:''};assert(miaadReportMissingTranslations({rows:[missingRow],note:'',periodId:''},'en').length===1,'mixed-language export guard');
+
+ // UI/UX regression acceptance on the installed APK, not source HTML alone.
+ assert(window.__miaadUiHotfixApplied===true,'UI hotfix loaded');
+ assert(document.documentElement.classList.contains('native-shell'),'native inset mode');
+ assert(document.getElementById('todayBrowseDays'),'today calendar browse action');
+ assert(getComputedStyle(document.querySelector('#view-today .week-rail')).display==='none','Today does not mix week browsing');
+
+ selectedDate=startOfDay(new Date());renderWeekView();
+ const grid=document.getElementById('miaadMonthGrid');
+ assert(grid&&grid.querySelectorAll('[data-calendar-date]').length>=28,'month grid rendered');
+ const prefix=today.slice(0,8),dayOne=grid.querySelector(`[data-calendar-date="${prefix}01"]`);
+ assert(dayOne,'day 1 reachable');dayOne.click();assert(selectedDate.getDate()===1,'day 1 selectable');
+ assert(document.querySelector('#selectedDayPanel .selected-day-head'),'selected day detail panel');
+ assert(document.getElementById('monthPrev')&&document.getElementById('monthNext')&&document.getElementById('monthToday'),'month navigation controls');
+ document.getElementById('monthToday').click();assert(dateKey(selectedDate)===today,'today jump');
+
+ selectedStudent='';renderStudents('');
+ const studentCard=document.querySelector('#studentDirectory .student-summary');
+ assert(studentCard&&getComputedStyle(studentCard).display==='grid','student card grid');
+ assert(studentCard.scrollWidth<=studentCard.clientWidth+2,'student card no horizontal clipping');
+
+ renderFeatureSettings();
+ const settingsSave=document.querySelector('#globalSettings .save-btn');
+ assert(settingsSave&&getComputedStyle(settingsSave).position!=='sticky','settings save does not cover fields');
+ assert(document.getElementById('teacherZoneSection'),'timezone has a clear section');
+
+ reportSelection={studentId:s.id,periodId:p.id,language:'ar'};renderReport();
+ assert(document.querySelector('.report-context-note'),'scheduled/future report explanation');
+ assert(document.querySelector('[data-report-future]'),'future report metric');
+
+ const mobileBody=document.querySelector('.mobile-body'),bottomNav=document.querySelector('.bottom-nav');
+ const bodyPadding=parseFloat(getComputedStyle(mobileBody).paddingBottom),navHeight=bottomNav.getBoundingClientRect().height;
+ assert(bodyPadding>=navHeight+20,'bottom navigation safe content padding');
+
+ // Exercise each major view at mobile width and reject page-level horizontal overflow.
+ const views=['today','week','students','report','settings'];
+ for(const name of views){
+   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${name}`));
+   if(name==='today'){selectedDate=startOfDay(new Date());renderTodayAgenda()}
+   if(name==='week')renderWeekView();
+   if(name==='students'){selectedStudent='';renderStudents('')}
+   if(name==='report')renderReport();
+   if(name==='settings')renderFeatureSettings();
+   assert(document.documentElement.scrollWidth<=window.innerWidth+3,`${name} horizontal overflow`);
+ }
+ document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='view-today'));currentView='today';selectedDate=startOfDay(new Date());renderTodayAgenda();
+
  domainCommit();assert(JSON.parse(AndroidBridge.loadSnapshot()).domain.records[r[0].id].status==='entered','native persistence');
  assert(!buildNativeReminders().some(n=>n.id.includes('moh-sw')),'no invented time alarm');
- return {studentId:s.id,recordId:r[0].id,cycle:true,reversal:true,deduplication:true,archive:true,languageInvariant:true,localizedEnglish:true,studentTimeZone:true,mixedLanguageGuard:true,nativePersistence:true,alarms:buildNativeReminders().length};
+ return {studentId:s.id,recordId:r[0].id,cycle:true,reversal:true,deduplication:true,archive:true,languageInvariant:true,localizedEnglish:true,studentTimeZone:true,mixedLanguageGuard:true,nativePersistence:true,alarms:buildNativeReminders().length,uiHotfix:true,dayOneNavigation:true,monthNavigation:true,studentCardGrid:true,settingsNoStickySave:true,noHorizontalOverflow:true,reportContext:true,nativeInsetMode:true};
 })()""")
 result['apiLevel']=API_LEVEL
 Path(f'audit/native-acceptance-{SUFFIX}.json').write_text(json.dumps(result,indent=2))
+
+# Capture the real installed UI before process-restart checks.
+for view in ('today','week','students','report','settings'):
+    evaluate(ws, f"(()=>{{selectedStudent='';switchView({json.dumps(view)});if({json.dumps(view)}==='week')renderWeekView();if({json.dumps(view)}==='students')renderStudents('');if({json.dumps(view)}==='report')renderReport();if({json.dumps(view)}==='settings')renderFeatureSettings();return true}})()")
+    time.sleep(.45)
+    screenshot(f'miaad-{view}')
 ws.close()
 
 # Test a genuine process restart. Wait for process, WebView and the Miaad JS
@@ -162,9 +211,8 @@ assert evaluate(ws,f"domain.data.records[{json.dumps(result['recordId'])}].statu
 assert evaluate(ws,f"domain.cycleStats(domain.cycle({json.dumps(result['studentId'])})).counted")==11
 assert evaluate(ws,f"domain.data.students[{json.dumps(result['studentId'])}].timeZone")=='America/Los_Angeles'
 evaluate(ws,f"selectedStudent={json.dumps(result['studentId'])};switchView('students');renderStudents();true")
-time.sleep(1)
-with open(f'audit/miaad-student-{SUFFIX}.png','wb') as f:
-    subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
+time.sleep(.6)
+screenshot('miaad-student-profile')
 alarms=adb('shell','dumpsys','alarm')
 Path(f'audit/alarms-{SUFFIX}.txt').write_text(alarms)
 assert PACKAGE in alarms,'Native alarm plan not registered'
@@ -172,4 +220,4 @@ result['processRestart']=True
 result['nativeAlarmRegistration']=True
 Path(f'audit/native-acceptance-{SUFFIX}.json').write_text(json.dumps(result,indent=2))
 ws.close()
-print(f'Native installed-APK acceptance on API {API_LEVEL}: PASS')
+print(f'Native installed-APK UI + data acceptance on API {API_LEVEL}: PASS')
