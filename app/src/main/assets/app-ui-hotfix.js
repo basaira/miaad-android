@@ -12,14 +12,14 @@
 
   if(typeof NATIVE!=='undefined'&&NATIVE)document.documentElement.classList.add('native-shell');
   document.documentElement.classList.add('miaad-ui-clarity');
+  const weekNav=$('.nav-btn[data-view="week"] span:last-child');if(weekNav)weekNav.textContent='التقويم';
 
-  /* ---------- Today: keep it semantically "today" and send browsing to Week. ---------- */
   function ensureTodayBrowseButton(){
     const strip=$('#smartFreeStrip');
     if(!strip||$('#todayBrowseDays'))return;
     const button=document.createElement('button');
     button.type='button';button.id='todayBrowseDays';button.className='today-browse-days';
-    button.innerHTML='<span><b>استعراض الأيام والشهر</b><span>افتح التقويم لاختيار أي يوم ومراجعة حصصه</span></span><b aria-hidden="true">‹</b>';
+    button.innerHTML='<span style="display:grid;gap:2px;min-width:0"><b style="display:block;line-height:1.45">استعراض الأيام والشهر</b><span style="display:block;font-size:10px;line-height:1.55;color:var(--muted);font-weight:400">افتح التقويم لاختيار أي يوم ومراجعة حصصه</span></span><b aria-hidden="true" style="flex:0 0 auto">‹</b>';
     button.onclick=()=>{if(typeof switchView==='function')switchView('week')};
     strip.insertAdjacentElement('afterend',button);
   }
@@ -43,7 +43,6 @@
     });
   }
 
-  /* ---------- Month calendar: every day is directly reachable, including day 1. ---------- */
   let calendarCursor=new Date(selectedDate.getFullYear(),selectedDate.getMonth(),1,12,0,0,0);
 
   function syncCalendarCursor(){
@@ -99,7 +98,7 @@
         return `<article class="selected-day-session"><time>${safe(time)}${context?`<span class="time-context">${safe(context)}</span>`:''}</time><div class="selected-day-copy"><b>${safe(r.name)}</b><small>${safe(statusLabel(domain.status(r)))} · ${Number(r.duration)||0} دقيقة${r.note?` · ${safe(r.note)}`:''}</small></div><button type="button" class="small-btn" data-day-record="${safe(r.id)}">فتح</button><div class="selected-day-record-host" data-day-record-host="${safe(r.id)}"></div></article>`;
       }).join(''):`<div class="calendar-empty">لا توجد حصص مقررة في هذا اليوم.<button type="button" class="small-btn" id="addForSelectedDay">إضافة موعد لهذا اليوم</button></div>`);
     $$('[data-day-record]',panel).forEach(button=>button.onclick=()=>{
-      const row=rows.find(r=>r.id===button.dataset.dayRecord),host=$(`[data-day-record-host="${CSS.escape(button.dataset.dayRecord)}"]`,panel);
+      const row=rows.find(r=>r.id===button.dataset.dayRecord),host=$$('[data-day-record-host]',panel).find(node=>node.dataset.dayRecordHost===button.dataset.dayRecord);
       if(row&&host&&typeof openRecordForm==='function')openRecordForm(row,row.studentId,host);
     });
     const add=$('#addForSelectedDay',panel);if(add)add.onclick=()=>{if(typeof openSheet==='function')openSheet(null,selectedDate)};
@@ -125,7 +124,6 @@
     if(summary)summary.textContent=`عرض الأسبوع المحيط باليوم المحدد · ${range} · ${total} موعد`;
   }
 
-  /* ---------- Students ---------- */
   function polishStudents(){
     $$('#studentDirectory .student-summary').forEach(card=>{
       const name=$('.student-summary-copy b',card)?.textContent||'طالب';
@@ -134,7 +132,6 @@
     });
   }
 
-  /* ---------- Reports ---------- */
   function ensureReportMonthLabel(){
     const input=$('#reportMonth');if(!input||input.closest('#reportMonthControl'))return;
     const label=document.createElement('label');label.id='reportMonthControl';label.className='report-month-control';label.innerHTML='<span>الشهر</span>';
@@ -144,6 +141,9 @@
   function polishReport(){
     ensureReportMonthLabel();
     if(typeof reportData!=='function')return;
+    const studentSelect=$('#reportStudent'),periodSelect=$('#reportPeriod');
+    if(studentSelect)studentSelect.dir='auto';
+    if(periodSelect){periodSelect.dir='ltr';periodSelect.style.textAlign='left'}
     const r=reportData(),article=$('#reportDocument .professional-report');if(!article)return;
     const lang=reportSelection?.language==='en'?'en':'ar',future=(r.rows||[]).filter(row=>domain.status(row)==='future').length,totalRows=(r.rows||[]).length,resolved=(r.rows||[]).filter(row=>!['future','pending'].includes(domain.status(row))).length;
     const coverage=$('#reportCoverage');if(coverage)coverage.textContent=`${resolved} / ${totalRows}`;
@@ -164,7 +164,6 @@
     });
   }
 
-  /* ---------- Settings ---------- */
   function polishSettings(){
     const form=$('#globalSettings');if(!form)return;
     const zone=form.elements?.teacherTimeZone,zoneLabel=zone?.closest('label');
@@ -176,7 +175,6 @@
     const nativeNotification=$('#view-settings .setting-block h3');if(nativeNotification&&nativeNotification.textContent==='تنبيهات الدروس')nativeNotification.textContent='إذن إشعارات أندرويد';
   }
 
-  /* ---------- Wrap existing renderers only after the quality/luxury layer. ---------- */
   const baseRenderTodayAgenda=renderTodayAgenda;
   renderTodayAgenda=function(){baseRenderTodayAgenda();ensureTodayBrowseButton();polishTodayTimes()};
 
@@ -207,7 +205,6 @@
     return result;
   };
 
-  /* Initial pass after all legacy/luxury scripts have finished. */
   ensureTodayBrowseButton();
   renderTodayAgenda();
   renderWeekView();
