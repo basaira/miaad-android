@@ -254,3 +254,40 @@ html.native-shell .bottom-nav{bottom:10px!important}
 @media print{
   .report-context-note{background:white;border:1px solid #ddd}
 }
+
+/* Standards gate: WCAG 2.2 AA contrast/focus + Android 48dp touch guidance. */
+:where(button,input,select,textarea,summary,[role="button"],a[href]):focus-visible{
+  outline:3px solid #76591f!important;
+  outline-offset:2px!important;
+}
+#smartFreeLabel{color:#526157!important}
+#smartFreeClock{color:#6b4f18!important}
+.feature-session .status-mark.pending{color:#48554e!important}
+.selected-day-count{color:#48554e!important}
+.time-context,.feature-session .student-local-time{color:#526157!important;font-size:10px!important}
+.icon-btn{min-width:48px!important;min-height:48px!important}
+.primary-action,.secondary-action,.quick-action,.small-btn,.report-action,button.editor-link,#studentDirectory>#createStudent{min-height:48px!important}
+.secondary-action{min-width:48px!important}
+.month-input{height:48px!important;min-height:48px!important}
+.month-calendar-actions button{min-width:48px!important;min-height:48px!important}
+.month-day{min-height:48px!important}
+.selected-day-session .small-btn{min-height:48px!important}
+#globalSettings>details>summary{min-height:48px!important;display:flex;align-items:center}
+.feature-form .check-field{min-height:48px!important;display:flex;align-items:center;gap:10px;padding-block:6px}
+.setting-row .small-btn{min-height:48px!important}
+
+/* Give the seven-column month grid the full compact width instead of shrinking
+   every day behind decorative card padding. At >=360 CSS px this reaches the
+   Android 48dp recommendation without horizontal scrolling. */
+@media(max-width:430px){
+  :root{--ui-gutter:10px}
+  .month-calendar-shell{padding:14px 0}
+  .month-calendar-toolbar{padding-inline:12px}
+  .selected-day-panel{margin-inline:12px}
+  .month-weekdays,.month-days{gap:0}
+  .month-day-blank,.month-day{min-height:48px!important}
+}
+
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
