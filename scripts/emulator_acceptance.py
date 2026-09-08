@@ -39,13 +39,35 @@ def wait_stopped(timeout=20):
     raise AssertionError(f'{PACKAGE} did not stop within {timeout}s')
 
 
-def start_app():
-    result=adb_run('shell','am','start','-W','-n',ACTIVITY)
-    if result.returncode!=0:
-        raise AssertionError('App restart command failed: '+(result.stderr or result.stdout))
-    # Newer Android releases can return from am start before the app process
-    # and WebView debugging socket are observable.
-    return process_pid(45)
+def start_app(timeout=60):
+    """Launch until Android has actually created Miaad's new process.
+
+    Android 16 can briefly report the launch as delivered to the still-closing
+    top Activity immediately after force-stop, without creating a new process.
+    Retrying the explicit launch after that task transition is both closer to a
+    real user relaunch and stricter than accepting a stale Activity result.
+    """
+    deadline=time.time()+timeout
+    last_output=''
+    attempts=0
+    while time.time()<deadline:
+        attempts+=1
+        result=adb_run('shell','am','start','-W','-n',ACTIVITY)
+        last_output=((result.stdout or '')+'\n'+(result.stderr or '')).strip()
+        if result.returncode==0:
+            # Give each launch attempt a short window to materialize a process.
+            # If API 36 merely delivered to a stale closing task, retry launch
+            # instead of waiting out the whole timeout on an impossible pid.
+            try:
+                remaining=max(1,int(deadline-time.time()))
+                return process_pid(min(6,remaining))
+            except AssertionError:
+                pass
+        time.sleep(1)
+    raise AssertionError(
+        f'{PACKAGE} process did not start after {attempts} launch attempts; '
+        f'last am start output: {last_output}'
+    )
 
 
 def connect(timeout=60):
