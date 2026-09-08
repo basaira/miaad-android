@@ -52,3 +52,7 @@ adb shell uiautomator dump /sdcard/miaad.xml || true
 adb pull /sdcard/miaad.xml "audit/miaad-ui-${SUFFIX}.xml" || true
 echo "Offline Android API ${API_LEVEL} first-frame handoff: PASS"
 MIAAD_API_LEVEL="$API_LEVEL" python3 scripts/emulator_acceptance.py
+# Capture deterministic, settled destination views after acceptance. This
+# avoids reviewing a screenshot while a ViewTransition pseudo-element is still
+# animating the previous screen over the new one.
+MIAAD_API_LEVEL="$API_LEVEL" python3 scripts/ui_capture.py
