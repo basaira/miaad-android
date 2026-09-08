@@ -30,17 +30,22 @@ ws=connect()
 result=evaluate(ws,"""(()=>{
  const assert=(value,label)=>{if(!value)throw Error(label)};
  const today=dateKey(new Date()),past=domain.plus(today,-1);
- const s=domain.saveStudent({name:'CI acceptance student',startDate:domain.plus(today,-20),custom:true,settings:{...domain.copy(domain.data.settings),target:12}});
+ const s=domain.saveStudent({name:'CI acceptance student',startDate:domain.plus(today,-20),timeZone:'America/Los_Angeles',custom:true,settings:{...domain.copy(domain.data.settings),target:12}});
  const c=domain.cycle(s.id),r=[];
  for(let i=0;i<12;i++)r.push(domain.record({studentId:s.id,date:past,time:'08:'+String(i).padStart(2,'0'),duration:30,status:'entered',note:'Native acceptance record'}));
+ r[0]=domain.record({...r[0],note:'تحسن واضح',noteAr:'تحسن واضح',noteEn:'Clear improvement'});
  assert(domain.cycleStats(c).counted===12,'12/12');domain.notifications();domain.notifications();
  assert(Object.values(domain.data.notifications).filter(n=>n.type==='cycle'&&n.studentId===s.id).length===1,'deduplicated cycle');
  domain.record({...r[11],status:'student_cancelled'});assert(domain.cycleStats(c).counted===11,'reverse count');
  const p=domain.period(s.id);domain.archive(p);const old=JSON.stringify(domain.report(p));domain.nextPeriod(p);assert(JSON.stringify(domain.report(p))===old,'archive');
  reportSelection={studentId:s.id,periodId:p.id,language:'ar'};const before=JSON.stringify(domain.data.records),totals=JSON.stringify(reportData().stats);renderReport();assert(document.querySelector('.professional-report').dir==='rtl','Arabic direction');reportSelection.language='en';renderReport();assert(document.querySelector('.professional-report').dir==='ltr','English direction');assert(JSON.stringify(reportData().stats)===totals&&JSON.stringify(domain.data.records)===before,'language invariant');
+ const englishMarkup=reportMarkup({...reportData(),rows:[r[0]],studentName:s.name,studentTimeZone:s.timeZone},'en');
+ assert(englishMarkup.includes('Clear improvement')&&!englishMarkup.includes('تحسن واضح'),'localized English note');
+ assert(miaadStudentTimeLabel(r[0],'en').length>0,'student time zone display');
+ const missingRow={...r[0],noteEn:''};assert(miaadReportMissingTranslations({rows:[missingRow],note:'',periodId:''},'en').length===1,'mixed-language export guard');
  domainCommit();assert(JSON.parse(AndroidBridge.loadSnapshot()).domain.records[r[0].id].status==='entered','native persistence');
  assert(!buildNativeReminders().some(n=>n.id.includes('moh-sw')),'no invented time alarm');
- return {studentId:s.id,recordId:r[0].id,cycle:true,reversal:true,deduplication:true,archive:true,languageInvariant:true,nativePersistence:true,alarms:buildNativeReminders().length};
+ return {studentId:s.id,recordId:r[0].id,cycle:true,reversal:true,deduplication:true,archive:true,languageInvariant:true,localizedEnglish:true,studentTimeZone:true,mixedLanguageGuard:true,nativePersistence:true,alarms:buildNativeReminders().length};
 })()""")
 Path('audit/native-acceptance.json').write_text(json.dumps(result,indent=2))
 ws.close()
@@ -50,6 +55,7 @@ time.sleep(3)
 ws=connect()
 assert evaluate(ws,f"domain.data.records[{json.dumps(result['recordId'])}].status")=='entered'
 assert evaluate(ws,f"domain.cycleStats(domain.cycle({json.dumps(result['studentId'])})).counted")==11
+assert evaluate(ws,f"domain.data.students[{json.dumps(result['studentId'])}].timeZone")=='America/Los_Angeles'
 evaluate(ws,f"selectedStudent={json.dumps(result['studentId'])};switchView('students');renderStudents();true")
 time.sleep(1)
 with open('audit/miaad-student-api31.png','wb') as f: subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
