@@ -93,6 +93,7 @@ for view in views:
       const target={json.dumps(view)};
       document.documentElement.removeAttribute('data-nav-dir');
       document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===`view-${{target}}`));
+      document.querySelectorAll('.nav-btn').forEach(n=>n.classList.toggle('active',n.dataset.view===target));
       currentView=target;selectedStudent='';
       if(target==='today'){{selectedDate=startOfDay(new Date());renderTodayAgenda()}}
       if(target==='week'){{selectedDate=startOfDay(new Date());renderWeekView()}}
@@ -103,8 +104,9 @@ for view in views:
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       await new Promise(r=>setTimeout(r,350));
       const active=document.querySelector('.view.active');
-      const ok=currentView===target && active?.id===`view-${{target}}` && getComputedStyle(active).display!=='none';
-      return {{target,currentView,activeId:active?.id||'',heading:active?.querySelector('.date-block h1')?.textContent?.trim()||'',ok,scrollWidth:document.documentElement.scrollWidth,innerWidth:window.innerWidth}};
+      const activeNav=document.querySelector('.nav-btn.active')?.dataset.view||'';
+      const ok=currentView===target && active?.id===`view-${{target}}` && activeNav===target && getComputedStyle(active).display!=='none';
+      return {{target,currentView,activeId:active?.id||'',activeNav,heading:active?.querySelector('.date-block h1')?.textContent?.trim()||'',ok,scrollWidth:document.documentElement.scrollWidth,innerWidth:window.innerWidth}};
     }})()""")
     assert state['ok'],state
     assert state['scrollWidth']<=state['innerWidth']+3,state
@@ -116,10 +118,12 @@ profile=evaluate(ws,"""(async()=>{
   const s=Object.values(domain.data.students).find(x=>x.name.startsWith('CI acceptance student')) || Object.values(domain.data.students)[0];
   if(!s)return {ok:false,reason:'no student'};
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='view-students'));
+  document.querySelectorAll('.nav-btn').forEach(n=>n.classList.toggle('active',n.dataset.view==='students'));
   currentView='students';selectedStudent=s.id;renderStudents();window.scrollTo(0,0);
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   await new Promise(r=>setTimeout(r,350));
-  return {ok:currentView==='students'&&!!document.querySelector('#view-students.view.active .profile-heading'),studentId:s.id,heading:document.querySelector('#view-students .profile-heading h2')?.textContent?.trim()||''};
+  const activeNav=document.querySelector('.nav-btn.active')?.dataset.view||'';
+  return {ok:currentView==='students'&&activeNav==='students'&&!!document.querySelector('#view-students.view.active .profile-heading'),studentId:s.id,activeNav,heading:document.querySelector('#view-students .profile-heading h2')?.textContent?.trim()||''};
 })()""")
 assert profile['ok'],profile
 webview_screenshot(ws,'miaad-webview-student-profile')
