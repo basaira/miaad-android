@@ -271,7 +271,7 @@ html.native-shell .bottom-nav{bottom:10px!important}
 .month-input{height:48px!important;min-height:48px!important}
 .month-calendar-actions button{min-width:48px!important;min-height:48px!important}
 .month-day{min-height:48px!important}
-.selected-day-session .small-btn{min-height:48px!important}
+.selected-day-session .small-btn{min-width:48px!important;min-height:48px!important}
 #globalSettings>details>summary{min-height:48px!important;display:flex;align-items:center}
 .feature-form .check-field{min-height:48px!important;display:flex;align-items:center;gap:10px;padding-block:6px}
 .setting-row .small-btn{min-height:48px!important}
