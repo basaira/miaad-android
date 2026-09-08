@@ -10,6 +10,19 @@ cleanup(){
 }
 trap cleanup EXIT
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+# Android 13+ presents POST_NOTIFICATIONS in PermissionController, which is a
+# separate system activity. The acceptance suite deliberately force-stops and
+# relaunches Miaad to verify persistence; leaving the system permission dialog
+# open can keep that external activity on top and make `am start` report
+# "delivered to currently running top-most instance" instead of creating a new
+# Miaad process. Grant the declared runtime permission in the isolated CI
+# emulator only, equivalent to the user accepting it. Production permission
+# behavior in MainActivity remains unchanged.
+if [ "$API_LEVEL" -ge 33 ]; then
+  adb shell pm grant com.miaad.app android.permission.POST_NOTIFICATIONS
+fi
+
 adb shell svc wifi disable
 adb shell svc data disable
 adb logcat -c
