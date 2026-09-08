@@ -1,6 +1,6 @@
 const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
 const fs=require('fs'),path=require('path'),assert=require('assert/strict');
-(async()=>{const browser=await chromium.launch({headless:true,channel:'msedge'});const out=path.join(__dirname,'../audit/browser');fs.mkdirSync(out,{recursive:true});
+(async()=>{const browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL||'chrome'});const out=path.join(__dirname,'../audit/browser');fs.mkdirSync(out,{recursive:true});
 const results=[];
 for(const [name,width,height] of [['phone',390,844],['desktop',1440,1000]]){
  const context=await browser.newContext({viewport:{width,height},locale:'ar-EG',reducedMotion:'reduce'});const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
