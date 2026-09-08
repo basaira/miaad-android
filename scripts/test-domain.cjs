@@ -30,3 +30,5 @@ console.log('PASS: cycles, reversal, deduplication, inclusive periods, archive, 
 
 const rolling=make(),rs=rolling.saveStudent({name:'Rolling period',startDate:'2026-09-08'}),rp=rolling.createPeriod(rs.id,'2026-09-08','2026-10-07','monthly');assert.equal(rolling.nextPeriod(rp).end,'2026-11-07');
 const future=make(),fsu=future.saveStudent({name:'Future enrolment',startDate:'2028-01-01'});assert.equal(future.cycleStats(future.cycle(fsu.id)).counted,0);future.notifications();
+
+const cycles=make(),cs=cycles.saveStudent({name:'Cycle integrity',startDate:'2026-09-01'}),cr=cycles.record({studentId:cs.id,date:'2026-09-01',time:'09:00',duration:30,status:'entered'}),oldCycle=cycles.cycle(cs.id),newCycle=cycles.newCycle(cs.id);newCycle.start='2026-09-01';assert.equal(cycles.cycleStats(newCycle).counted,0);cycles.record({studentId:cs.id,date:'2026-09-02',time:'09:00',duration:30,status:'entered'});assert.equal(cycles.cycleStats(oldCycle).counted,2);assert.equal(cycles.cycleStats(newCycle).counted,0);cycles.removeRecord(cr);assert.equal(cycles.cycleStats(oldCycle).attended,1);
