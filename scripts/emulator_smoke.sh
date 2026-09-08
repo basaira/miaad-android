@@ -23,6 +23,18 @@ if [ "$API_LEVEL" -ge 33 ]; then
   adb shell pm grant com.miaad.app android.permission.POST_NOTIFICATIONS
 fi
 
+# On the API 26 google_apis image, the shell UID is not allowed to call
+# WifiService#setWifiEnabled and `svc wifi disable` terminates with a
+# SecurityException before Miaad can even launch. The CI image is userdebug and
+# supports adb root, so elevate only this isolated emulator in order to preserve
+# the same strict offline acceptance condition used on newer APIs. This changes
+# neither the APK nor production permissions.
+if [ "$API_LEVEL" -eq 26 ]; then
+  adb root
+  adb wait-for-device
+  test "$(adb shell id -u | tr -d '\r')" = "0"
+fi
+
 adb shell svc wifi disable
 adb shell svc data disable
 adb logcat -c
