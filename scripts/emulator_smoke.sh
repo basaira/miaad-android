@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 mkdir -p audit
-trap 'adb logcat -d > audit/logcat-api31.txt; adb shell dumpsys activity activities > audit/activity-api31.txt; adb exec-out screencap -p > audit/miaad-ready-api31.png' EXIT
+API_LEVEL="${MIAAD_API_LEVEL:-31}"
+SUFFIX="api${API_LEVEL}"
+trap 'adb logcat -d > "audit/logcat-'"$SUFFIX"'.txt"; adb shell dumpsys activity activities > "audit/activity-'"$SUFFIX"'.txt"; adb exec-out screencap -p > "audit/miaad-ready-'"$SUFFIX"'.png"' EXIT
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell svc wifi disable
 adb shell svc data disable
@@ -20,15 +22,15 @@ for attempt in $(seq 1 30); do
   sleep 2
 done
 wait "$record_pid"
-adb pull /sdcard/miaad-launch.mp4 audit/miaad-launch-api31.mp4
+adb pull /sdcard/miaad-launch.mp4 "audit/miaad-launch-${SUFFIX}.mp4"
 test "$ready" = true
-adb logcat -d > audit/logcat-api31.txt
-! grep -q 'FATAL EXCEPTION' audit/logcat-api31.txt
-! grep -q 'E MiaadWeb' audit/logcat-api31.txt
-adb exec-out screencap -p > audit/miaad-content-api31.png
+adb logcat -d > "audit/logcat-${SUFFIX}.txt"
+! grep -q 'FATAL EXCEPTION' "audit/logcat-${SUFFIX}.txt"
+! grep -q 'E MiaadWeb' "audit/logcat-${SUFFIX}.txt"
+adb exec-out screencap -p > "audit/miaad-content-${SUFFIX}.png"
 # A running clock can prevent UIAutomator from reaching idle; the startup
 # signal and screenshot above are the gate, with XML captured when available.
 adb shell uiautomator dump /sdcard/miaad.xml || true
-adb pull /sdcard/miaad.xml audit/miaad-ui-api31.xml || true
-echo 'Offline Android 12 first-frame handoff: PASS'
-python3 scripts/emulator_acceptance.py
+adb pull /sdcard/miaad.xml "audit/miaad-ui-${SUFFIX}.xml" || true
+echo "Offline Android API ${API_LEVEL} first-frame handoff: PASS"
+MIAAD_API_LEVEL="$API_LEVEL" python3 scripts/emulator_acceptance.py
