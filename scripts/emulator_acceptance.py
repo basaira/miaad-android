@@ -1,8 +1,11 @@
 """Exercise the installed APK's real WebView, native snapshot and alarm bridge.
 Test records exist only in the isolated offline CI emulator, never in the APK."""
-import json, subprocess, time, urllib.request
+import json, os, subprocess, time, urllib.request
 import websocket
 from pathlib import Path
+
+API_LEVEL=os.environ.get('MIAAD_API_LEVEL','31')
+SUFFIX=f'api{API_LEVEL}'
 
 def adb(*args): return subprocess.check_output(['adb',*args],text=True).strip()
 def connect():
@@ -47,7 +50,8 @@ result=evaluate(ws,"""(()=>{
  assert(!buildNativeReminders().some(n=>n.id.includes('moh-sw')),'no invented time alarm');
  return {studentId:s.id,recordId:r[0].id,cycle:true,reversal:true,deduplication:true,archive:true,languageInvariant:true,localizedEnglish:true,studentTimeZone:true,mixedLanguageGuard:true,nativePersistence:true,alarms:buildNativeReminders().length};
 })()""")
-Path('audit/native-acceptance.json').write_text(json.dumps(result,indent=2))
+result['apiLevel']=API_LEVEL
+Path(f'audit/native-acceptance-{SUFFIX}.json').write_text(json.dumps(result,indent=2))
 ws.close()
 adb('shell','am','force-stop','com.miaad.app')
 adb('shell','am','start','-W','-n','com.miaad.app/.MainActivity')
@@ -58,12 +62,12 @@ assert evaluate(ws,f"domain.cycleStats(domain.cycle({json.dumps(result['studentI
 assert evaluate(ws,f"domain.data.students[{json.dumps(result['studentId'])}].timeZone")=='America/Los_Angeles'
 evaluate(ws,f"selectedStudent={json.dumps(result['studentId'])};switchView('students');renderStudents();true")
 time.sleep(1)
-with open('audit/miaad-student-api31.png','wb') as f: subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
+with open(f'audit/miaad-student-{SUFFIX}.png','wb') as f: subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
 alarms=adb('shell','dumpsys','alarm')
-Path('audit/alarms-api31.txt').write_text(alarms)
+Path(f'audit/alarms-{SUFFIX}.txt').write_text(alarms)
 assert 'com.miaad.app' in alarms,'Native alarm plan not registered'
 result['processRestart']=True
 result['nativeAlarmRegistration']=True
-Path('audit/native-acceptance.json').write_text(json.dumps(result,indent=2))
+Path(f'audit/native-acceptance-{SUFFIX}.json').write_text(json.dumps(result,indent=2))
 ws.close()
-print('Native installed-APK acceptance: PASS')
+print(f'Native installed-APK acceptance on API {API_LEVEL}: PASS')
