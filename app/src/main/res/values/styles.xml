@@ -6,7 +6,6 @@
         <item name="android:statusBarColor">@color/miaad_ink</item>
         <item name="android:navigationBarColor">@color/miaad_ink</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:colorAccent">@color/miaad_signal</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowBackground">@drawable/miaad_launch_background</item>
