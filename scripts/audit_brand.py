@@ -61,11 +61,13 @@ def source_audit():
         subprocess.run(['node','--check',str(js)],check=True)
     return info
 
-def apk_audit(apk, output, source):
+def apk_audit(apk, output, source, shipping_assets):
     from loguru import logger
     logger.disable('androguard')
     from androguard.core.apk import APK
     from androguard.core.axml import AXMLPrinter
+    shipping_assets = shipping_assets.resolve()
+    assert shipping_assets.is_dir(), f'Missing APK shipping asset root: {shipping_assets}'
     output.mkdir(parents=True,exist_ok=True)
     with ZipFile(apk) as z:
         assert z.testzip() is None, 'ZIP CRC failure'
@@ -85,10 +87,17 @@ def apk_audit(apk, output, source):
                 target = candidates[0]
             assert images[target]['dimensions'] == expected['dimensions'], target
             assert images[target]['pixels_sha256'] == expected['pixels_sha256'], f'Wrong artwork: {target}'
-        for file in (ROOT/'app/src/main/assets').rglob('*'):
-            if file.is_file():
-                name = 'assets/'+file.relative_to(ROOT/'app/src/main/assets').as_posix()
-                assert z.read(name) == file.read_bytes(), f'Stale APK asset: {name}'
+        shipped_files = sorted(file for file in shipping_assets.rglob('*') if file.is_file())
+        assert shipped_files, f'Empty APK shipping asset root: {shipping_assets}'
+        expected_names = set()
+        for file in shipped_files:
+            relative = file.relative_to(shipping_assets).as_posix()
+            name = 'assets/'+relative
+            expected_names.add(name)
+            assert name in names, f'Missing APK asset: {name}'
+            assert z.read(name) == file.read_bytes(), f'Stale APK shipping asset: {name}'
+        actual_asset_names = {name for name in names if name.startswith('assets/') and not name.endswith('/')}
+        assert actual_asset_names == expected_names, f'APK asset set mismatch: missing={sorted(expected_names-actual_asset_names)} extra={sorted(actual_asset_names-expected_names)}'
         adaptive = {}
         for name in ['ic_launcher','ic_launcher_round']:
             entry = f'res/mipmap-anydpi-v26/{name}.xml'
@@ -114,7 +123,6 @@ def apk_audit(apk, output, source):
     assert resource_name(app.get(ANDROID+'roundIcon')).endswith(':mipmap/ic_launcher_round')
     theme = resource_name(app.get(ANDROID+'theme'))
     assert theme.endswith(':style/Theme.Miaad')
-    # Compiled resource table must contain the actual splash and Firebase resources.
     strings_xml = resources.get_string_resources('com.miaad.app').decode('utf-8')
     strings = {e.get('name'):e.text for e in ET.fromstring(strings_xml)}
     firebase = json.loads((ROOT/'app/google-services.json').read_text())
@@ -132,7 +140,9 @@ def apk_audit(apk, output, source):
               'version_code':package.get_androidversion_code(),'icon':resource_name(app.get(ANDROID+'icon')),
               'roundIcon':resource_name(app.get(ANDROID+'roundIcon')),'theme':theme,
               'approved_source_sha256':APPROVED_SHA,'images':images,'adaptive':adaptive,
-              'firebase_config_matches':True,'all_web_assets_match_source':True,
+              'firebase_config_matches':True,'all_web_assets_match_shipping_root':True,
+              'shipping_asset_root':str(shipping_assets.relative_to(ROOT)) if shipping_assets.is_relative_to(ROOT) else str(shipping_assets),
+              'shipping_asset_count':len(shipped_files),
               'png_crc_and_full_decode':'PASS','zip_crc':'PASS','signature_present':package.is_signed(),
               'limitations':['Static APK audit; runtime on-device behavior is verified separately, when available.']}
     assert result['signature_present'], 'Unsigned APK'
@@ -143,7 +153,8 @@ if __name__ == '__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--apk',type=Path)
     parser.add_argument('--output',type=Path,default=Path('audit'))
+    parser.add_argument('--apk-assets',type=Path,default=ROOT/'app/src/main/assets',help='Exact asset tree expected inside the APK. Source audit always remains app/src/main/assets.')
     args=parser.parse_args()
     source=source_audit()
     print(f'Source PASS: {len(source)} approved brand assets; all JavaScript parsed.')
-    if args.apk: apk_audit(args.apk,args.output,source)
+    if args.apk: apk_audit(args.apk,args.output,source,args.apk_assets)

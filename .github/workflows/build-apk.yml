@@ -89,7 +89,7 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
       - name: Decode and audit built APK
         run: |
-          python3 scripts/audit_brand.py --apk app/build/outputs/apk/debug/app-debug.apk --output audit
+          python3 scripts/audit_brand.py --apk app/build/outputs/apk/debug/app-debug.apk --output audit --apk-assets app/build/generated/compatAssets
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk > audit/aapt-badging.txt
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump resources app/build/outputs/apk/debug/app-debug.apk > audit/aapt-resources.txt
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk > audit/apk-signature.txt
