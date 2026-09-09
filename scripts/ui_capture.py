@@ -104,9 +104,11 @@ for view in views:
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       await new Promise(r=>setTimeout(r,350));
       const active=document.querySelector('.view.active');
-      const activeNav=document.querySelector('.nav-btn.active')?.dataset.view||'';
-      const ok=currentView===target && active?.id===`view-${{target}}` && activeNav===target && getComputedStyle(active).display!=='none';
-      return {{target,currentView,activeId:active?.id||'',activeNav,heading:active?.querySelector('.date-block h1')?.textContent?.trim()||'',ok,scrollWidth:document.documentElement.scrollWidth,innerWidth:window.innerWidth}};
+      const activeNavNode=document.querySelector('.nav-btn.active');
+      const activeNav=activeNavNode?activeNavNode.dataset.view:'';
+      const headingNode=active?active.querySelector('.date-block h1'):null;
+      const ok=currentView===target && !!active && active.id===`view-${{target}}` && activeNav===target && getComputedStyle(active).display!=='none';
+      return {{target,currentView,activeId:active?active.id:'',activeNav,heading:headingNode&&headingNode.textContent?headingNode.textContent.trim():'',ok,scrollWidth:document.documentElement.scrollWidth,innerWidth:window.innerWidth}};
     }})()""")
     assert state['ok'],state
     assert state['scrollWidth']<=state['innerWidth']+3,state
@@ -122,8 +124,10 @@ profile=evaluate(ws,"""(async()=>{
   currentView='students';selectedStudent=s.id;renderStudents();window.scrollTo(0,0);
   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   await new Promise(r=>setTimeout(r,350));
-  const activeNav=document.querySelector('.nav-btn.active')?.dataset.view||'';
-  return {ok:currentView==='students'&&activeNav==='students'&&!!document.querySelector('#view-students.view.active .profile-heading'),studentId:s.id,activeNav,heading:document.querySelector('#view-students .profile-heading h2')?.textContent?.trim()||''};
+  const activeNavNode=document.querySelector('.nav-btn.active');
+  const activeNav=activeNavNode?activeNavNode.dataset.view:'';
+  const headingNode=document.querySelector('#view-students .profile-heading h2');
+  return {ok:currentView==='students'&&activeNav==='students'&&!!document.querySelector('#view-students.view.active .profile-heading'),studentId:s.id,activeNav,heading:headingNode&&headingNode.textContent?headingNode.textContent.trim():''};
 })()""")
 assert profile['ok'],profile
 webview_screenshot(ws,'miaad-webview-student-profile')
