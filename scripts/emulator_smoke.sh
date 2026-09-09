@@ -37,7 +37,15 @@ fi
 
 adb shell svc wifi disable
 adb shell svc data disable
-adb logcat -c
+# Clearing logcat is test setup, not an application assertion. Some API 26
+# userdebug images reject clearing the main buffer after adbd restarts as root.
+# Preserve that fact as audit evidence, but do not abort before Miaad launches;
+# the acceptance checks below still fail on any app FATAL EXCEPTION or MiaadWeb
+# error and therefore no production failure is hidden.
+if ! adb logcat -c; then
+  echo "WARN: logcat clear unavailable on API ${API_LEVEL}; continuing with fresh-emulator logs" >&2
+  adb logcat -d > "audit/logcat-prelaunch-${SUFFIX}.txt" || true
+fi
 adb shell am force-stop com.miaad.app
 adb shell screenrecord --time-limit 20 /sdcard/miaad-launch.mp4 &
 record_pid=$!
