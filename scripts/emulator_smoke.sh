@@ -39,9 +39,7 @@ adb shell svc wifi disable
 adb shell svc data disable
 # Clearing logcat is test setup, not an application assertion. Some API 26
 # userdebug images reject clearing the main buffer after adbd restarts as root.
-# Preserve that fact as audit evidence, but do not abort before Miaad launches;
-# the acceptance checks below still fail on any app FATAL EXCEPTION or MiaadWeb
-# error and therefore no production failure is hidden.
+# Preserve that fact as audit evidence, but do not abort before Miaad launches.
 if ! adb logcat -c; then
   echo "WARN: logcat clear unavailable on API ${API_LEVEL}; continuing with fresh-emulator logs" >&2
   adb logcat -d > "audit/logcat-prelaunch-${SUFFIX}.txt" || true
@@ -63,8 +61,19 @@ wait "$record_pid"
 adb pull /sdcard/miaad-launch.mp4 "audit/miaad-launch-${SUFFIX}.mp4"
 test "$ready" = true
 adb logcat -d > "audit/logcat-${SUFFIX}.txt"
-! grep -q 'FATAL EXCEPTION' "audit/logcat-${SUFFIX}.txt"
-! grep -q 'E MiaadWeb' "audit/logcat-${SUFFIX}.txt"
+# Explicit conditionals are required here: commands whose status is inverted
+# with `!` are exempt from `set -e`, so the former `! grep -q` form could detect
+# a product error without failing the runtime gate.
+if grep -q 'FATAL EXCEPTION' "audit/logcat-${SUFFIX}.txt"; then
+  echo "FAIL: FATAL EXCEPTION detected on Android API ${API_LEVEL}" >&2
+  grep 'FATAL EXCEPTION' "audit/logcat-${SUFFIX}.txt" >&2 || true
+  exit 1
+fi
+if grep -q 'E MiaadWeb' "audit/logcat-${SUFFIX}.txt"; then
+  echo "FAIL: Miaad WebView JavaScript error detected on Android API ${API_LEVEL}" >&2
+  grep 'E MiaadWeb' "audit/logcat-${SUFFIX}.txt" >&2 || true
+  exit 1
+fi
 adb exec-out screencap -p > "audit/miaad-content-${SUFFIX}.png"
 # A running clock can prevent UIAutomator from reaching idle; the startup
 # signal and screenshot above are the gate, with XML captured when available.
