@@ -2,7 +2,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
 const assert=require('node:assert/strict');
-const root=path.join(__dirname,'../app/src/main/assets');
+const root=path.resolve(process.env.MIAAD_ASSET_ROOT||path.join(__dirname,'../app/src/main/assets'));
 const context={assert,console,Date,setTimeout,clearTimeout,navigator:{},
  document:{querySelectorAll:()=>[],getElementById:()=>({innerHTML:'',classList:{toggle(){}}})},
  window:{localStorage:{getItem:()=>null}},};

@@ -1,5 +1,7 @@
 const assert=require('node:assert/strict');
-const {createMiaadDomain}=require('../app/src/main/assets/app-domain.js');
+const path=require('node:path');
+const assetRoot=path.resolve(process.env.MIAAD_ASSET_ROOT||path.join(__dirname,'../app/src/main/assets'));
+const {createMiaadDomain}=require(path.join(assetRoot,'app-domain.js'));
 let now=new Date('2026-10-08T20:00:00');
 const make=()=>createMiaadDomain({}, {},()=>now);
 const d=make(),s=d.saveStudent({name:'Acceptance student',startDate:'2026-09-01',custom:false,settings:{}}),sid=s.id;

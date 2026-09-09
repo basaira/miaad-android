@@ -3,6 +3,8 @@ plugins {
     id 'com.google.gms.google-services'
 }
 
+def compatAssetsDir = file("$buildDir/generated/compatAssets")
+
 android {
     namespace 'com.miaad.app'
     compileSdk 36
@@ -26,6 +28,29 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    // Modern JavaScript remains in src/main/assets as the source of truth.
+    // Android packages only the deterministic WebView-69-compatible copy.
+    sourceSets {
+        main {
+            assets.srcDirs = [compatAssetsDir]
+        }
+    }
+}
+
+tasks.register('generateCompatAssets', Exec) {
+    workingDir rootProject.projectDir
+    commandLine 'node', 'scripts/build-compat.cjs'
+    environment 'MIAAD_SOURCE_ASSETS', file('src/main/assets').absolutePath
+    environment 'MIAAD_COMPAT_OUT', compatAssetsDir.absolutePath
+    inputs.dir file('src/main/assets')
+    inputs.file rootProject.file('scripts/build-compat.cjs')
+    inputs.file rootProject.file('scripts/compat-manifest.json')
+    outputs.dir compatAssetsDir
+}
+
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('generateCompatAssets')
 }
 
 dependencies {

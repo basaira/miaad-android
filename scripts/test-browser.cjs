@@ -1,10 +1,10 @@
 const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
 const fs=require('fs'),path=require('path'),assert=require('assert/strict');
-(async()=>{const browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL||'chrome'});const out=path.join(__dirname,'../audit/browser');fs.mkdirSync(out,{recursive:true});
+(async()=>{const browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL||'chrome'});const out=path.join(__dirname,'../audit/browser');fs.mkdirSync(out,{recursive:true});const assetRoot=path.resolve(process.env.MIAAD_ASSET_ROOT||path.join(__dirname,'../app/src/main/assets'));
 const results=[];
 for(const [name,width,height] of [['phone',390,844],['desktop',1440,1000]]){
  const context=await browser.newContext({viewport:{width,height},locale:'ar-EG',reducedMotion:'reduce'});const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
- await page.goto('file:///'+path.join(__dirname,'../app/src/main/assets/index.html').replaceAll('\\','/'));await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:path.join(out,name+'-today.png'),fullPage:true});
+ await page.goto('file:///'+path.join(assetRoot,'index.html').replaceAll('\\','/'));await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:path.join(out,name+'-today.png'),fullPage:true});
  assert.deepEqual(errors,[]);
  await page.locator('[data-view="students"]').click();await page.locator('#createStudent').click();await page.locator('#studentForm [name="name"]').fill('طالب اختبار');await page.locator('#studentForm [name="startDate"]').fill('2026-09-01');await page.locator('#studentForm button.save-btn').click();await page.locator('#addPast').waitFor();
  await page.locator('#addPast').click();await page.locator('.record-form [name="date"]').fill('2026-09-02');await page.locator('.record-form [name="time"]').fill('17:00');await page.locator('.record-form [name="status"]').selectOption('entered');await page.locator('.record-form [name="note"]').fill('ملاحظة تعليمية كاملة — Improvement in reading accuracy.');await page.locator('.record-form button[type="submit"], .record-form button:not([type])').click();
