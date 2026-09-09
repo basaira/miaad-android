@@ -23,7 +23,10 @@
     "app-ui-hotfix.js"
   ],
   "runtimePolyfills": {
-    "Array.prototype.at": "app-compat.js"
+    "Array.prototype.at": "app-compat.js",
+    "globalThis": "app-compat.js",
+    "Object.fromEntries": "app-compat.js",
+    "String.prototype.replaceAll": "app-compat.js"
   },
   "tooling": {
     "transformer": "esbuild@0.28.2",
