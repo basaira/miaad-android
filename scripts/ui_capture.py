@@ -58,19 +58,22 @@ def evaluate(ws,expression):
     return result['result'].get('value')
 
 
+def device_screenshot(name):
+    with open(f'audit/{name}-{SUFFIX}.png','wb') as f:
+        subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
+
+
 def webview_screenshot(ws,name):
-    # Capture directly from the WebView renderer. adb screencap can briefly
-    # return an older Surface frame even after the DOM has switched screens.
+    # Chrome/WebView 69 DevTools can stall indefinitely on Page.captureScreenshot
+    # even after Runtime.evaluate acceptance has succeeded. For API 26 only, use
+    # the Android compositor capture after the same settled DOM/state gate. Newer
+    # runtimes keep renderer-level capture for screen-specific evidence.
+    if API_LEVEL=='26':
+        device_screenshot(name)
+        return
     data=cdp(ws,'Page.captureScreenshot',{'format':'png','fromSurface':True,'captureBeyondViewport':False}).get('data')
     assert data,f'No DevTools screenshot bytes for {name}'
     Path(f'audit/{name}-{SUFFIX}.png').write_bytes(base64.b64decode(data))
-
-
-def device_screenshot(name):
-    # Keep one system-compositor image for native frame/status-bar evidence,
-    # but do not use it to identify which WebView screen is active.
-    with open(f'audit/{name}-{SUFFIX}.png','wb') as f:
-        subprocess.run(['adb','exec-out','screencap','-p'],stdout=f,check=True)
 
 
 ws=connect()
