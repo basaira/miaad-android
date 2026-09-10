@@ -1,10 +1,12 @@
 {
-  "contractVersion": 1,
+  "contractVersion": 2,
   "runtime": {
     "name": "Android API 26 CI reference WebView",
     "observedEngine": "Chromium/WebView 69",
     "syntaxTarget": "chrome69",
     "parserGate": "ECMAScript 2019 classic script",
+    "parserGateRole": "Static supplemental check only; it does not prove Chrome/WebView 69 runtime compatibility.",
+    "authoritativeProof": "Installed APK runtime acceptance on Android API 26 using the CI reference WebView 69.",
     "reason": "Phase 0 proved that the declared minSdk 26 path boots on the CI reference image but its WebView 69 parser rejects modern source syntax. This target is a delivery compatibility contract for the current API 26 reference image, not a silent product support-floor change."
   },
   "shippingScripts": [
@@ -31,6 +33,7 @@
   "tooling": {
     "transformer": "esbuild@0.28.2",
     "parser": "acorn@8.18.0",
+    "integrityLock": "scripts/compat-toolchain-lock.json",
     "bundle": false,
     "minify": false,
     "treeShaking": false

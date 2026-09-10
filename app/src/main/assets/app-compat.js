@@ -1,6 +1,8 @@
 /* WebView 69 compatibility shims. This file must load before all Miaad scripts. */
 if (typeof globalThis === 'undefined') {
- window.globalThis = window;
+ Object.defineProperty(window,'globalThis',{
+  configurable:true,writable:true,value:window
+ });
 }
 
 if (!Array.prototype.at) {
@@ -24,7 +26,7 @@ if (!Object.fromEntries) {
    const result={};
    for(const entry of iterable){
     if(entry==null||(typeof entry!=='object'&&typeof entry!=='function'))throw new TypeError('Iterator value is not an entry object');
-    result[entry[0]]=entry[1];
+    Object.defineProperty(result,entry[0],{configurable:true,enumerable:true,writable:true,value:entry[1]});
    }
    return result;
   }

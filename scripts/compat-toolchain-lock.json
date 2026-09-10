@@ -1,0 +1,22 @@
+{
+  "lockVersion": 1,
+  "mechanism": "Exact npm versions plus repository-pinned SHA-512 SRI. npm verifies downloaded package bytes against registry SRI; this gate requires the registry SRI and installed versions to match this repository lock before compatibility generation.",
+  "packages": [
+    {
+      "name": "esbuild",
+      "version": "0.28.2",
+      "integrity": "sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA=="
+    },
+    {
+      "name": "@esbuild/linux-x64",
+      "version": "0.28.2",
+      "integrity": "sha512-4xTZr1FUmSoQW4XIWmit3tzQrUTZM+N3P0XV8xROKYF50XfI7xeO90+1bZvNwxIufQ9hDQVRJH5YhgPVF8A/HQ==",
+      "ciPlatform": "linux-x64"
+    },
+    {
+      "name": "acorn",
+      "version": "8.18.0",
+      "integrity": "sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ=="
+    }
+  ]
+}
