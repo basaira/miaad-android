@@ -33,6 +33,7 @@ jobs:
           node scripts/test-schedule.cjs
           node scripts/test-domain.cjs
           node scripts/test-quality-invariants.cjs
+          node scripts/test-scheduling-contract.cjs
       - name: Modern source browser flow, report and UI standards tests
         env:
           PLAYWRIGHT_CHANNEL: chrome
@@ -56,6 +57,7 @@ jobs:
           node scripts/test-compat-shims.cjs
           node scripts/test-schedule.cjs
           node scripts/test-domain.cjs
+          node scripts/test-scheduling-contract.cjs
           node scripts/test-flows.cjs
           node scripts/test-browser.cjs
           node scripts/compat-assets-manifest.cjs audit/generated-assets-tested.json > audit/generated-assets-tested.sha256
@@ -101,6 +103,7 @@ jobs:
           gradle :app:generateCompatAssets --rerun-tasks --stacktrace
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-shipping-compat.cjs
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-compat-shims.cjs
+          MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-scheduling-contract.cjs
           node scripts/compat-assets-manifest.cjs audit/generated-assets-cleanbuild.json > audit/generated-assets-cleanbuild.sha256
           cmp audit/generated-assets-tested.sha256 audit/generated-assets-cleanbuild.sha256
       - name: Android lint and unit-test gate
