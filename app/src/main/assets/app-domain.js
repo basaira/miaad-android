@@ -43,9 +43,24 @@ function createMiaadDomain(seed={}, legacy={}, clock=()=>new Date()) {
   activity(old?'lesson_status':'lesson_added',r.studentId,{recordId:r.id,status:r.status});return r;
  }
  function removeRecord(r){return record({...r,deleted:true})}
- function saveSchedule(l,effective=day(clock())){
+ function validateSchedule(l,effective){
+  if(!l||typeof l!=='object')throw Error('بيانات الموعد غير صحيحة');
   if(!validDate(effective)||effective<day(clock()))throw Error('يُطبق تعديل الموعد على اليوم أو تاريخ لاحق');
-  const s=data.students[l.studentId]||studentFor(l.name);l={...copy(l),studentId:s.id,name:s.name};
+  if(typeof l.id!=='string'||!l.id.trim())throw Error('معرّف الموعد غير صحيح');
+  const suppliedStudent=l.studentId!==undefined&&l.studentId!==null&&l.studentId!=='';
+  if(suppliedStudent&&(!data.students[l.studentId]||typeof l.studentId!=='string'))throw Error('الطالب المرتبط بالموعد غير صحيح');
+  if(!suppliedStudent&&(typeof l.name!=='string'||!l.name.trim()))throw Error('اختر طالبًا أو اكتب اسمًا صحيحًا');
+  if(!Number.isInteger(l.day)||l.day<0||l.day>6)throw Error('يوم الموعد غير صحيح');
+  if(typeof l.start!=='string'||l.start!==''&&!timeOK(l.start))throw Error('وقت بداية الموعد غير صحيح');
+  if(l.start===''&&!(typeof l.displayTime==='string'&&l.displayTime.trim()))throw Error('الموعد المرن يحتاج وصف وقت واضحًا');
+  if(!Number.isFinite(+l.duration)||+l.duration<0)throw Error('مدة الموعد غير صحيحة');
+  if(l.maxDuration!==undefined&&l.maxDuration!==null&&l.maxDuration!==''&&(!Number.isFinite(+l.maxDuration)||+l.maxDuration<+l.duration))throw Error('أقصى مدة للموعد غير صحيحة');
+  if(!['weekly','biweekly','flex'].includes(l.repeat))throw Error('نمط تكرار الموعد غير صحيح');
+  if(l.phase!==undefined&&l.phase!==null&&(!Number.isInteger(+l.phase)||![0,1].includes(+l.phase)))throw Error('مرحلة الموعد المتناوب غير صحيحة');
+ }
+ function saveSchedule(l,effective=day(clock())){
+  validateSchedule(l,effective);
+  const s=l.studentId?data.students[l.studentId]:studentFor(l.name);l={...copy(l),studentId:s.id,name:s.name};
   const versions=data.schedules[l.id]||[];if(versions.length){const old=versionAt(l.id,day(clock()));if(old&&active(old,day(clock()))){const r=row(old,day(clock()));if(!data.records[r.id]&&(!timeOK(r.time)||new Date(r.date+'T'+r.time)<=clock()))data.records[r.id]=r;recordIndex=null}}
   data.schedules[l.id]=versions.filter(v=>v.from<effective).concat({from:effective,lesson:l});activity('schedule_changed',s.id,{scheduleId:l.id,effective});return l;
  }
@@ -66,7 +81,17 @@ function createMiaadDomain(seed={}, legacy={}, clock=()=>new Date()) {
  function mergeIntervals(list){const sorted=list.filter(x=>x.end>x.start).map(copy).sort((a,b)=>a.start-b.start),out=[];for(const r of sorted){const prev=out.at(-1);if(prev&&r.start<=prev.end)prev.end=Math.max(prev.end,r.end);else out.push(r)}return out}
  function configuredIntervals(date,working=true){const out=[];for(const offset of [-1,0]){const date2=plus(date,offset),pairs=working?data.settings.working[parse(date2).getDay()]||[]:data.settings.blocked.filter(b=>b.date===date2||b.day===parse(date2).getDay()).map(b=>[b.start,b.end]);for(const [a,b] of pairs){const st=minutes(a)+offset*1440;let en=minutes(b)+offset*1440;if(en<=st)en+=1440;if(en>0&&st<1440)out.push({start:Math.max(0,st),end:Math.min(1440,en)})}}return mergeIntervals(out)}
  function occupied(date,excludeId=''){const hard=configuredIntervals(date,false),soft=[];const buffer=Number(data.settings.buffer)||0;for(const offset of [-1,0,1])for(const r of occurrences(plus(date,offset))){if(r.scheduleId===excludeId||r.id===excludeId||['student_cancelled','missed','notheld','rescheduled'].includes(r.status))continue;if(!timeOK(r.time)){if(!offset)soft.push(r);continue}const st=offset*1440+minutes(r.time),en=st+Math.max(r.maxDuration||0,r.duration||30);if(en+buffer>0&&st-buffer<1440)hard.push({start:Math.max(0,st-buffer),end:Math.min(1440,en+buffer),record:r})}return {hard:mergeIntervals(hard),soft}}
- function availability(date,excludeId=''){const {hard,soft}=occupied(date,excludeId),out=[];for(const w of configuredIntervals(date)){let cursor=w.start;for(const b of hard){if(b.end<=cursor||b.start>=w.end)continue;if(b.start>cursor)out.push({start:cursor,end:Math.min(b.start,w.end)});cursor=Math.max(cursor,b.end)}if(cursor<w.end)out.push({start:cursor,end:w.end})}return out.filter(w=>w.end-w.start>=data.settings.minSlot).map(w=>({...w,minutes:w.end-w.start,soft}))}
+ function rawAvailability(date,excludeId=''){const {hard,soft}=occupied(date,excludeId),out=[];for(const w of configuredIntervals(date)){let cursor=w.start;for(const b of hard){if(b.end<=cursor||b.start>=w.end)continue;if(b.start>cursor)out.push({start:cursor,end:Math.min(b.start,w.end)});cursor=Math.max(cursor,b.end)}if(cursor<w.end)out.push({start:cursor,end:w.end})}return out.map(w=>({...w,minutes:w.end-w.start,soft}))}
+ function availability(date,excludeId=''){return rawAvailability(date,excludeId).filter(w=>w.minutes>=data.settings.minSlot)}
+ function hardUnavailable(date,excludeId=''){const free=rawAvailability(date,excludeId),out=[];let cursor=0;for(const w of free){if(w.start>cursor)out.push({start:cursor,end:w.start});cursor=Math.max(cursor,w.end)}if(cursor<1440)out.push({start:cursor,end:1440});return out}
+ function schedulingConflict(date,startMin,durationMin,excludeId=''){
+  startMin=Number(startMin);durationMin=Number(durationMin);
+  if(!validDate(date)||!Number.isFinite(startMin)||startMin<0||startMin>=1440||!Number.isFinite(durationMin)||durationMin<=0)throw Error('نطاق الموعد المطلوب غير صحيح');
+  const end=startMin+durationMin,hard=[],soft=[];
+  for(let dayOffset=0;dayOffset<=Math.floor((end-1)/1440);dayOffset++){const target=plus(date,dayOffset),probe={start:Math.max(0,startMin-dayOffset*1440),end:Math.min(1440,end-dayOffset*1440)};for(const b of hardUnavailable(target,excludeId))if(Math.max(probe.start,b.start)<Math.min(probe.end,b.end))hard.push({...b,date:target,dayOffset});for(const r of occupied(target,excludeId).soft)soft.push({...copy(r),date:target,dayOffset})}
+  return {hard,soft}
+ }
+ function activeHardBlock(date,minute,excludeId=''){minute=Number(minute);if(!validDate(date)||!Number.isFinite(minute)||minute<0||minute>=1440)return null;return hardUnavailable(date,excludeId).find(b=>minute>=b.start&&minute<b.end)||null}
  function notify(key,type,sid,entity,title,body){const old=data.notifications[key];if(old){old.active=true;old.title=title;old.body=body;return old}return data.notifications[key]={id:key,type,studentId:sid,entity,title,body,createdAt:stamp(),read:false,active:true,snoozeUntil:0}}
  function notifications(now=clock()){
   for(const n of Object.values(data.notifications))if(['cycle','period','pending','upcoming','daily'].includes(n.type))n.active=false;
@@ -82,6 +107,6 @@ function createMiaadDomain(seed={}, legacy={}, clock=()=>new Date()) {
   return Object.values(data.notifications).filter(n=>n.active&&n.snoozeUntil<=+now).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
  }
  function saveSettings(settings){positive(settings.target,'هدف الدورة');positive(settings.duration,'المدة');positive(settings.minSlot,'أقل فترة');if(!Number.isFinite(+settings.buffer)||settings.buffer<0)throw Error('الفاصل غير صحيح');for(const pairs of Object.values(settings.working))for(const pair of pairs)if(pair.length!==2||!timeOK(pair[0])||!(timeOK(pair[1])||pair[1]==='24:00')||pair[0]===pair[1])throw Error('نطاق ساعات العمل غير صحيح');for(const b of settings.blocked)if(!timeOK(b.start)||!(timeOK(b.end)||b.end==='24:00')||b.start===b.end||!(validDate(b.date)||Number.isInteger(b.day)&&b.day>=0&&b.day<7))throw Error('نطاق الحظر غير صحيح');if(!timeOK(settings.notifications.dailyTime))throw Error('وقت التنبيه غير صحيح');data.settings=copy(settings);for(const c of Object.values(data.cycles))if(!c.closed&&!c.targetOverride&&!data.students[c.studentId]?.custom)c.target=settings.target}
- return {get data(){return data},copy,day,parse,plus,timeOK,positive,prefs,studentFor,saveStudent,occurrences,range,record,removeRecord,saveSchedule,deleteSchedule,versionAt,counts,stats,status,ended,cycle,cycleStats,cycleRows,newCycle,setTarget,periodBounds,createPeriod,period,editPeriod,report,archive,nextPeriod,availability,occupied,notifications,notify,saveSettings,activity,states,defaults,replace(next,old){data=createMiaadDomain(next,old,clock).data;recordIndex=null},merge(next){recordIndex=null;if(next?.settings)saveSettings({...copy(defaults),...copy(next.settings)});for(const type of ['students','records','schedules','cycles','periods','notifications'])for(const [key,val] of Object.entries(next?.[type]||{})){const cur=data[type][key];if(!cur||String(val.updatedAt||val.createdAt||'')>=String(cur.updatedAt||cur.createdAt||''))data[type][key]=copy(val)}const logs=new Map(data.activity.map(x=>[x.id,x]));for(const x of next?.activity||[])logs.set(x.id,x);data.activity=[...logs.values()]}};
+ return {get data(){return data},copy,day,parse,plus,timeOK,positive,prefs,studentFor,saveStudent,occurrences,range,record,removeRecord,saveSchedule,deleteSchedule,versionAt,counts,stats,status,ended,cycle,cycleStats,cycleRows,newCycle,setTarget,periodBounds,createPeriod,period,editPeriod,report,archive,nextPeriod,availability,occupied,hardUnavailable,schedulingConflict,activeHardBlock,notifications,notify,saveSettings,activity,states,defaults,replace(next,old){data=createMiaadDomain(next,old,clock).data;recordIndex=null},merge(next){recordIndex=null;if(next?.settings)saveSettings({...copy(defaults),...copy(next.settings)});for(const type of ['students','records','schedules','cycles','periods','notifications'])for(const [key,val] of Object.entries(next?.[type]||{})){const cur=data[type][key];if(!cur||String(val.updatedAt||val.createdAt||'')>=String(cur.updatedAt||cur.createdAt||''))data[type][key]=copy(val)}const logs=new Map(data.activity.map(x=>[x.id,x]));for(const x of next?.activity||[])logs.set(x.id,x);data.activity=[...logs.values()]}};
 }
 if(typeof module!=='undefined')module.exports={createMiaadDomain};
