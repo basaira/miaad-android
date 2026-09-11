@@ -89,6 +89,18 @@ check('S25 candidates never enter authoritative hard conflict',()=>{for(const c 
 check('LIVE blocked interval uses hard authority',()=>assert.ok(engine.activeBlock(new Date('2026-09-21T10:15:00'))));
 check('LIVE buffer interval uses hard authority',()=>assert.ok(engine.activeBlock(new Date('2026-09-21T11:50:00'))));
 
+// Review fix: hard-conflict provenance must describe the specific causal range, not a merged neighbor.
+resetSettings();clearSchedules();cfg=domain.copy(domain.data.settings);cfg.working[1]=[['09:00','17:00']];cfg.minSlot=1;domain.saveSettings(cfg);save({id:'prov-end-lesson',day:1,start:'16:30',duration:30},'2026-09-21');
+check('PROV A outside-working conflict does not inherit adjacent lesson identity',()=>{const hits=hard('2026-09-21','20:00',15);assert.ok(hits.length);assert.ok(hits.every(x=>x.id!=='prov-end-lesson'&&x.name!=='Contract student'));assert.ok(hits.some(x=>x.reason==='outside-working'))});
+check('PROV B activeBlock outside working does not identify finished lesson',()=>{const b=engine.activeBlock(new Date('2026-09-21T20:00:00'));assert.ok(b);assert.notEqual(b.id,'prov-end-lesson');assert.notEqual(b.name,'Contract student');assert.equal(b.reason,'outside-working')});
+
+resetSettings();clearSchedules();cfg=domain.copy(domain.data.settings);cfg.working[1]=[['09:00','17:00']];cfg.blocked=[{day:1,start:'16:00',end:'16:30'}];cfg.minSlot=1;domain.saveSettings(cfg);save({id:'prov-touch-lesson',day:1,start:'16:30',duration:30},'2026-09-21');
+check('PROV C configured blocked-only portion does not inherit touching lesson',()=>{const hits=hard('2026-09-21','16:15',10);assert.ok(hits.length);assert.ok(hits.every(x=>x.id!=='prov-touch-lesson'&&x.name!=='Contract student'));assert.ok(hits.some(x=>x.reason==='blocked'))});
+check('PROV D actual lesson conflict preserves lesson identity',()=>{const hits=hard('2026-09-21','16:45',10);assert.ok(hits.some(x=>x.id==='prov-touch-lesson'&&x.reason==='occurrence'))});
+
+resetSettings();clearSchedules();cfg=domain.copy(domain.data.settings);cfg.working[1]=[['09:00','17:00']];cfg.buffer=15;cfg.minSlot=1;domain.saveSettings(cfg);save({id:'prov-buffer-lesson',day:1,start:'10:00',duration:30},'2026-09-21');
+check('PROV E lesson buffer preserves associated lesson identity',()=>{const hits=hard('2026-09-21','09:50',5);assert.ok(hits.some(x=>x.id==='prov-buffer-lesson'&&x.reason==='buffer'))});
+
 resetSettings();clearSchedules();cfg=domain.copy(domain.data.settings);cfg.working[1]=[['10:00','10:25']];cfg.minSlot=30;domain.saveSettings(cfg);
 check('S20 minSlot current characterization only',()=>{assert.equal(domain.availability('2026-09-21').length,0);assert.equal(engine.scoreCandidates(new Date('2026-09-21T12:00:00'),20).length,0)});
 

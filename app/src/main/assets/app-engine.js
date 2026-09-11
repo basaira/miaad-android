@@ -12,8 +12,6 @@ const SmartScheduleEngine=(()=>{
  function effectiveSeconds(l){return Math.max(60,(l.maxDuration||l.duration||UNCERTAIN_DEFAULT/60)*60)}
  function blocks(date,excludeId=''){
    const out=[];
-   // Include yesterday's overruns. Unknown clock times remain whole-day
-   // uncertainty, never a fabricated minute or a guaranteed free interval.
    for(const offset of [-1,0]){
      for(const l of lessonsForDate(addDays(date,offset)).filter(l=>l.id!==excludeId)){
        const soft=isSoft(l);
@@ -31,12 +29,18 @@ const SmartScheduleEngine=(()=>{
    for(const b of hard){if(b.start>cursor)out.push({start:cursor,end:b.start});cursor=Math.max(cursor,b.end)}if(cursor<DAY)out.push({start:cursor,end:DAY});
    return out.map(w=>({...w,seconds:w.end-w.start,softRisks:soft.filter(s=>overlaps(w,s))}))
  }
+ function domainHardBlock(b){
+   const interval={start:b.start*60,end:b.end*60},record=b.record;
+   if((b.kind==='occurrence'||b.kind==='buffer')&&record){const lesson=record.schedule||record;return {id:record.scheduleId||record.id,name:record.name,start:interval.start,end:interval.end,soft:false,label:record.displayTime||record.time||lesson.displayTime||lesson.start||'موعد محجوز',lesson,reason:b.kind}}
+   const labels={blocked:'وقت محظور','outside-working':'خارج وقت العمل'};
+   return {id:`hard:${b.kind||'unavailable'}:${b.date||''}:${b.start}-${b.end}`,name:'وقت غير متاح',start:interval.start,end:interval.end,soft:false,label:labels[b.kind]||'خارج الوقت المتاح',reason:b.kind||'unavailable'}
+ }
  function conflict(date,startSec,durationMin,excludeId=''){
    if(typeof domain!=='undefined'&&typeof domain.schedulingConflict==='function'){
      const truth=domain.schedulingConflict(dateKey(date),startSec/60,Math.max(1,durationMin),excludeId);
-     const hard=truth.hard.map(b=>{const interval={start:b.start*60,end:b.end*60},meta=blocks(addDays(date,b.dayOffset||0),excludeId).filter(x=>!x.soft).find(x=>overlaps(interval,x));return meta?{...meta,start:interval.start,end:interval.end}:{id:`hard:${b.date}:${b.start}-${b.end}`,name:'وقت غير متاح',start:interval.start,end:interval.end,soft:false,label:'خارج الوقت المتاح'}});
+     const hard=truth.hard.map(domainHardBlock);
      const soft=truth.soft.map(r=>({id:r.scheduleId||r.id,name:r.name,start:0,end:DAY,soft:true,label:r.displayTime||r.schedule?.displayTime||'وقت غير محدد',lesson:r.schedule||r}));
-     return {hard:[...new Map(hard.map(b=>[b.id,b])).values()],soft:[...new Map(soft.map(b=>[b.id,b])).values()]};
+     return {hard,soft:[...new Map(soft.map(b=>[b.id,b])).values()]};
    }
    const end=startSec+Math.max(1,durationMin)*60,hits=[];
    for(let day=0;day<=Math.floor((end-1)/DAY);day++){
@@ -46,27 +50,10 @@ const SmartScheduleEngine=(()=>{
    const unique=[...new Map(hits.map(b=>[b.id,b])).values()];
    return {hard:unique.filter(b=>!b.soft),soft:unique.filter(b=>b.soft)}
  }
- function affinity(startMin){
-   const starts=lessons.filter(hasFixedTime).map(l=>toMinutes(l.start));if(!starts.length)return .5;
-   let sum=0;for(const x of starts){const dist=Math.min(Math.abs(startMin-x),1440-Math.abs(startMin-x));sum+=Math.exp(-(dist*dist)/(2*120*120))}return Math.min(1,sum/Math.max(2,starts.length*.23))
- }
- function scoreCandidates(date,durationMin,excludeId=''){
-   durationMin=Math.max(10,Number(durationMin)||30);const dur=durationMin*60,bs=blocks(date,excludeId),hard=bs.filter(x=>!x.soft),soft=bs.filter(x=>x.soft),wins=freeWindows(date,excludeId),raw=[];
-   for(const w of wins){if(w.seconds<dur)continue;for(let st=Math.ceil(w.start/GRID)*GRID;st+dur<=w.end;st+=GRID){const en=st+dur,left=st-w.start,right=w.end-en;let score=62;
-     score+=affinity(st/60)*20;
-     const near=Math.min(...hard.flatMap(b=>[Math.abs(st-b.end),Math.abs(en-b.start)]),7200);score+=Math.max(0,12-near/300);
-     if(left>0&&left<1200)score-=10;if(right>0&&right<1200)score-=10;
-     if(left>=600&&right>=600)score+=4;
-     const softHits=soft.filter(b=>overlaps({start:st,end:en},b));score-=softHits.length*28;
-     if(affinity(st/60)<.18)score-=7;
-     raw.push({start:st,end:en,score:Math.max(1,Math.min(99,Math.round(score))),softHits,window:w});
-   }}
-   raw.sort((a,b)=>b.score-a.score||a.start-b.start);const chosen=[];for(const c of raw){if(chosen.every(x=>Math.abs(x.start-c.start)>=1200)){chosen.push(c);if(chosen.length===6)break}}return chosen
- }
- function liveFree(now=new Date()){
-   const d=startOfDay(now),sec=now.getHours()*3600+now.getMinutes()*60+now.getSeconds(),wins=freeWindows(d);const w=wins.find(x=>sec>=x.start&&sec<x.end);if(!w)return null;return{...w,remaining:w.end-sec,now:sec}
- }
- function activeBlock(now=new Date()){const sec=now.getHours()*3600+now.getMinutes()*60+now.getSeconds();if(typeof domain!=='undefined'&&typeof domain.activeHardBlock==='function'){const truth=domain.activeHardBlock(dateKey(now),sec/60);if(!truth)return null;const interval={start:truth.start*60,end:truth.end*60},meta=blocks(now).filter(b=>!b.soft).find(b=>overlaps(interval,b));return meta?{...meta,start:interval.start,end:interval.end}:{id:`hard:${dateKey(now)}:${truth.start}-${truth.end}`,name:'وقت غير متاح',start:interval.start,end:interval.end,soft:false,label:'خارج الوقت المتاح'}}return blocks(now).filter(b=>!b.soft&&sec>=b.start&&sec<b.end).sort((a,b)=>b.start-a.start)[0]||null}
+ function affinity(startMin){const starts=lessons.filter(hasFixedTime).map(l=>toMinutes(l.start));if(!starts.length)return .5;let sum=0;for(const x of starts){const dist=Math.min(Math.abs(startMin-x),1440-Math.abs(startMin-x));sum+=Math.exp(-(dist*dist)/(2*120*120))}return Math.min(1,sum/Math.max(2,starts.length*.23))}
+ function scoreCandidates(date,durationMin,excludeId=''){durationMin=Math.max(10,Number(durationMin)||30);const dur=durationMin*60,bs=blocks(date,excludeId),hard=bs.filter(x=>!x.soft),soft=bs.filter(x=>x.soft),wins=freeWindows(date,excludeId),raw=[];for(const w of wins){if(w.seconds<dur)continue;for(let st=Math.ceil(w.start/GRID)*GRID;st+dur<=w.end;st+=GRID){const en=st+dur,left=st-w.start,right=w.end-en;let score=62;score+=affinity(st/60)*20;const near=Math.min(...hard.flatMap(b=>[Math.abs(st-b.end),Math.abs(en-b.start)]),7200);score+=Math.max(0,12-near/300);if(left>0&&left<1200)score-=10;if(right>0&&right<1200)score-=10;if(left>=600&&right>=600)score+=4;const softHits=soft.filter(b=>overlaps({start:st,end:en},b));score-=softHits.length*28;if(affinity(st/60)<.18)score-=7;raw.push({start:st,end:en,score:Math.max(1,Math.min(99,Math.round(score))),softHits,window:w});}}raw.sort((a,b)=>b.score-a.score||a.start-b.start);const chosen=[];for(const c of raw){if(chosen.every(x=>Math.abs(x.start-c.start)>=1200)){chosen.push(c);if(chosen.length===6)break}}return chosen}
+ function liveFree(now=new Date()){const d=startOfDay(now),sec=now.getHours()*3600+now.getMinutes()*60+now.getSeconds(),wins=freeWindows(d);const w=wins.find(x=>sec>=x.start&&sec<x.end);if(!w)return null;return{...w,remaining:w.end-sec,now:sec}}
+ function activeBlock(now=new Date()){const sec=now.getHours()*3600+now.getMinutes()*60+now.getSeconds();if(typeof domain!=='undefined'&&typeof domain.activeHardBlock==='function'){const truth=domain.activeHardBlock(dateKey(now),sec/60);return truth?domainHardBlock({...truth,date:dateKey(now)}):null}return blocks(now).filter(b=>!b.soft&&sec>=b.start&&sec<b.end).sort((a,b)=>b.start-a.start)[0]||null}
  function nearestDateForDay(day,reference=selectedDate){const s=getSunday(reference);return addDays(s,day)}
  return{blocks,freeWindows,conflict,scoreCandidates,liveFree,activeBlock,nearestDateForDay,effectiveSeconds};
 })();
