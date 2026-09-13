@@ -19,6 +19,7 @@
     "app-editor.js",
     "app-reports.js",
     "app-features.js",
+    "app-timezone-bridge.js",
     "app-events.js",
     "app-boot.js",
     "app-luxury.js",

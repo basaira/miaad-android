@@ -39,34 +39,20 @@
   window.__miaadQualityPatchApplied=true;
 
   const ARABIC=/[\u0600-\u06ff]/;
-  const resolvedDeviceZone=()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}catch{return'UTC'}};
-  const validZone=zone=>{if(!zone)return true;try{new Intl.DateTimeFormat('en',{timeZone:zone}).format();return true}catch{return false}};
-  const teacherZone=()=>domain.data.settings.teacherTimeZone||resolvedDeviceZone();
+  const validZone=zone=>!zone||domain.validTimeZone(zone);
+  const teacherZone=()=>domain.teacherZone();
   const studentZone=sid=>domain.data.students[sid]?.timeZone||'';
   const hasArabic=text=>ARABIC.test(String(text||''));
   const targetKey=lang=>lang==='en'?'noteEn':'noteAr';
 
-  function wallClockInstant(date,time,zone){
-    if(!domain.timeOK(time)||!validZone(zone))return null;
-    const [year,month,day]=date.split('-').map(Number),[hour,minute]=time.split(':').map(Number);
-    const target=Date.UTC(year,month-1,day,hour,minute,0),fmt=new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
-    let guess=target;
-    for(let i=0;i<4;i++){
-      const p=Object.fromEntries(fmt.formatToParts(new Date(guess)).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
-      const shown=Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second),delta=target-shown;
-      guess+=delta;
-      if(Math.abs(delta)<1000)break;
-    }
-    return new Date(guess);
-  }
+  function wallClockInstant(date,time,zone){return domain.resolveWallClock(date,time,zone)}
 
-  function studentTimeLabel(row,lang='ar'){
-    const zone=studentZone(row.studentId);
-    if(!zone||!domain.timeOK(row.time))return'';
-    const instant=wallClockInstant(row.date,row.time,teacherZone());
+  function studentTimeLabel(row,lang='ar',targetZone=studentZone(row.studentId),sourceZone=teacherZone()){
+    if(!targetZone||!domain.timeOK(row.time)||!validZone(targetZone)||!validZone(sourceZone))return'';
+    const instant=wallClockInstant(row.date,row.time,sourceZone);
     if(!instant)return'';
     const locale=lang==='en'?'en-US':'ar-EG';
-    try{return new Intl.DateTimeFormat(locale,{timeZone:zone,weekday:'short',hour:'numeric',minute:'2-digit',hour12:true,timeZoneName:'short'}).format(instant)}catch{return''}
+    try{return new Intl.DateTimeFormat(locale,{timeZone:targetZone,weekday:'short',hour:'numeric',minute:'2-digit',hour12:true,timeZoneName:'short'}).format(instant)}catch{return''}
   }
 
   function localizedNote(obj,lang){
@@ -113,7 +99,7 @@
     const form=document.getElementById('studentForm');if(!form)return;
     const s=domain.data.students[sid],fields=form.querySelector('.feature-fields');
     if(fields&&!form.elements.timeZone){fields.insertAdjacentHTML('beforeend',`<label>المنطقة الزمنية للطالب<input name="timeZone" list="miaadTimeZones" value="${escapeHtml(s?.timeZone||'')}" placeholder="مثال: America/Los_Angeles" autocomplete="off"></label>`)}
-    const hint=form.querySelector('.field-hint');if(hint)hint.textContent='مواعيد الجدول الأساسية بتوقيتك. عند تحديد منطقة الطالب الزمنية سيعرض مِيعاد وقت الطالب المحلي بجانب وقتك، دون تغيير السجل التاريخي.';
+    const hint=form.querySelector('.field-hint');if(hint)hint.textContent='مواعيد الجدول الأساسية حسب المنطقة الزمنية للمعلم. منطقة الطالب للعرض والمقارنة فقط ولا تغيّر أوقات السجل المحفوظة.';
     const submit=form.onsubmit;
     form.onsubmit=e=>{
       const zone=String(form.elements.timeZone?.value||'').trim();
@@ -178,17 +164,17 @@
   };
 
   const baseArchive=domain.archive,baseNextPeriod=domain.nextPeriod;
-  const snapshotPeriodZones=p=>{if(!p.studentTimeZone)p.studentTimeZone=studentZone(p.studentId);if(!p.teacherTimeZone)p.teacherTimeZone=teacherZone()};
+  const snapshotPeriodZones=p=>{if(!Object.prototype.hasOwnProperty.call(p,'studentTimeZone'))p.studentTimeZone=studentZone(p.studentId);if(!Object.prototype.hasOwnProperty.call(p,'teacherTimeZone'))p.teacherTimeZone=teacherZone()};
   domain.archive=p=>{snapshotPeriodZones(p);return baseArchive(p)};
   domain.nextPeriod=p=>{snapshotPeriodZones(p);return baseNextPeriod(p)};
 
   const baseReportData=reportData;
   reportData=function(){
-    const r=baseReportData(),p=r.periodId?domain.data.periods[r.periodId]:null;
+    const r=baseReportData(),p=r.periodId?domain.data.periods[r.periodId]:null,archived=!!p?.archived;
     r.noteAr=p?.noteAr||((p?.note||r.note)&&hasArabic(p?.note||r.note)?p?.note||r.note:'');
     r.noteEn=p?.noteEn||((p?.note||r.note)&&!hasArabic(p?.note||r.note)?p?.note||r.note:'');
-    r.studentTimeZone=p?.studentTimeZone||studentZone(p?.studentId||reportSelection.studentId);
-    r.teacherTimeZone=p?.teacherTimeZone||teacherZone();
+    r.studentTimeZone=archived&&Object.prototype.hasOwnProperty.call(p,'studentTimeZone')?p.studentTimeZone:studentZone(p?.studentId||reportSelection.studentId);
+    r.teacherTimeZone=archived&&Object.prototype.hasOwnProperty.call(p,'teacherTimeZone')?p.teacherTimeZone:teacherZone();
     return r;
   };
 
@@ -196,9 +182,9 @@
   REPORT_COPY.en.studentZone='Student time zone';REPORT_COPY.en.teacherZone='Teacher time zone';REPORT_COPY.en.studentLocal='Student local time';REPORT_COPY.en.translationNeeded='Some notes still need professional English wording before this report can be exported.';
 
   reportMarkup=function(r,lang){
-    const t=REPORT_COPY[lang],locale=lang==='ar'?'ar-EG':'en-GB',fmt=s=>domain.parse(s).toLocaleDateString(locale,{day:'numeric',month:'short',year:'numeric'}),comment=lang==='en'?r.noteEn:r.noteAr;
+    const t=REPORT_COPY[lang],locale=lang==='ar'?'ar-EG':'en-GB',fmt=s=>domain.formatCivilDate(s,locale,{day:'numeric',month:'short',year:'numeric'}),comment=lang==='en'?r.noteEn:r.noteAr;
     const zones=r.studentTimeZone?`<p class="report-timezones">${t.teacherZone}: <bdi dir="ltr">${escapeHtml(r.teacherTimeZone||teacherZone())}</bdi> · ${t.studentZone}: <bdi dir="ltr">${escapeHtml(r.studentTimeZone)}</bdi></p>`:'';
-    return `<article class="professional-report" lang="${lang}" dir="${lang==='ar'?'rtl':'ltr'}"><header><img src="brand/miaad-logo.webp" width="52" height="52" alt="MIAAD"><div><h1>${t.title}</h1><h2>${escapeHtml(r.studentName)}</h2><p>${t.period}: <bdi>${fmt(r.start)} — ${fmt(r.end)}</bdi></p>${zones}</div></header><h3>${t.summary}</h3><dl class="report-totals">${['scheduled','attended','absent','minutes'].map(k=>`<div><dt>${t[k]}</dt><dd>${r.stats[k]}</dd></div>`).join('')}</dl><p class="report-secondary">${['cancelled','rescheduled','makeup'].map(k=>`${t[k]}: ${r.stats[k]}`).join(' · ')}</p><h3>${t.history}</h3>${r.rows.length?`<div class="report-table-scroll"><table><thead><tr>${['date','student','time','status','duration','note'].map(k=>`<th scope="col">${t[k]}</th>`).join('')}</tr></thead><tbody>${r.rows.map(x=>{const local=studentTimeLabel(x,lang),note=localizedNote(x,lang);return `<tr><td data-label="${t.date}">${fmt(x.date)}</td><td data-label="${t.student}">${escapeHtml(x.name)}</td><td data-label="${t.time}"><bdi dir="ltr">${escapeHtml(x.time||x.displayTime||'—')}</bdi>${local?`<small class="student-local-time">${t.studentLocal}: ${escapeHtml(local)}</small>`:''}</td><td data-label="${t.status}">${statusLabel(domain.status(x),lang)}</td><td data-label="${t.duration}">${['entered','makeup'].includes(x.status)?(x.actualMinutes??x.duration):x.duration}</td><td class="lesson-note" data-label="${t.note}">${escapeHtml(domain.prefs(x.studentId).showNotes?note||'—':'—')}</td></tr>`}).join('')}</tbody></table></div>`:`<p>${t.empty}</p>`}${comment?`<section class="teacher-comment"><h3>${t.final}</h3><p>${escapeHtml(comment)}</p></section>`:''}</article>`;
+    return `<article class="professional-report" lang="${lang}" dir="${lang==='ar'?'rtl':'ltr'}"><header><img src="brand/miaad-logo.webp" width="52" height="52" alt="MIAAD"><div><h1>${t.title}</h1><h2>${escapeHtml(r.studentName)}</h2><p>${t.period}: <bdi>${fmt(r.start)} — ${fmt(r.end)}</bdi></p>${zones}</div></header><h3>${t.summary}</h3><dl class="report-totals">${['scheduled','attended','absent','minutes'].map(k=>`<div><dt>${t[k]}</dt><dd>${r.stats[k]}</dd></div>`).join('')}</dl><p class="report-secondary">${['cancelled','rescheduled','makeup'].map(k=>`${t[k]}: ${r.stats[k]}`).join(' · ')}</p><h3>${t.history}</h3>${r.rows.length?`<div class="report-table-scroll"><table><thead><tr>${['date','student','time','status','duration','note'].map(k=>`<th scope="col">${t[k]}</th>`).join('')}</tr></thead><tbody>${r.rows.map(x=>{const local=studentTimeLabel(x,lang,r.studentTimeZone??studentZone(x.studentId),r.teacherTimeZone||teacherZone()),note=localizedNote(x,lang);return `<tr><td data-label="${t.date}">${fmt(x.date)}</td><td data-label="${t.student}">${escapeHtml(x.name)}</td><td data-label="${t.time}"><bdi dir="ltr">${escapeHtml(x.time||x.displayTime||'—')}</bdi>${local?`<small class="student-local-time">${t.studentLocal}: ${escapeHtml(local)}</small>`:''}</td><td data-label="${t.status}">${statusLabel(domain.status(x),lang)}</td><td data-label="${t.duration}">${['entered','makeup'].includes(x.status)?(x.actualMinutes??x.duration):x.duration}</td><td class="lesson-note" data-label="${t.note}">${escapeHtml(domain.prefs(x.studentId).showNotes?note||'—':'—')}</td></tr>`}).join('')}</tbody></table></div>`:`<p>${t.empty}</p>`}${comment?`<section class="teacher-comment"><h3>${t.final}</h3><p>${escapeHtml(comment)}</p></section>`:''}</article>`;
   };
 
   function renderLanguageIntegrity(r){

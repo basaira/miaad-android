@@ -20,26 +20,15 @@ setInterval(()=>{const before=JSON.stringify(domain.data.notifications);domain.n
 window.addEventListener('load',()=>{
  if(window.__miaadGlobalQualityGateApplied)return;window.__miaadGlobalQualityGateApplied=true;
  const ARABIC=/[\u0600-\u06ff]/,hasArabic=s=>ARABIC.test(String(s||''));
- const validZone=z=>{try{new Intl.DateTimeFormat('en',{timeZone:z}).format();return true}catch{return false}};
- const deviceZone=()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}catch{return'UTC'}};
- const currentTeacherZone=()=>domain.data.settings.teacherTimeZone||deviceZone();
+ const validZone=z=>domain.validTimeZone(z);
+ const currentTeacherZone=()=>domain.teacherZone();
  const currentStudentZone=sid=>domain.data.students[sid]?.timeZone||'';
  const snapshotPresentation=p=>{if(!p)return;if(typeof p.showNotes!=='boolean')p.showNotes=!!domain.prefs(p.studentId).showNotes};
  const archiveBeforePresentation=domain.archive,nextBeforePresentation=domain.nextPeriod;
  domain.archive=p=>{snapshotPresentation(p);return archiveBeforePresentation(p)};
  domain.nextPeriod=p=>{snapshotPresentation(p);return nextBeforePresentation(p)};
 
- function wallClockInstant(date,time,zone){
-  if(!domain.timeOK(time)||!validZone(zone))return null;
-  const [year,month,day]=date.split('-').map(Number),[hour,minute]=time.split(':').map(Number);
-  const target=Date.UTC(year,month-1,day,hour,minute,0),fmt=new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
-  let guess=target;
-  for(let i=0;i<5;i++){
-   const parts=Object.fromEntries(fmt.formatToParts(new Date(guess)).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
-   const shown=Date.UTC(+parts.year,+parts.month-1,+parts.day,+parts.hour,+parts.minute,+parts.second),delta=target-shown;guess+=delta;if(Math.abs(delta)<1000)break;
-  }
-  return new Date(guess);
- }
+ function wallClockInstant(date,time,zone){return domain.resolveWallClock(date,time,zone)}
  function qualityStudentTimeLabel(row,lang='ar',targetZone=currentStudentZone(row.studentId),sourceZone=currentTeacherZone()){
   if(!targetZone||!domain.timeOK(row.time)||!validZone(targetZone)||!validZone(sourceZone))return'';
   const instant=wallClockInstant(row.date,row.time,sourceZone);if(!instant)return'';
@@ -63,9 +52,9 @@ window.addEventListener('load',()=>{
  window.miaadWallClockInstant=wallClockInstant;window.miaadStudentTimeLabel=qualityStudentTimeLabel;window.miaadReportMissingTranslations=qualityMissingTranslations;
 
  reportMarkup=function(r,lang){
-  const t=REPORT_COPY[lang],locale=lang==='ar'?'ar-EG':'en-GB',fmt=s=>domain.parse(s).toLocaleDateString(locale,{day:'numeric',month:'short',year:'numeric'}),comment=lang==='en'?r.noteEn:r.noteAr;
-  const studentZone=r.studentTimeZone||'',teacherZone=r.teacherTimeZone||currentTeacherZone(),zones=studentZone?`<p class="report-timezones">${t.teacherZone}: <bdi dir="ltr">${escapeHtml(teacherZone)}</bdi> · ${t.studentZone}: <bdi dir="ltr">${escapeHtml(studentZone)}</bdi></p>`:'';
-  return `<article class="professional-report" lang="${lang}" dir="${lang==='ar'?'rtl':'ltr'}"><header><img src="brand/miaad-logo.webp" width="52" height="52" alt="MIAAD"><div><h1>${t.title}</h1><h2>${escapeHtml(r.studentName)}</h2><p>${t.period}: <bdi>${fmt(r.start)} — ${fmt(r.end)}</bdi></p>${zones}</div></header><h3>${t.summary}</h3><dl class="report-totals">${['scheduled','attended','absent','minutes'].map(k=>`<div><dt>${t[k]}</dt><dd>${r.stats[k]}</dd></div>`).join('')}</dl><p class="report-secondary">${['cancelled','rescheduled','makeup'].map(k=>`${t[k]}: ${r.stats[k]}`).join(' · ')}</p><h3>${t.history}</h3>${r.rows.length?`<div class="report-table-scroll"><table><thead><tr>${['date','student','time','status','duration','note'].map(k=>`<th scope="col">${t[k]}</th>`).join('')}</tr></thead><tbody>${r.rows.map(x=>{const targetZone=studentZone||currentStudentZone(x.studentId),local=qualityStudentTimeLabel(x,lang,targetZone,teacherZone),note=notesVisibleFor(r,x)?localizedNote(x,lang):'';return `<tr><td data-label="${t.date}">${fmt(x.date)}</td><td data-label="${t.student}">${escapeHtml(x.name)}</td><td data-label="${t.time}"><bdi dir="ltr">${escapeHtml(x.time||x.displayTime||'—')}</bdi>${local?`<small class="student-local-time">${t.studentLocal}: ${escapeHtml(local)}</small>`:''}</td><td data-label="${t.status}">${statusLabel(domain.status(x),lang)}</td><td data-label="${t.duration}">${['entered','makeup'].includes(x.status)?(x.actualMinutes??x.duration):x.duration}</td><td class="lesson-note" data-label="${t.note}">${escapeHtml(note||'—')}</td></tr>`}).join('')}</tbody></table></div>`:`<p>${t.empty}</p>`}${comment?`<section class="teacher-comment"><h3>${t.final}</h3><p>${escapeHtml(comment)}</p></section>`:''}</article>`;
+  const t=REPORT_COPY[lang],locale=lang==='ar'?'ar-EG':'en-GB',fmt=s=>domain.formatCivilDate(s,locale,{day:'numeric',month:'short',year:'numeric'}),comment=lang==='en'?r.noteEn:r.noteAr;
+  const p=r.periodId?domain.data.periods[r.periodId]:null,studentZone=r.studentTimeZone??'',teacherZone=r.teacherTimeZone||currentTeacherZone(),zones=studentZone?`<p class="report-timezones">${t.teacherZone}: <bdi dir="ltr">${escapeHtml(teacherZone)}</bdi> · ${t.studentZone}: <bdi dir="ltr">${escapeHtml(studentZone)}</bdi></p>`:'';
+  return `<article class="professional-report" lang="${lang}" dir="${lang==='ar'?'rtl':'ltr'}"><header><img src="brand/miaad-logo.webp" width="52" height="52" alt="MIAAD"><div><h1>${t.title}</h1><h2>${escapeHtml(r.studentName)}</h2><p>${t.period}: <bdi>${fmt(r.start)} — ${fmt(r.end)}</bdi></p>${zones}</div></header><h3>${t.summary}</h3><dl class="report-totals">${['scheduled','attended','absent','minutes'].map(k=>`<div><dt>${t[k]}</dt><dd>${r.stats[k]}</dd></div>`).join('')}</dl><p class="report-secondary">${['cancelled','rescheduled','makeup'].map(k=>`${t[k]}: ${r.stats[k]}`).join(' · ')}</p><h3>${t.history}</h3>${r.rows.length?`<div class="report-table-scroll"><table><thead><tr>${['date','student','time','status','duration','note'].map(k=>`<th scope="col">${t[k]}</th>`).join('')}</tr></thead><tbody>${r.rows.map(x=>{const targetZone=p?.archived?studentZone:(studentZone||currentStudentZone(x.studentId)),local=qualityStudentTimeLabel(x,lang,targetZone,teacherZone),note=notesVisibleFor(r,x)?localizedNote(x,lang):'';return `<tr><td data-label="${t.date}">${fmt(x.date)}</td><td data-label="${t.student}">${escapeHtml(x.name)}</td><td data-label="${t.time}"><bdi dir="ltr">${escapeHtml(x.time||x.displayTime||'—')}</bdi>${local?`<small class="student-local-time">${t.studentLocal}: ${escapeHtml(local)}</small>`:''}</td><td data-label="${t.status}">${statusLabel(domain.status(x),lang)}</td><td data-label="${t.duration}">${['entered','makeup'].includes(x.status)?(x.actualMinutes??x.duration):x.duration}</td><td class="lesson-note" data-label="${t.note}">${escapeHtml(note||'—')}</td></tr>`}).join('')}</tbody></table></div>`:`<p>${t.empty}</p>`}${comment?`<section class="teacher-comment"><h3>${t.final}</h3><p>${escapeHtml(comment)}</p></section>`:''}</article>`;
  };
  function qualityReadyForExport(){
   const r=reportData(),missing=qualityMissingTranslations(r,reportSelection.language);if(!missing.length)return true;
