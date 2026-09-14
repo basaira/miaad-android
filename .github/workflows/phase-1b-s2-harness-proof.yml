@@ -62,7 +62,7 @@ jobs:
           start=text.index("if(process.argv[2]==='--hotfix-civil'){")
           end=text.index("\n\nconst cases=[];", start)
           block=r'''function extractConstDeclaration(source,name){
-           const match=new RegExp(`\\bconst\\s+${name}\\s*=`).exec(source);
+           const match=new RegExp(`\bconst\s+${name}\s*=`).exec(source);
            if(!match)throw new Error(`canonical declaration ${name} not found`);
            let paren=0,bracket=0,brace=0,quote='',escaped=false,lineComment=false,blockComment=false;
            for(let i=match.index;i<source.length;i++){
@@ -93,7 +93,7 @@ jobs:
           text=text[:start]+block+text[end:]
           al_start=text.index("check('AL final app-ui-hotfix calendar path uses canonical YYYY-MM-DD factory only',")
           al_end=text.index("\n\nconst failures=",al_start)
-          al=r'''check('AL final app-ui-hotfix calendar path uses canonical YYYY-MM-DD factory only',()=>{const source=fs.readFileSync(path.join(root,'app-ui-hotfix.js'),'utf8'),windowRoute=executeHotfixFactory(source,2026,0,1,'window'),domainRoute=executeHotfixFactory(source,2026,10,9,'domain');assert.equal(windowRoute.key,'2026-01-01');assert.equal(windowRoute.value,'window:2026-01-01');assert.deepEqual(windowRoute.calls,[['window','2026-01-01']]);assert.equal(domainRoute.key,'2026-11-09');assert.equal(domainRoute.value,'domain:2026-11-09');assert.deepEqual(domainRoute.calls,[['domain','2026-11-09']]);assert.match(windowRoute.localDeclaration,/\\bcivilKey\\s*\\(\\s*y\\s*,\\s*m\\s*,\\s*d\\s*\\)/);assert.doesNotMatch(windowRoute.localDeclaration,/startOfDay\\s*\\(\\s*new\\s+Date\\s*\\(\\s*y\\s*,\\s*m\\s*,\\s*d\\b/);assert.doesNotMatch(windowRoute.localDeclaration,/\\bnew\\s+Date\\s*\\(\\s*y\\s*,\\s*m\\s*,\\s*d\\b/)});'''
+          al=r'''check('AL final app-ui-hotfix calendar path uses canonical YYYY-MM-DD factory only',()=>{const source=fs.readFileSync(path.join(root,'app-ui-hotfix.js'),'utf8'),windowRoute=executeHotfixFactory(source,2026,0,1,'window'),domainRoute=executeHotfixFactory(source,2026,10,9,'domain');assert.equal(windowRoute.key,'2026-01-01');assert.equal(windowRoute.value,'window:2026-01-01');assert.deepEqual(windowRoute.calls,[['window','2026-01-01']]);assert.equal(domainRoute.key,'2026-11-09');assert.equal(domainRoute.value,'domain:2026-11-09');assert.deepEqual(domainRoute.calls,[['domain','2026-11-09']]);assert.match(windowRoute.localDeclaration,/\bcivilKey\s*\(\s*y\s*,\s*m\s*,\s*d\s*\)/);assert.doesNotMatch(windowRoute.localDeclaration,/startOfDay\s*\(\s*new\s+Date\s*\(\s*y\s*,\s*m\s*,\s*d\b/);assert.doesNotMatch(windowRoute.localDeclaration,/\bnew\s+Date\s*\(\s*y\s*,\s*m\s*,\s*d\b/)});'''
           text=text[:al_start]+al+text[al_end:]
           if text.count("check('") != 39:
               raise SystemExit('case count changed')
