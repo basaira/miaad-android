@@ -8,7 +8,8 @@
   const numericTime=value=>typeof domain!=='undefined'&&domain.timeOK?domain.timeOK(value):/^([01]\d|2[0-3]):[0-5]\d$/.test(String(value||''));
   const dayKey=d=>typeof dateKey==='function'?dateKey(d):`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const todayDate=()=>typeof startOfDay==='function'?startOfDay(new Date()):new Date(new Date().setHours(0,0,0,0));
-  const localDate=(y,m,d)=>typeof startOfDay==='function'?startOfDay(new Date(y,m,d,12,0,0,0)):new Date(y,m,d,12,0,0,0);
+  const civilKey=(y,m,d)=>`${String(y).padStart(4,'0')}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const localDate=(y,m,d)=>{const key=civilKey(y,m,d);if(typeof window.miaadCivilDate==='function')return window.miaadCivilDate(key);if(typeof domain!=='undefined'&&typeof domain.parse==='function')return domain.parse(key);throw new Error('Canonical civil-date factory unavailable')};
 
   if(typeof NATIVE!=='undefined'&&NATIVE)document.documentElement.classList.add('native-shell');
   document.documentElement.classList.add('miaad-ui-clarity');

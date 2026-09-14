@@ -1,4 +1,6 @@
-const domain=createMiaadDomain(nativeInitial?.domain||loadJSON('miaadDomainV4',{}),{lessons,sessionState,sessionNotes,sessionAudit,idrisPhase});
+const localDomainSeed=loadJSON('miaadDomainV4',{});
+const primaryDomainSeed=nativeInitial?.domain||localDomainSeed;
+const domain=createMiaadDomain(stabilizeMiaadTeacherTimeZoneSeed(primaryDomainSeed,localDomainSeed),{lessons,sessionState,sessionNotes,sessionAudit,idrisPhase});
 for(const l of lessons){const v=domain.data.schedules[l.id]?.at(-1)?.lesson;if(v)l.studentId=v.studentId}
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function domainCommit(){

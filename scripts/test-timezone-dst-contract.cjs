@@ -4,7 +4,7 @@ const vm=require('node:vm');
 const path=require('node:path');
 const cp=require('node:child_process');
 const root=path.resolve(process.env.MIAAD_ASSET_ROOT||path.join(__dirname,'../app/src/main/assets'));
-const {createMiaadDomain,MiaadTemporal}=require(path.join(root,'app-domain.js'));
+const {createMiaadDomain,MiaadTemporal,stabilizeMiaadTeacherTimeZoneSeed}=require(path.join(root,'app-domain.js'));
 
 function browserProbe(fixedIso){
  const epoch=Date.parse(fixedIso);
@@ -42,6 +42,18 @@ if(process.argv[2]==='--probe'){
 if(process.argv[2]==='--legacy-zone'){
  const d=createMiaadDomain({}, {},()=>new Date('2026-09-30T22:30:00Z'));process.stdout.write(d.data.settings.teacherTimeZone);process.exit(0);
 }
+if(process.argv[2]==='--seed-zone'){
+ const seed=JSON.parse(Buffer.from(process.argv[3]||'', 'base64').toString('utf8'));
+ const d=createMiaadDomain(seed,{},()=>new Date('2026-09-30T22:30:00Z'));process.stdout.write(d.data.settings.teacherTimeZone);process.exit(0);
+}
+if(process.argv[2]==='--hotfix-civil'){
+ const d=createMiaadDomain({settings:{teacherTimeZone:'UTC'}},{},()=>new Date('2026-09-30T22:30:00Z'));
+ const source=fs.readFileSync(path.join(root,'app-ui-hotfix.js'),'utf8'),lines=source.split('\n');
+ const civilLine=lines.find(line=>line.includes('const civilKey=')),localLine=lines.find(line=>line.includes('const localDate='));
+ if(!civilLine||!localLine)throw new Error('canonical hotfix factory not found');
+ const value=vm.runInNewContext(`${civilLine}\n${localLine}\ndomain.day(localDate(2026,0,1))`,{window:{miaadCivilDate:key=>d.parse(key)},domain:d,String,Error});
+ process.stdout.write(value);process.exit(0);
+}
 
 const cases=[];function check(id,fn){try{fn();cases.push({id,ok:true})}catch(error){cases.push({id,ok:false,error:error.stack||error.message})}}
 const spawn=(tz,args=['--probe','2026-09-30T22:29:00.000Z'])=>JSON.parse(cp.execFileSync(process.execPath,[__filename,...args],{env:{...process.env,TZ:tz},encoding:'utf8'}));
@@ -77,6 +89,17 @@ check('Y legacy archived period gets explicit compatibility backfill',()=>{const
 check('Z student timezone remains display-only',()=>{const cairo=MiaadTemporal.resolveWallClock('2026-10-06','09:00','Africa/Cairo'),student=MiaadTemporal.civilTimeAt(cairo,'Asia/Tashkent');assert.equal(student,'11:00:00')});
 check('AA daily notification DST gap uses same compatible instant',()=>{const at=MiaadTemporal.resolveWallClock('2026-03-08','02:30','America/New_York'),d=createMiaadDomain({settings:{teacherTimeZone:'America/New_York',notifications:{upcoming:false,cycle:false,period:false,pending:false,daily:true,availability:false,dailyTime:'02:30'}}},{},()=>new Date(+at-1));assert.equal(d.notifications(new Date(+at-1)).some(n=>n.type==='daily'),false);assert.equal(d.notifications(at).some(n=>n.type==='daily'),true)});
 check('AB pure civil date arithmetic ignores device DST',()=>{assert.equal(MiaadTemporal.addDays('2026-03-08',1),'2026-03-09');assert.equal(MiaadTemporal.weekdayForDate('2026-03-08'),0);assert.deepEqual(MiaadTemporal.monthBounds('2026-10'),{start:'2026-10-01',end:'2026-10-31'})});
+
+check('AC first legacy initialization chooses process device IANA zone once',()=>{const zone=cp.execFileSync(process.execPath,[__filename,'--legacy-zone'],{env:{...process.env,TZ:'Pacific/Honolulu'},encoding:'utf8'});assert.equal(zone,'Pacific/Honolulu')});
+check('AD reopen initialized state in another device zone preserves established authority',()=>{const seed=Buffer.from(JSON.stringify({settings:{teacherTimeZone:'Pacific/Honolulu'}})).toString('base64'),zone=cp.execFileSync(process.execPath,[__filename,'--seed-zone',seed],{env:{...process.env,TZ:'Pacific/Kiritimati'},encoding:'utf8'});assert.equal(zone,'Pacific/Honolulu')});
+check('AE native primary missing zone inherits only established local timezone',()=>{const native={settings:{target:9},students:{native:{id:'native'}}},local={settings:{teacherTimeZone:'Africa/Cairo',target:77},students:{local:{id:'local'}}};let persists=0;const context={createMiaadDomain,stabilizeMiaadTeacherTimeZoneSeed,nativeInitial:{domain:native},loadJSON:()=>local,lessons:[],sessionState:{},sessionNotes:{},sessionAudit:{},idrisPhase:0,persist:()=>persists++,renderAll:()=>{}};vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'app-integration.js'),'utf8'),context);const state=vm.runInContext('domain.data',context);assert.equal(state.settings.teacherTimeZone,'Africa/Cairo');assert.equal(state.settings.target,9);assert.ok(state.students.native);assert.equal(state.students.local,undefined);assert.equal(persists,0)});
+check('AF replace missing or blank timezone preserves current authority',()=>{for(const settings of [{target:7},{teacherTimeZone:'',target:8}]){const d=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z'));d.replace({settings});assert.equal(d.teacherZone(),'Africa/Cairo')}});
+check('AG merge missing or blank timezone preserves current authority',()=>{for(const settings of [{target:7},{teacherTimeZone:'',target:8}]){const d=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z'));d.merge({settings});assert.equal(d.teacherZone(),'Africa/Cairo')}});
+check('AH legacy merge after explicit teacher-zone change preserves newest authority',()=>{const d=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z')),settings=d.copy(d.data.settings);settings.teacherTimeZone='Europe/London';d.saveSettings(settings);d.merge({settings:{target:11}});assert.equal(d.teacherZone(),'Europe/London')});
+check('AI explicit valid replace and merge may intentionally change authority',()=>{const a=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z'));a.replace({settings:{teacherTimeZone:'Europe/London'}});assert.equal(a.teacherZone(),'Europe/London');const b=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z'));b.merge({settings:{teacherTimeZone:'Asia/Tokyo'}});assert.equal(b.teacherZone(),'Asia/Tokyo')});
+check('AJ explicit invalid replace and merge fail closed before authority mutation',()=>{const a=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z')),beforeA=JSON.stringify(a.data);assert.throws(()=>a.replace({settings:{teacherTimeZone:'UTC+3'}}));assert.equal(a.teacherZone(),'Africa/Cairo');assert.equal(JSON.stringify(a.data),beforeA);const b=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z')),beforeB=JSON.stringify(b.data);assert.throws(()=>b.merge({settings:{teacherTimeZone:'UTC+3'}}));assert.equal(b.teacherZone(),'Africa/Cairo');assert.equal(JSON.stringify(b.data),beforeB)});
+check('AK canonical civil factory remains invariant across Honolulu and Kiritimati',()=>{const a=cp.execFileSync(process.execPath,[__filename,'--hotfix-civil'],{env:{...process.env,TZ:'Pacific/Honolulu'},encoding:'utf8'}),b=cp.execFileSync(process.execPath,[__filename,'--hotfix-civil'],{env:{...process.env,TZ:'Pacific/Kiritimati'},encoding:'utf8'});assert.equal(a,'2026-01-01');assert.equal(b,'2026-01-01')});
+check('AL final app-ui-hotfix calendar path uses canonical YYYY-MM-DD factory only',()=>{const source=fs.readFileSync(path.join(root,'app-ui-hotfix.js'),'utf8');assert.match(source,/const civilKey=/);assert.match(source,/window\.miaadCivilDate\(key\)/);assert.doesNotMatch(source,/startOfDay\(new Date\(y,m,d/);assert.doesNotMatch(source,/const localDate=.*new Date\(y,m,d/)});
 
 const failures=cases.filter(x=>!x.ok);
 if(failures.length){console.error('TIMEZONE/DST CONTRACT FAILURES');for(const f of failures)console.error(`- ${f.id}: ${f.error}`);console.error(`FAILED ${failures.length}/${cases.length} cases`);process.exit(1)}
