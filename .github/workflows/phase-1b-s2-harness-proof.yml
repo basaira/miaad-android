@@ -1,4 +1,5 @@
 name: Phase 1B Slice 2 Harness Proof
+# proof-trigger: authoritative run on persisted harness blob
 
 on:
   push:
