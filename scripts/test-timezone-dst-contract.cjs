@@ -47,7 +47,8 @@ if(process.argv[2]==='--seed-zone'){
  const d=createMiaadDomain(seed,{},()=>new Date('2026-09-30T22:30:00Z'));process.stdout.write(d.data.settings.teacherTimeZone);process.exit(0);
 }
 function extractConstDeclaration(source,name){
- const match=new RegExp(`\bconst\s+${name}\s*=`).exec(source);
+ const escapedName=String(name).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+ const match=new RegExp(String.raw`\bconst\s+${escapedName}\s*=`).exec(source);
  if(!match)throw new Error(`canonical declaration ${name} not found`);
  let paren=0,bracket=0,brace=0,quote='',escaped=false,lineComment=false,blockComment=false;
  for(let i=match.index;i<source.length;i++){
