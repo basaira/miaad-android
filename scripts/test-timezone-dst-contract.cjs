@@ -46,13 +46,35 @@ if(process.argv[2]==='--seed-zone'){
  const seed=JSON.parse(Buffer.from(process.argv[3]||'', 'base64').toString('utf8'));
  const d=createMiaadDomain(seed,{},()=>new Date('2026-09-30T22:30:00Z'));process.stdout.write(d.data.settings.teacherTimeZone);process.exit(0);
 }
+function extractConstDeclaration(source,name){
+ const escapedName=String(name).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+ const match=new RegExp(String.raw`\bconst\s+${escapedName}\s*=`).exec(source);
+ if(!match)throw new Error(`canonical declaration ${name} not found`);
+ let paren=0,bracket=0,brace=0,quote='',escaped=false,lineComment=false,blockComment=false;
+ for(let i=match.index;i<source.length;i++){
+  const ch=source[i],next=source[i+1];
+  if(lineComment){if(ch==='\n')lineComment=false;continue}
+  if(blockComment){if(ch==='*'&&next==='/'){blockComment=false;i++}continue}
+  if(quote){if(escaped){escaped=false;continue}if(ch==='\\'){escaped=true;continue}if(ch===quote)quote='';continue}
+  if(ch==='/'&&next==='/'){lineComment=true;i++;continue}
+  if(ch==='/'&&next==='*'){blockComment=true;i++;continue}
+  if(ch==="'"||ch==='"'||ch==='`'){quote=ch;continue}
+  if(ch==='(')paren++;else if(ch===')')paren--;else if(ch==='[')bracket++;else if(ch===']')bracket--;else if(ch==='{')brace++;else if(ch==='}')brace--;else if(ch===';'&&paren===0&&bracket===0&&brace===0)return source.slice(match.index,i+1);
+ }
+ throw new Error(`unterminated canonical declaration ${name}`);
+}
+function executeHotfixFactory(source,y,m,d,route='window'){
+ const civilDeclaration=extractConstDeclaration(source,'civilKey'),localDeclaration=extractConstDeclaration(source,'localDate'),calls=[];
+ const context={String,Error,window:{},domain:{}};
+ if(route==='window')context.window.miaadCivilDate=key=>{calls.push(['window',key]);return `window:${key}`};
+ context.domain.parse=key=>{calls.push(['domain',key]);return `domain:${key}`};
+ const result=vm.runInNewContext(`${civilDeclaration}\n${localDeclaration}\n({key:civilKey(${y},${m},${d}),value:localDate(${y},${m},${d})})`,context);
+ return{key:result.key,value:result.value,calls,civilDeclaration,localDeclaration};
+}
 if(process.argv[2]==='--hotfix-civil'){
- const d=createMiaadDomain({settings:{teacherTimeZone:'UTC'}},{},()=>new Date('2026-09-30T22:30:00Z'));
- const source=fs.readFileSync(path.join(root,'app-ui-hotfix.js'),'utf8'),lines=source.split('\n');
- const civilLine=lines.find(line=>line.includes('const civilKey=')),localLine=lines.find(line=>line.includes('const localDate='));
- if(!civilLine||!localLine)throw new Error('canonical hotfix factory not found');
- const value=vm.runInNewContext(`${civilLine}\n${localLine}\ndomain.day(localDate(2026,0,1))`,{window:{miaadCivilDate:key=>d.parse(key)},domain:d,String,Error});
- process.stdout.write(value);process.exit(0);
+ const source=fs.readFileSync(path.join(root,'app-ui-hotfix.js'),'utf8'),probe=executeHotfixFactory(source,2026,0,1,'window');
+ if(probe.calls.length!==1||probe.calls[0][0]!=='window'||probe.calls[0][1]!=='2026-01-01')throw new Error('canonical hotfix window route not used');
+ process.stdout.write(probe.key);process.exit(0);
 }
 
 const cases=[];function check(id,fn){try{fn();cases.push({id,ok:true})}catch(error){cases.push({id,ok:false,error:error.stack||error.message})}}
@@ -99,7 +121,7 @@ check('AH legacy merge after explicit teacher-zone change preserves newest autho
 check('AI explicit valid replace and merge may intentionally change authority',()=>{const a=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z'));a.replace({settings:{teacherTimeZone:'Europe/London'}});assert.equal(a.teacherZone(),'Europe/London');const b=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z'));b.merge({settings:{teacherTimeZone:'Asia/Tokyo'}});assert.equal(b.teacherZone(),'Asia/Tokyo')});
 check('AJ explicit invalid replace and merge fail closed before authority mutation',()=>{const a=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z')),beforeA=JSON.stringify(a.data);assert.throws(()=>a.replace({settings:{teacherTimeZone:'UTC+3'}}));assert.equal(a.teacherZone(),'Africa/Cairo');assert.equal(JSON.stringify(a.data),beforeA);const b=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z')),beforeB=JSON.stringify(b.data);assert.throws(()=>b.merge({settings:{teacherTimeZone:'UTC+3'}}));assert.equal(b.teacherZone(),'Africa/Cairo');assert.equal(JSON.stringify(b.data),beforeB)});
 check('AK canonical civil factory remains invariant across Honolulu and Kiritimati',()=>{const a=cp.execFileSync(process.execPath,[__filename,'--hotfix-civil'],{env:{...process.env,TZ:'Pacific/Honolulu'},encoding:'utf8'}),b=cp.execFileSync(process.execPath,[__filename,'--hotfix-civil'],{env:{...process.env,TZ:'Pacific/Kiritimati'},encoding:'utf8'});assert.equal(a,'2026-01-01');assert.equal(b,'2026-01-01')});
-check('AL final app-ui-hotfix calendar path uses canonical YYYY-MM-DD factory only',()=>{const source=fs.readFileSync(path.join(root,'app-ui-hotfix.js'),'utf8');assert.match(source,/const civilKey=/);assert.match(source,/window\.miaadCivilDate\(key\)/);assert.doesNotMatch(source,/startOfDay\(new Date\(y,m,d/);assert.doesNotMatch(source,/const localDate=.*new Date\(y,m,d/)});
+check('AL final app-ui-hotfix calendar path uses canonical YYYY-MM-DD factory only',()=>{const source=fs.readFileSync(path.join(root,'app-ui-hotfix.js'),'utf8'),windowRoute=executeHotfixFactory(source,2026,0,1,'window'),domainRoute=executeHotfixFactory(source,2026,10,9,'domain');assert.equal(windowRoute.key,'2026-01-01');assert.equal(windowRoute.value,'window:2026-01-01');assert.deepEqual(windowRoute.calls,[['window','2026-01-01']]);assert.equal(domainRoute.key,'2026-11-09');assert.equal(domainRoute.value,'domain:2026-11-09');assert.deepEqual(domainRoute.calls,[['domain','2026-11-09']]);assert.match(windowRoute.localDeclaration,/\bcivilKey\s*\(\s*y\s*,\s*m\s*,\s*d\s*\)/);assert.doesNotMatch(windowRoute.localDeclaration,/startOfDay\s*\(\s*new\s+Date\s*\(\s*y\s*,\s*m\s*,\s*d\b/);assert.doesNotMatch(windowRoute.localDeclaration,/\bnew\s+Date\s*\(\s*y\s*,\s*m\s*,\s*d\b/)});
 
 const failures=cases.filter(x=>!x.ok);
 if(failures.length){console.error('TIMEZONE/DST CONTRACT FAILURES');for(const f of failures)console.error(`- ${f.id}: ${f.error}`);console.error(`FAILED ${failures.length}/${cases.length} cases`);process.exit(1)}
