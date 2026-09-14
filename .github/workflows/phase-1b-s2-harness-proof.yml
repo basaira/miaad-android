@@ -1,0 +1,213 @@
+name: Phase 1B Slice 2 Harness Proof
+
+on:
+  push:
+    branches: [ 'miaad/phase-1b-s2-harness-proof' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CANDIDATE_SHA: 0304a5cb7764ba5601b54b735da983eb6747718f
+  CANDIDATE_TREE: bd9c3675cba8aa17a5eac992ad4d2bab9a9cae50
+  BASE_TEST_BLOB: bf1347dceffa67fe1dfe5971fe21cfc4998cd5c0
+
+jobs:
+  harness-proof:
+    name: Authoritative generated harness proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout proof branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Establish bootstrap or proof mode
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$CANDIDATE_SHA" HEAD)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          test "$(git hash-object app/src/main/assets/app-domain.js)" = "c27166a33d957c34f07c51b69ab634569eab0bea"
+          test "$(git hash-object app/src/main/assets/app-integration.js)" = "9a035febbad49bb21b3730038697b29ff3be734a"
+          test "$(git hash-object app/src/main/assets/app-ui-hotfix.js)" = "ffeac59cc32796143988c36b87768ffe85001787"
+          test "$(git hash-object scripts/test-scheduling-contract.cjs)" = "60664b0a7342a5baf1f23cc10d00941d9f372e1f"
+          current_test="$(git hash-object scripts/test-timezone-dst-contract.cjs)"
+          mapfile -t changed < <(git diff --name-only "$CANDIDATE_SHA" HEAD)
+          if [ "$current_test" = "$BASE_TEST_BLOB" ]; then
+            test "${#changed[@]}" -eq 1
+            test "${changed[0]}" = ".github/workflows/phase-1b-s2-harness-proof.yml"
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+          else
+            test "${#changed[@]}" -eq 2
+            printf '%s\n' "${changed[@]}" | grep -Fxq '.github/workflows/phase-1b-s2-harness-proof.yml'
+            printf '%s\n' "${changed[@]}" | grep -Fxq 'scripts/test-timezone-dst-contract.cjs'
+            git diff --check "$CANDIDATE_SHA" HEAD
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+            echo "test_blob=$current_test" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Materialize exact AK/AL harness fix
+        if: steps.mode.outputs.bootstrap == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/test-timezone-dst-contract.cjs')
+          text=p.read_text()
+          start=text.index("if(process.argv[2]==='--hotfix-civil'){")
+          end=text.index("\n\nconst cases=[];", start)
+          block=r'''function extractConstDeclaration(source,name){
+           const match=new RegExp(`\\bconst\\s+${name}\\s*=`).exec(source);
+           if(!match)throw new Error(`canonical declaration ${name} not found`);
+           let paren=0,bracket=0,brace=0,quote='',escaped=false,lineComment=false,blockComment=false;
+           for(let i=match.index;i<source.length;i++){
+            const ch=source[i],next=source[i+1];
+            if(lineComment){if(ch==='\n')lineComment=false;continue}
+            if(blockComment){if(ch==='*'&&next==='/'){blockComment=false;i++}continue}
+            if(quote){if(escaped){escaped=false;continue}if(ch==='\\'){escaped=true;continue}if(ch===quote)quote='';continue}
+            if(ch==='/'&&next==='/'){lineComment=true;i++;continue}
+            if(ch==='/'&&next==='*'){blockComment=true;i++;continue}
+            if(ch==="'"||ch==='"'||ch==='`'){quote=ch;continue}
+            if(ch==='(')paren++;else if(ch===')')paren--;else if(ch==='[')bracket++;else if(ch===']')bracket--;else if(ch==='{')brace++;else if(ch==='}')brace--;else if(ch===';'&&paren===0&&bracket===0&&brace===0)return source.slice(match.index,i+1);
+           }
+           throw new Error(`unterminated canonical declaration ${name}`);
+          }
+          function executeHotfixFactory(source,y,m,d,route='window'){
+           const civilDeclaration=extractConstDeclaration(source,'civilKey'),localDeclaration=extractConstDeclaration(source,'localDate'),calls=[];
+           const context={String,Error,window:{},domain:{}};
+           if(route==='window')context.window.miaadCivilDate=key=>{calls.push(['window',key]);return `window:${key}`};
+           context.domain.parse=key=>{calls.push(['domain',key]);return `domain:${key}`};
+           const result=vm.runInNewContext(`${civilDeclaration}\n${localDeclaration}\n({key:civilKey(${y},${m},${d}),value:localDate(${y},${m},${d})})`,context);
+           return{key:result.key,value:result.value,calls,civilDeclaration,localDeclaration};
+          }
+          if(process.argv[2]==='--hotfix-civil'){
+           const source=fs.readFileSync(path.join(root,'app-ui-hotfix.js'),'utf8'),probe=executeHotfixFactory(source,2026,0,1,'window');
+           if(probe.calls.length!==1||probe.calls[0][0]!=='window'||probe.calls[0][1]!=='2026-01-01')throw new Error('canonical hotfix window route not used');
+           process.stdout.write(probe.key);process.exit(0);
+          }'''
+          text=text[:start]+block+text[end:]
+          al_start=text.index("check('AL final app-ui-hotfix calendar path uses canonical YYYY-MM-DD factory only',")
+          al_end=text.index("\n\nconst failures=",al_start)
+          al=r'''check('AL final app-ui-hotfix calendar path uses canonical YYYY-MM-DD factory only',()=>{const source=fs.readFileSync(path.join(root,'app-ui-hotfix.js'),'utf8'),windowRoute=executeHotfixFactory(source,2026,0,1,'window'),domainRoute=executeHotfixFactory(source,2026,10,9,'domain');assert.equal(windowRoute.key,'2026-01-01');assert.equal(windowRoute.value,'window:2026-01-01');assert.deepEqual(windowRoute.calls,[['window','2026-01-01']]);assert.equal(domainRoute.key,'2026-11-09');assert.equal(domainRoute.value,'domain:2026-11-09');assert.deepEqual(domainRoute.calls,[['domain','2026-11-09']]);assert.match(windowRoute.localDeclaration,/\\bcivilKey\\s*\\(\\s*y\\s*,\\s*m\\s*,\\s*d\\s*\\)/);assert.doesNotMatch(windowRoute.localDeclaration,/startOfDay\\s*\\(\\s*new\\s+Date\\s*\\(\\s*y\\s*,\\s*m\\s*,\\s*d\\b/);assert.doesNotMatch(windowRoute.localDeclaration,/\\bnew\\s+Date\\s*\\(\\s*y\\s*,\\s*m\\s*,\\s*d\\b/)});'''
+          text=text[:al_start]+al+text[al_end:]
+          if text.count("check('") != 39:
+              raise SystemExit('case count changed')
+          p.write_text(text)
+          PY
+          node --check scripts/test-timezone-dst-contract.cjs
+          git diff --check
+          mapfile -t worktree_changed < <(git diff --name-only)
+          test "${#worktree_changed[@]}" -eq 1
+          test "${worktree_changed[0]}" = "scripts/test-timezone-dst-contract.cjs"
+          git config user.name 'basair'
+          git config user.email 'osamakhaled01010@gmail.com'
+          git add scripts/test-timezone-dst-contract.cjs
+          git commit -m 'Phase 1B proof: materialize hardened timezone harness'
+          git push origin HEAD:miaad/phase-1b-s2-harness-proof
+
+      - name: Report bootstrap completion
+        if: steps.mode.outputs.bootstrap == 'true'
+        run: echo 'Harness bytes materialized; authoritative proof will run on the follow-up push.'
+
+      - name: Install authoritative compatibility toolchain
+        if: steps.mode.outputs.bootstrap == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save --package-lock=false esbuild@0.28.2 acorn@8.18.0 @esbuild/linux-x64@0.28.2
+          node scripts/verify-compat-toolchain.cjs
+
+      - name: Authoritative source proof
+        if: steps.mode.outputs.bootstrap == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          git diff --check "$CANDIDATE_SHA" HEAD
+          node --check scripts/test-timezone-dst-contract.cjs
+          git hash-object scripts/test-timezone-dst-contract.cjs | tee audit/harness-test-blob.txt
+          node scripts/test-timezone-dst-contract.cjs | tee audit/source-timezone-dst-contract.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 39/39 focused cases' audit/source-timezone-dst-contract.txt
+          node scripts/test-scheduling-contract.cjs | tee audit/source-scheduling-contract.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 43 focused cases' audit/source-scheduling-contract.txt
+
+      - name: Generate authoritative WebView 69 assets
+        if: steps.mode.outputs.bootstrap == 'false'
+        run: node scripts/build-compat.cjs
+
+      - name: Authoritative generated proof
+        if: steps.mode.outputs.bootstrap == 'false'
+        env:
+          MIAAD_ASSET_ROOT: ${{ github.workspace }}/app/build/generated/compatAssets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/test-timezone-dst-contract.cjs | tee audit/generated-timezone-dst-contract.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 39/39 focused cases' audit/generated-timezone-dst-contract.txt
+          node scripts/test-scheduling-contract.cjs | tee audit/generated-scheduling-contract.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 43 focused cases' audit/generated-scheduling-contract.txt
+          node scripts/test-shipping-compat.cjs | tee audit/generated-shipping-compat.txt
+          node scripts/test-compat-shims.cjs | tee audit/generated-compat-shims.txt
+          node scripts/audit-js-compat.cjs --shipping | tee audit/generated-js-compat.txt
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-tested.json > audit/generated-assets-tested.sha256
+
+      - name: Mutation proof
+        if: steps.mode.outputs.bootstrap == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/miaad-mut-route /tmp/miaad-mut-date
+          cp -a app/build/generated/compatAssets /tmp/miaad-mut-route
+          cp -a app/build/generated/compatAssets /tmp/miaad-mut-date
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          route=Path('/tmp/miaad-mut-route/app-ui-hotfix.js')
+          text=route.read_text()
+          if 'window.miaadCivilDate' not in text: raise SystemExit('route mutation target missing')
+          route.write_text(text.replace('window.miaadCivilDate','window.__removedMiaadCivilDate'))
+          raw=Path('/tmp/miaad-mut-date/app-ui-hotfix.js')
+          text=raw.read_text()
+          text,n=re.subn(r'const\s+key\s*=\s*civilKey\s*\(\s*y\s*,\s*m\s*,\s*d\s*\)\s*;', 'const key = new Date(y,m,d);', text, count=1)
+          if n!=1: raise SystemExit('raw Date mutation target missing')
+          raw.write_text(text)
+          PY
+          if MIAAD_ASSET_ROOT=/tmp/miaad-mut-route node scripts/test-timezone-dst-contract.cjs > audit/mutation-route.txt 2>&1; then
+            echo 'canonical-route mutation unexpectedly passed' >&2; exit 1
+          fi
+          if MIAAD_ASSET_ROOT=/tmp/miaad-mut-date node scripts/test-timezone-dst-contract.cjs > audit/mutation-date.txt 2>&1; then
+            echo 'raw-Date mutation unexpectedly passed' >&2; exit 1
+          fi
+          grep -q 'AL final app-ui-hotfix calendar path' audit/mutation-route.txt
+          grep -q 'AL final app-ui-hotfix calendar path' audit/mutation-date.txt
+          echo 'MUTATION PROOF PASS: canonical-route removal and raw Date regression are rejected.' | tee audit/mutation-proof.txt
+
+      - name: Clean regeneration equivalence
+        if: steps.mode.outputs.bootstrap == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf app/build/generated/compatAssets
+          node scripts/build-compat.cjs
+          export MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets"
+          node scripts/test-timezone-dst-contract.cjs | tee audit/clean-generated-timezone-dst-contract.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 39/39 focused cases' audit/clean-generated-timezone-dst-contract.txt
+          node scripts/test-scheduling-contract.cjs | tee audit/clean-generated-scheduling-contract.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 43 focused cases' audit/clean-generated-scheduling-contract.txt
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-cleanbuild.json > audit/generated-assets-cleanbuild.sha256
+          cmp audit/generated-assets-tested.sha256 audit/generated-assets-cleanbuild.sha256
+          echo 'CLEAN REGENERATION EQUIVALENCE PASS' | tee audit/regeneration-equivalence.txt
+
+      - name: Upload proof evidence
+        if: always() && steps.mode.outputs.bootstrap == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1b-s2-harness-proof
+          path: audit/
+          if-no-files-found: error
+          retention-days: 30
