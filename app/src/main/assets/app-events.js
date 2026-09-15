@@ -18,23 +18,25 @@ editorFieldIds.forEach(id=>document.getElementById(id).addEventListener('input',
 document.getElementById('saveLesson').onclick=()=>{
  const oldId=document.getElementById('editId').value,name=document.getElementById('fName').value.trim();
  if(!name){showToast('اكتب اسم الطالب أو المجموعة أولًا');document.getElementById('fName').focus();return}
- const duration=Math.max(0,+document.getElementById('fDuration').value||0),
+ const effectiveDate=domain.teacherNow().date,authoritative=oldId?domain.versionAt(oldId,effectiveDate):null,
+   duration=Math.max(0,+document.getElementById('fDuration').value||0),
    requestedMax=Math.max(0,+document.getElementById('fMaxDuration').value||0),
    maxDuration=requestedMax>duration?requestedMax:duration,
    obj={
-     id:oldId||`custom-${Date.now()}`,name,day:+document.getElementById('fDay').value,
+     ...(authoritative||{}),id:oldId||`custom-${Date.now()}`,name,day:+document.getElementById('fDay').value,
      start:document.getElementById('fStart').value,duration,
      repeat:document.getElementById('fRepeat').value,reminder:+document.getElementById('fReminder').value||0,
      displayTime:document.getElementById('fDisplayTime').value.trim(),note:document.getElementById('fNote').value.trim()
    };
  if(!obj.start&&!obj.displayTime){showToast('أدخل ساعة البداية أو وصف الوقت مثل بعد المغرب');return}
- if(maxDuration>duration)obj.maxDuration=maxDuration;
+ if(maxDuration>duration)obj.maxDuration=maxDuration;else delete obj.maxDuration;
+ if(obj.repeat!=='biweekly')delete obj.phase;
  const check=hasFixedTime(obj)?SmartScheduleEngine.conflict(chosenSheetDate(),toSeconds(obj.start),maxDuration||30,oldId):{hard:[],soft:[]};
  if(check.hard.length&&!confirm(`يوجد تعارض مع ${check.hard.map(x=>x.name).join('، ')}. هل تريد حفظ الموعد رغم ذلك؟`))return;
  const occurrenceDate=sheetContextDate||selectedDate,k=keyFor(obj,occurrenceDate),oldOccurrence=domain.occurrences(dateKey(occurrenceDate)).find(r=>r.id===k);
  const chosenState=document.querySelector('#sessionStatePicker button.active')?.dataset.state??'';
  if(dateKey(occurrenceDate)>dateKey(new Date())&&['entered','absent','makeup','missed'].includes(chosenState)){showToast('لا يمكن تسجيل حضور أو غياب لحصة مستقبلية');return}
- const previous=lessons.find(x=>x.id===obj.id);obj.studentId=previous?.name===name?previous.studentId:domain.studentFor(name).id;domain.saveSchedule(obj);const idx=lessons.findIndex(x=>x.id===obj.id);if(idx>=0)lessons[idx]=obj;else lessons.push(obj);
+ const previous=authoritative||lessons.find(x=>x.id===obj.id);obj.studentId=previous?.name===name?previous.studentId:domain.studentFor(name).id;const saved=domain.saveSchedule(obj,effectiveDate);const idx=lessons.findIndex(x=>x.id===obj.id);if(idx>=0)lessons[idx]=saved;else lessons.push(saved);
  // Occurrence status is edited separately, without changing recurrence history.
  const note=document.getElementById('fSessionNote').value.trim();
  if(note)sessionNotes[k]=note;else delete sessionNotes[k];
