@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict');
+const path=require('node:path');
+const assetRoot=path.resolve(process.env.MIAAD_ASSET_ROOT||path.join(__dirname,'../app/src/main/assets'));
+const {createMiaadDomain}=require(path.join(assetRoot,'app-domain.js'));
+let now=new Date('2026-09-15T10:00:00');
+const d=createMiaadDomain({}, {},()=>new Date(now));
+const s=d.saveStudent({id:'phase-control',name:'Phase control',startDate:'2026-09-01',custom:false,settings:{}});
+d.saveSchedule({id:'phase-control-bi',studentId:s.id,name:s.name,day:1,start:'11:00',duration:30,repeat:'biweekly',phase:1},'2026-09-15');
+const pattern=()=>[d.occurrences('2026-09-21').some(r=>r.scheduleId==='phase-control-bi'),d.occurrences('2026-09-28').some(r=>r.scheduleId==='phase-control-bi')];
+assert.deepEqual(pattern(),[false,true]);
+const current=d.versionAt('phase-control-bi','2026-09-15');
+d.saveSchedule({...current,duration:45,phase:1},'2026-09-15');
+assert.equal(d.versionAt('phase-control-bi','2026-09-15').phase,1);
+assert.equal(d.versionAt('phase-control-bi','2026-09-15').duration,45);
+assert.deepEqual(pattern(),[false,true]);
+console.log('PASS: explicit domain phase 1 survives unrelated schedule edit');
+require('./test-scheduling-contract.cjs');
+require('./test-timezone-dst-contract.cjs');
