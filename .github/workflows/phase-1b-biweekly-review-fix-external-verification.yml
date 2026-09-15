@@ -1,0 +1,499 @@
+name: Phase 1B Biweekly Phase Review Fix External Verification V1R1
+
+on:
+  push:
+    branches:
+      - 'miaad/phase-1b-biweekly-phase-runtime-verification-v1r1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  CANDIDATE_TREE: 9e211ac47ba27df146e07d603196203119c4303c
+  WORKFLOW_PATH: .github/workflows/phase-1b-biweekly-review-fix-external-verification.yml
+
+jobs:
+  verification:
+    name: Source, generated, Android and APK gates V1R1
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout verification V1R1 branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Assert verification-only topology and frozen candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          mapfile -t changed < <(git diff --name-only "$CANDIDATE_SHA" HEAD)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = "$WORKFLOW_PATH"
+          git diff --check "$CANDIDATE_SHA" HEAD
+          test "$(git hash-object app/src/main/assets/app-boot.js)" = "30527cb9e25c21886108577d6ce0a2d28c7c790f"
+          test "$(git hash-object app/src/main/assets/app-events.js)" = "eec4f6d48273252bf59cafd3a9a938ffda23302f"
+          test "$(git hash-object scripts/test-flows.cjs)" = "c2dd50b52994304a49919dd9d7e454e0cc330007"
+          test "$(git hash-object scripts/test-biweekly-phase-domain-control.cjs)" = "8b46ab073d187bef6e7e5ab89620b3bf8330423b"
+          test "$(git hash-object scripts/emulator_biweekly_phase_review.py)" = "722d1e93ab8532fe48ff873fea21f5ae2b286c06"
+          test "$(git hash-object scripts/emulator_smoke.sh)" = "e12731bfe92cb8f484b50c833cf4c1981853ff78"
+          test "$(git hash-object app/src/main/assets/app-domain.js)" = "c27166a33d957c34f07c51b69ab634569eab0bea"
+          test "$(git hash-object app/src/main/assets/app-integration.js)" = "9a035febbad49bb21b3730038697b29ff3be734a"
+          test "$(git hash-object app/src/main/assets/app-ui-hotfix.js)" = "ffeac59cc32796143988c36b87768ffe85001787"
+          test "$(git hash-object scripts/test-timezone-dst-contract.cjs)" = "c74804a8ffcba7eb3829b0526d1a592e58373a58"
+          test "$(git hash-object scripts/test-scheduling-contract.cjs)" = "60664b0a7342a5baf1f23cc10d00941d9f372e1f"
+          for forbidden in 2026-09-15 2026-09-21 2026-09-28; do
+            if grep -Fq "$forbidden" scripts/emulator_biweekly_phase_review.py; then
+              echo "Runtime probe must not depend on fixed date $forbidden" >&2
+              exit 1
+            fi
+          done
+          mkdir -p audit
+          {
+            printf 'verification_head=%s\n' "$(git rev-parse HEAD)"
+            printf 'verification_parent=%s\n' "$(git rev-parse HEAD^)"
+            printf 'candidate=%s\n' "$CANDIDATE_SHA"
+            printf 'candidate_tree=%s\n' "$CANDIDATE_TREE"
+            git diff --name-status "$CANDIDATE_SHA" HEAD
+          } | tee audit/v1r1-source-identity.txt
+      - name: Install audit and compatibility dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install Pillow==11.3.0 androguard==4.1.3 websocket-client==1.8.0
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save --package-lock=false playwright@1.55.0 axe-core@4.10.3 esbuild@0.28.2 acorn@8.18.0 @esbuild/linux-x64@0.28.2
+          node scripts/verify-compat-toolchain.cjs | tee audit/compat-toolchain-lock.txt
+      - name: Run authoritative source gates
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          node scripts/test-schedule.cjs | tee audit/source-test-schedule.txt
+          node scripts/test-domain.cjs | tee audit/source-test-domain.txt
+          node scripts/test-quality-invariants.cjs | tee audit/source-quality-invariants.txt
+          node scripts/test-report-invariants.cjs | tee audit/source-report-invariants.txt
+          node scripts/test-flows.cjs | tee audit/source-flows.txt
+          grep -Fq 'biweekly phase preservation across editor/reload' audit/source-flows.txt
+          node scripts/test-browser.cjs | tee audit/source-browser.txt
+          node scripts/test-biweekly-phase-domain-control.cjs | tee audit/source-biweekly-domain-control.txt
+          grep -Fxq 'PASS: explicit domain phase 1 survives unrelated schedule edit' audit/source-biweekly-domain-control.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 43 focused cases' audit/source-biweekly-domain-control.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 39/39 focused cases' audit/source-biweekly-domain-control.txt
+          node scripts/test-scheduling-contract.cjs | tee audit/source-scheduling-contract.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 43 focused cases' audit/source-scheduling-contract.txt
+          node scripts/test-timezone-dst-contract.cjs | tee audit/source-timezone-dst-contract.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 39/39 focused cases' audit/source-timezone-dst-contract.txt
+          node scripts/test-webview-harness-compat.cjs | tee audit/source-webview-harness-compat.txt
+          node scripts/audit-js-compat.cjs | tee audit/source-js-compat.txt
+      - name: Generate WebView69 shipping assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build-compat.cjs | tee audit/compat-generation.txt
+      - name: Verify generated WebView69 shipping assets
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+          MIAAD_ASSET_ROOT: ${{ github.workspace }}/app/build/generated/compatAssets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/test-schedule.cjs | tee audit/generated-test-schedule.txt
+          rm -rf /tmp/miaad-generated-domain-harness
+          mkdir -p /tmp/miaad-generated-domain-harness/scripts /tmp/miaad-generated-domain-harness/app/src/main
+          cp scripts/test-domain.cjs /tmp/miaad-generated-domain-harness/scripts/test-domain.cjs
+          cp scripts/test-quality-invariants.cjs /tmp/miaad-generated-domain-harness/scripts/test-quality-invariants.cjs
+          ln -s "$MIAAD_ASSET_ROOT" /tmp/miaad-generated-domain-harness/app/src/main/assets
+          cmp scripts/test-domain.cjs /tmp/miaad-generated-domain-harness/scripts/test-domain.cjs
+          cmp scripts/test-quality-invariants.cjs /tmp/miaad-generated-domain-harness/scripts/test-quality-invariants.cjs
+          node /tmp/miaad-generated-domain-harness/scripts/test-domain.cjs | tee audit/generated-test-domain.txt
+          node /tmp/miaad-generated-domain-harness/scripts/test-quality-invariants.cjs | tee audit/generated-quality-invariants.txt
+          REPORT_HARNESS="$RUNNER_TEMP/miaad-generated-report-harness"
+          rm -rf "$REPORT_HARNESS"
+          mkdir -p "$REPORT_HARNESS/scripts" "$REPORT_HARNESS/app/src/main"
+          cp scripts/test-report-invariants.cjs "$REPORT_HARNESS/scripts/test-report-invariants.cjs"
+          ln -s "$MIAAD_ASSET_ROOT" "$REPORT_HARNESS/app/src/main/assets"
+          cmp scripts/test-report-invariants.cjs "$REPORT_HARNESS/scripts/test-report-invariants.cjs"
+          test -L "$REPORT_HARNESS/app/src/main/assets"
+          test "$(readlink -f "$REPORT_HARNESS/app/src/main/assets")" = "$(readlink -f "$MIAAD_ASSET_ROOT")"
+          test -f "$REPORT_HARNESS/app/src/main/assets/index.html"
+          NODE_PATH="$GITHUB_WORKSPACE/node_modules" node "$REPORT_HARNESS/scripts/test-report-invariants.cjs" | tee audit/generated-report-invariants.txt
+          node scripts/test-flows.cjs | tee audit/generated-flows.txt
+          grep -Fq 'biweekly phase preservation across editor/reload' audit/generated-flows.txt
+          node scripts/test-browser.cjs | tee audit/generated-browser.txt
+          node scripts/test-biweekly-phase-domain-control.cjs | tee audit/generated-biweekly-domain-control.txt
+          grep -Fxq 'PASS: explicit domain phase 1 survives unrelated schedule edit' audit/generated-biweekly-domain-control.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 43 focused cases' audit/generated-biweekly-domain-control.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 39/39 focused cases' audit/generated-biweekly-domain-control.txt
+          node scripts/test-scheduling-contract.cjs | tee audit/generated-scheduling-contract.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 43 focused cases' audit/generated-scheduling-contract.txt
+          node scripts/test-timezone-dst-contract.cjs | tee audit/generated-timezone-dst-contract.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 39/39 focused cases' audit/generated-timezone-dst-contract.txt
+          node scripts/test-shipping-compat.cjs | tee audit/generated-shipping-compat.txt
+          node scripts/test-compat-shims.cjs | tee audit/generated-compat-shims.txt
+          node scripts/test-webview-harness-compat.cjs | tee audit/generated-webview-harness-compat.txt
+          node scripts/audit-js-compat.cjs --shipping | tee audit/generated-js-compat.txt
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-tested.json > audit/generated-assets-tested.sha256
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - name: Install required Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --version | tee audit/sdkmanager-version.txt
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          adb version | tee audit/adb-version.txt
+          sdkmanager --list | tee audit/android-sdk-list.txt
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          test -d "$ANDROID_HOME/platforms/android-36"
+          test -d "$ANDROID_HOME/build-tools/36.0.0"
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.6.0'
+      - name: Prove clean regeneration equivalence
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf app/build
+          test ! -e app/build/generated/compatAssets
+          gradle :app:generateCompatAssets --rerun-tasks --stacktrace
+          export MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets"
+          node scripts/test-schedule.cjs | tee audit/clean-generated-test-schedule.txt
+          rm -rf /tmp/miaad-clean-generated-domain-harness
+          mkdir -p /tmp/miaad-clean-generated-domain-harness/scripts /tmp/miaad-clean-generated-domain-harness/app/src/main
+          cp scripts/test-domain.cjs /tmp/miaad-clean-generated-domain-harness/scripts/test-domain.cjs
+          cp scripts/test-quality-invariants.cjs /tmp/miaad-clean-generated-domain-harness/scripts/test-quality-invariants.cjs
+          ln -s "$MIAAD_ASSET_ROOT" /tmp/miaad-clean-generated-domain-harness/app/src/main/assets
+          cmp scripts/test-domain.cjs /tmp/miaad-clean-generated-domain-harness/scripts/test-domain.cjs
+          cmp scripts/test-quality-invariants.cjs /tmp/miaad-clean-generated-domain-harness/scripts/test-quality-invariants.cjs
+          node /tmp/miaad-clean-generated-domain-harness/scripts/test-domain.cjs | tee audit/clean-generated-test-domain.txt
+          node /tmp/miaad-clean-generated-domain-harness/scripts/test-quality-invariants.cjs | tee audit/clean-generated-quality-invariants.txt
+          CLEAN_REPORT_HARNESS="$RUNNER_TEMP/miaad-clean-generated-report-harness"
+          rm -rf "$CLEAN_REPORT_HARNESS"
+          mkdir -p "$CLEAN_REPORT_HARNESS/scripts" "$CLEAN_REPORT_HARNESS/app/src/main"
+          cp scripts/test-report-invariants.cjs "$CLEAN_REPORT_HARNESS/scripts/test-report-invariants.cjs"
+          ln -s "$MIAAD_ASSET_ROOT" "$CLEAN_REPORT_HARNESS/app/src/main/assets"
+          cmp scripts/test-report-invariants.cjs "$CLEAN_REPORT_HARNESS/scripts/test-report-invariants.cjs"
+          test -L "$CLEAN_REPORT_HARNESS/app/src/main/assets"
+          test "$(readlink -f "$CLEAN_REPORT_HARNESS/app/src/main/assets")" = "$(readlink -f "$MIAAD_ASSET_ROOT")"
+          test -f "$CLEAN_REPORT_HARNESS/app/src/main/assets/index.html"
+          NODE_PATH="$GITHUB_WORKSPACE/node_modules" node "$CLEAN_REPORT_HARNESS/scripts/test-report-invariants.cjs" | tee audit/clean-generated-report-invariants.txt
+          node scripts/test-flows.cjs | tee audit/clean-generated-flows.txt
+          grep -Fq 'biweekly phase preservation across editor/reload' audit/clean-generated-flows.txt
+          node scripts/test-browser.cjs | tee audit/clean-generated-browser.txt
+          node scripts/test-biweekly-phase-domain-control.cjs | tee audit/clean-generated-biweekly-domain-control.txt
+          grep -Fxq 'PASS: explicit domain phase 1 survives unrelated schedule edit' audit/clean-generated-biweekly-domain-control.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 43 focused cases' audit/clean-generated-biweekly-domain-control.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 39/39 focused cases' audit/clean-generated-biweekly-domain-control.txt
+          node scripts/test-scheduling-contract.cjs | tee audit/clean-generated-scheduling-contract.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 43 focused cases' audit/clean-generated-scheduling-contract.txt
+          node scripts/test-timezone-dst-contract.cjs | tee audit/clean-generated-timezone-dst-contract.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 39/39 focused cases' audit/clean-generated-timezone-dst-contract.txt
+          node scripts/test-shipping-compat.cjs | tee audit/clean-generated-shipping-compat.txt
+          node scripts/test-compat-shims.cjs | tee audit/clean-generated-compat-shims.txt
+          node scripts/test-webview-harness-compat.cjs | tee audit/clean-generated-webview-harness-compat.txt
+          node scripts/audit-js-compat.cjs --shipping | tee audit/clean-generated-js-compat.txt
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-cleanbuild.json > audit/generated-assets-cleanbuild.sha256
+          cmp audit/generated-assets-tested.sha256 audit/generated-assets-cleanbuild.sha256
+          echo 'CLEAN REGENERATION EQUIVALENCE PASS' | tee audit/regeneration-equivalence.txt
+      - name: Android lint gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:lintDebug --stacktrace | tee audit/android-lint.txt
+      - name: Android unit-test task
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:testDebugUnitTest --stacktrace | tee audit/android-unit-task.txt
+          echo 'Gradle task invocation = PASS' | tee audit/android-unit-evidence.txt
+          if grep -Eq ':app:testDebugUnitTest([^[:alnum:]_]|$).*NO-SOURCE|> Task :app:testDebugUnitTest NO-SOURCE' audit/android-unit-task.txt; then
+            echo 'Native Android unit-test payload = NO-SOURCE' | tee -a audit/android-unit-evidence.txt
+          else
+            echo 'Native Android unit-test payload = EXECUTED' | tee -a audit/android-unit-evidence.txt
+          fi
+      - name: Assemble debug APK and verify generated equivalence
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:assembleDebug --stacktrace | tee audit/android-assemble-debug.txt
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-final.json > audit/generated-assets-final.sha256
+          cmp audit/generated-assets-tested.sha256 audit/generated-assets-final.sha256
+      - name: Audit exact same-run APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          python3 scripts/audit_brand.py --apk "$APK" --output audit --apk-assets app/build/generated/compatAssets | tee audit/apk-audit-console.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" > audit/aapt-badging.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump resources "$APK" > audit/aapt-resources.txt
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" > audit/apk-signature.txt
+          grep -q 'miaad_splash_icon' audit/aapt-resources.txt
+          node scripts/verify-apk-compat.cjs "$APK" | tee audit/apk-compat.txt
+          sha256sum "$APK" | tee audit/apk-sha256-full.txt
+          sha256sum "$APK" | awk '{print $1}' > audit/apk-sha256.txt
+          stat -c '%s' "$APK" > audit/apk-size-bytes.txt
+          printf '%s\n' "$APK" > audit/apk-path.txt
+          grep '^package:' audit/aapt-badging.txt | head -n1 | tee audit/apk-package-version.txt
+          grep '^application-label:' audit/aapt-badging.txt | head -n1 | tee audit/apk-application-label.txt
+          python3 - <<'PY' | tee audit/apk-identity-summary.txt
+          import json
+          from pathlib import Path
+          audit = json.loads(Path('audit/apk-audit.json').read_text(encoding='utf-8'))
+          assert audit['result'] == 'PASS'
+          assert audit['package'] == 'com.miaad.app'
+          assert audit['signature_present'] is True
+          assert audit['firebase_config_matches'] is True
+          assert audit['all_web_assets_match_shipping_root'] is True
+          assert audit['zip_crc'] == 'PASS'
+          assert audit['png_crc_and_full_decode'] == 'PASS'
+          print(f"SHA256={audit['apk_sha256']}")
+          print(f"size={audit['apk_bytes']}")
+          print(f"package={audit['package']}")
+          print(f"versionName={audit['version']}")
+          print(f"versionCode={audit['version_code']}")
+          print(f"applicationLabel={audit['app_name']}")
+          print(f"signaturePresent={audit['signature_present']}")
+          print(f"firebaseConfigMatches={audit['firebase_config_matches']}")
+          print(f"generatedAssetsMatchAPK={audit['all_web_assets_match_shipping_root']}")
+          print(f"shippingAssetCount={audit['shipping_asset_count']}")
+          PY
+      - name: Upload V1R1 verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1b-biweekly-review-fix-v1r1-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload V1R1 static verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1b-biweekly-review-fix-v1r1-static-audit
+          path: audit/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  android-api:
+    name: Android API ${{ matrix.api }} installed-runtime gate V1R1
+    needs: verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 36]
+    steps:
+      - name: Checkout verification V1R1 branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Assert runtime source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          mapfile -t changed < <(git diff --name-only "$CANDIDATE_SHA" HEAD)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = "$WORKFLOW_PATH"
+          test "$(git hash-object app/src/main/assets/app-boot.js)" = "30527cb9e25c21886108577d6ce0a2d28c7c790f"
+          test "$(git hash-object app/src/main/assets/app-events.js)" = "eec4f6d48273252bf59cafd3a9a938ffda23302f"
+          test "$(git hash-object scripts/test-flows.cjs)" = "c2dd50b52994304a49919dd9d7e454e0cc330007"
+          test "$(git hash-object scripts/test-biweekly-phase-domain-control.cjs)" = "8b46ab073d187bef6e7e5ab89620b3bf8330423b"
+          test "$(git hash-object scripts/emulator_biweekly_phase_review.py)" = "722d1e93ab8532fe48ff873fea21f5ae2b286c06"
+          test "$(git hash-object scripts/emulator_smoke.sh)" = "e12731bfe92cb8f484b50c833cf4c1981853ff78"
+          test "$(git hash-object app/src/main/assets/app-domain.js)" = "c27166a33d957c34f07c51b69ab634569eab0bea"
+          test "$(git hash-object app/src/main/assets/app-integration.js)" = "9a035febbad49bb21b3730038697b29ff3be734a"
+          test "$(git hash-object app/src/main/assets/app-ui-hotfix.js)" = "ffeac59cc32796143988c36b87768ffe85001787"
+          test "$(git hash-object scripts/test-timezone-dst-contract.cjs)" = "c74804a8ffcba7eb3829b0526d1a592e58373a58"
+          test "$(git hash-object scripts/test-scheduling-contract.cjs)" = "60664b0a7342a5baf1f23cc10d00941d9f372e1f"
+          for forbidden in 2026-09-15 2026-09-21 2026-09-28; do
+            if grep -Fq "$forbidden" scripts/emulator_biweekly_phase_review.py; then
+              echo "Runtime probe must not depend on fixed date $forbidden" >&2
+              exit 1
+            fi
+          done
+          mkdir -p audit
+          printf 'verification_head=%s\nverification_parent=%s\ncandidate_tree=%s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD^)" "$CANDIDATE_TREE" | tee "audit/runtime-source-identity-api-${{ matrix.api }}.txt"
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - name: Ensure runtime platform tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --version
+          sdkmanager "platform-tools"
+          adb version
+          test -x "$ANDROID_HOME/platform-tools/adb"
+      - name: Install runtime Python dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install websocket-client==1.8.0
+      - name: Download exact same-run V1R1 APK
+        uses: actions/download-artifact@v4
+        with:
+          name: miaad-phase-1b-biweekly-review-fix-v1r1-apk
+          path: app/build/outputs/apk/debug
+      - name: Download V1R1 static SHA evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: miaad-phase-1b-biweekly-review-fix-v1r1-static-audit
+          path: static-audit
+      - name: Verify exact APK identity before emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          expected="$(cat static-audit/apk-sha256.txt)"
+          actual="$(sha256sum app/build/outputs/apk/debug/app-debug.apk | awk '{print $1}')"
+          test -n "$expected"
+          test "$actual" = "$expected"
+          printf 'expected=%s\nactual=%s\n' "$expected" "$actual" | tee "audit/runtime-apk-identity-api-${{ matrix.api }}.txt"
+      - name: Prepare V1R1 verification-only runtime harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HARNESS="$RUNNER_TEMP/miaad-v1r1-runtime-harness"
+          rm -rf "$HARNESS"
+          mkdir -p "$HARNESS"
+          cp scripts/emulator_biweekly_phase_review.py "$HARNESS/emulator_biweekly_phase_review.py"
+          cp scripts/emulator_smoke.sh "$HARNESS/emulator_smoke.sh"
+          cmp scripts/emulator_biweekly_phase_review.py "$HARNESS/emulator_biweekly_phase_review.py"
+          cmp scripts/emulator_smoke.sh "$HARNESS/emulator_smoke.sh"
+          cat > "$HARNESS/log_classifier.py" <<'PY'
+          #!/usr/bin/env python3
+          import argparse, json, re
+          from pathlib import Path
+          BENIGN = "Blocked call to navigator.vibrate because user hasn't tapped on the frame or any embedded frame yet"
+          FATAL_PATTERNS = [re.compile(r'FATAL EXCEPTION'),re.compile(r'\b[EF]\s+AndroidRuntime:'),re.compile(r'\bSyntaxError\b'),re.compile(r'\bReferenceError\b'),re.compile(r'\b(?:Uncaught\s+)?TypeError\b'),re.compile(r'MIAAD_RUNTIME_FATAL'),re.compile(r'runtime probe failure',re.I),re.compile(r'RenderProcessGone|renderer process.*(?:crash|died)',re.I),re.compile(r'WebView.*(?:load failed|ERR_)',re.I)]
+          def classify(lines):
+              benign=[]; fatal=[]
+              for line in lines:
+                  if 'E MiaadWeb' in line and BENIGN in line: benign.append(line); continue
+                  if 'E MiaadWeb' in line: fatal.append(line); continue
+                  if any(p.search(line) for p in FATAL_PATTERNS): fatal.append(line)
+              return benign,fatal
+          def self_check():
+              sample='E MiaadWeb: '+BENIGN+': https://www.chromestatus.com/feature/5644273861001216. line 273'
+              b,f=classify([sample]); assert len(b)==1 and not f
+              for sample in ['E MiaadWeb: SyntaxError: Unexpected token .','E MiaadWeb: ReferenceError: missingThing is not defined','E MiaadWeb: TypeError: Cannot read properties of undefined','E AndroidRuntime: FATAL EXCEPTION: main','MIAAD_RUNTIME_FATAL: explicit runtime probe failure']:
+                  _,f=classify([sample]); assert f==[sample],sample
+              print('V1R1 LOG CLASSIFIER SELF-CHECK PASS')
+          p=argparse.ArgumentParser(); p.add_argument('log',nargs='?'); p.add_argument('--stage',default='runtime'); p.add_argument('--api',default='unknown'); p.add_argument('--output'); p.add_argument('--self-check',action='store_true'); a=p.parse_args()
+          if a.self_check: self_check(); raise SystemExit(0)
+          if not a.log: raise SystemExit('log path required')
+          lines=Path(a.log).read_text(encoding='utf-8',errors='replace').splitlines(); benign,fatal=classify(lines)
+          evidence={'apiLevel':str(a.api),'stage':a.stage,'benignWebViewUserGestureWarningCount':len(benign),'genuineFatalRuntimeErrorCount':len(fatal),'benignMarker':BENIGN,'result':'PASS' if not fatal else 'FAIL'}
+          if a.output: Path(a.output).write_text(json.dumps(evidence,indent=2)+'\n',encoding='utf-8')
+          if benign: print('BENIGN WEBVIEW USER-GESTURE WARNING — NON-FATAL')
+          print(f'benign ignored message count = {len(benign)}'); print(f'genuine fatal Miaad/WebView error count = {len(fatal)}')
+          if fatal:
+              print('Genuine fatal runtime lines:')
+              for line in fatal[:20]: print(line)
+              raise SystemExit(1)
+          PY
+          chmod +x "$HARNESS/log_classifier.py"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          h=Path(os.environ['HARNESS']); probe=h/'emulator_biweekly_phase_review.py'; text=probe.read_text(encoding='utf-8')
+          old="lessons.find(x=>x.id==='runtime-biweekly')?.phase"; new="(lessons.find(x=>x.id==='runtime-biweekly')||{}).phase"; assert text.count(old)==1; text=text.replace(old,new)
+          old="assert 'E MiaadWeb' not in logcat,'WebView error after biweekly review test'"
+          new='''benign_marker="Blocked call to navigator.vibrate because user hasn't tapped on the frame or any embedded frame yet"\nmiaad_web_lines=[line for line in logcat.splitlines() if 'E MiaadWeb' in line]\nbenign_miaad_web_lines=[line for line in miaad_web_lines if benign_marker in line]\nfatal_miaad_web_lines=[line for line in miaad_web_lines if benign_marker not in line]\nassert not fatal_miaad_web_lines,'Genuine MiaadWeb error after biweekly review test: '+repr(fatal_miaad_web_lines[:10])'''; assert text.count(old)==1; text=text.replace(old,new)
+          old="result['afterRestart']=after_restart"; new="""result['benignWebViewUserGestureWarningCount']=len(benign_miaad_web_lines)\nresult['genuineFatalMiaadWebErrorCount']=len(fatal_miaad_web_lines)\nif benign_miaad_web_lines:\n    print('BENIGN WEBVIEW USER-GESTURE WARNING — NON-FATAL')\nresult['afterRestart']=after_restart"""; assert text.count(old)==1; text=text.replace(old,new)
+          assert '?.' not in text and '??' not in text; probe.write_text(text,encoding='utf-8')
+          smoke=h/'emulator_smoke.sh'; s=smoke.read_text(encoding='utf-8')
+          old='''if grep -q 'E MiaadWeb' "audit/logcat-${SUFFIX}.txt"; then\n  echo "FAIL: Miaad WebView JavaScript error detected on Android API ${API_LEVEL}" >&2\n  grep 'E MiaadWeb' "audit/logcat-${SUFFIX}.txt" >&2 || true\n  exit 1\nfi'''
+          new='''python3 "$MIAAD_V1R1_CLASSIFIER" "audit/logcat-${SUFFIX}.txt" \\\n  --stage first-frame \\\n  --api "$API_LEVEL" \\\n  --output "audit/v1r1-log-classification-first-frame-${SUFFIX}.json"'''; assert s.count(old)==1; s=s.replace(old,new)
+          old='MIAAD_API_LEVEL="$API_LEVEL" python3 scripts/emulator_biweekly_phase_review.py'; new='MIAAD_API_LEVEL="$API_LEVEL" python3 "$MIAAD_V1R1_BIWEEKLY_PROBE"'; assert s.count(old)==1; s=s.replace(old,new); smoke.write_text(s,encoding='utf-8')
+          PY
+          python3 "$HARNESS/log_classifier.py" --self-check | tee audit/v1r1-log-classifier-self-check.txt
+          python3 -m py_compile "$HARNESS/emulator_biweekly_phase_review.py" "$HARNESS/log_classifier.py"
+          bash -n "$HARNESS/emulator_smoke.sh"
+          probe_rc=0; diff -u scripts/emulator_biweekly_phase_review.py "$HARNESS/emulator_biweekly_phase_review.py" > audit/v1r1-biweekly-probe-harness.diff || probe_rc=$?; test "$probe_rc" -eq 1
+          smoke_rc=0; diff -u scripts/emulator_smoke.sh "$HARNESS/emulator_smoke.sh" > audit/v1r1-emulator-smoke-harness.diff || smoke_rc=$?; test "$smoke_rc" -eq 1
+          grep -Fq "(lessons.find(x=>x.id==='runtime-biweekly')||{}).phase" "$HARNESS/emulator_biweekly_phase_review.py"
+          ! grep -Fq "lessons.find(x=>x.id==='runtime-biweekly')?.phase" "$HARNESS/emulator_biweekly_phase_review.py"
+          cat > /tmp/miaad-v1r1-runtime.sh <<'BASH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          : "${RUNNER_TEMP:?}"; : "${MIAAD_API_LEVEL:?}"
+          export MIAAD_V1R1_BIWEEKLY_PROBE="$RUNNER_TEMP/miaad-v1r1-runtime-harness/emulator_biweekly_phase_review.py"
+          export MIAAD_V1R1_CLASSIFIER="$RUNNER_TEMP/miaad-v1r1-runtime-harness/log_classifier.py"
+          bash "$RUNNER_TEMP/miaad-v1r1-runtime-harness/emulator_smoke.sh"
+          BASH
+          chmod +x /tmp/miaad-v1r1-runtime.sh
+          bash -n /tmp/miaad-v1r1-runtime.sh
+      - name: Enable emulator KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run installed APK acceptance and biweekly runtime probe on API ${{ matrix.api }}
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          MIAAD_API_LEVEL: ${{ matrix.api }}
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: bash /tmp/miaad-v1r1-runtime.sh
+      - name: Validate dynamic biweekly runtime evidence and fatal classifier on API ${{ matrix.api }}
+        shell: bash
+        env:
+          MIAAD_API_LEVEL: ${{ matrix.api }}
+        run: |
+          set -euo pipefail
+          HARNESS="$RUNNER_TEMP/miaad-v1r1-runtime-harness"
+          python3 "$HARNESS/log_classifier.py" "audit/logcat-api${MIAAD_API_LEVEL}.txt" --stage complete-runtime --api "$MIAAD_API_LEVEL" --output "audit/v1r1-log-classification-api${MIAAD_API_LEVEL}.json" | tee "audit/v1r1-log-classification-api${MIAAD_API_LEVEL}.txt"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          api=os.environ['MIAAD_API_LEVEL']; path=Path(f'audit/biweekly-phase-review-api{api}.json'); assert path.is_file(),path; data=json.loads(path.read_text(encoding='utf-8'))
+          required={'today','firstDate','secondDate','expectedFirst','expectedSecond','afterRestart','apiLevel','result','phase','duration','beforeDates','afterDates','benignWebViewUserGestureWarningCount','genuineFatalMiaadWebErrorCount'}; missing=required-set(data); assert not missing,missing
+          assert data['result']=='PASS'; assert str(data['apiLevel'])==str(api); assert data['expectedFirst']!=data['expectedSecond']; assert data['beforeDates']==[data['expectedFirst'],data['expectedSecond']]; assert data['afterDates']==[data['expectedFirst'],data['expectedSecond']]; assert data['phase']==1; assert data['duration']==45; assert data['genuineFatalMiaadWebErrorCount']==0
+          restart=data['afterRestart']; assert restart=={'phase':1,'mirror':1,'duration':45,'first':data['expectedFirst'],'second':data['expectedSecond']}
+          classifier=json.loads(Path(f'audit/v1r1-log-classification-api{api}.json').read_text(encoding='utf-8')); assert classifier['result']=='PASS'; assert classifier['genuineFatalRuntimeErrorCount']==0
+          print(f"today={data['today']}"); print(f"firstDate={data['firstDate']}"); print(f"secondDate={data['secondDate']}"); print('phaseBeforeEditor=1 (asserted by runtime probe before editor)'); print(f"phaseAfterEditorSave={data['phase']}"); print(f"phaseAfterReload={restart['phase']}"); print(f"expectedFirst={data['expectedFirst']}"); print(f"expectedSecond={data['expectedSecond']}"); print(f"afterRestart={json.dumps(restart,sort_keys=True)}"); print(f"probeBenignWarningCount={data['benignWebViewUserGestureWarningCount']}"); print(f"probeGenuineFatalMiaadWebErrorCount={data['genuineFatalMiaadWebErrorCount']}"); print(f"classifierBenignIgnoredCount={classifier['benignWebViewUserGestureWarningCount']}"); print(f"classifierGenuineFatalCount={classifier['genuineFatalRuntimeErrorCount']}"); print(f"apiLevel={data['apiLevel']}"); print(f"result={data['result']}")
+          PY
+          test -s "audit/logcat-api${MIAAD_API_LEVEL}.txt"
+          test -s "audit/activity-api${MIAAD_API_LEVEL}.txt"
+          test -s "audit/miaad-ready-api${MIAAD_API_LEVEL}.png"
+          test -s "audit/miaad-launch-api${MIAAD_API_LEVEL}.mp4"
+          echo "Biweekly phase installed-APK review fix on API ${MIAAD_API_LEVEL}: PASS"
+      - name: Upload API ${{ matrix.api }} V1R1 runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1b-biweekly-review-fix-v1r1-runtime-api-${{ matrix.api }}
+          path: audit/
+          if-no-files-found: ignore
+          retention-days: 30
