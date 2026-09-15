@@ -102,20 +102,24 @@ ws=connect()
 wait_runtime_ready(ws)
 result=evaluate(ws,"""(()=>{
  const assert=(value,label)=>{if(!value)throw Error(label)};
- const today=domain.teacherNow().date;
- assert(today==='2026-09-15','unexpected teacher date '+today);
+ const today=domain.teacherNow().date,scheduleDay=1;
+ const todayWeekday=domain.weekdayForDate(today),daysUntil=((scheduleDay-todayWeekday+7)%7)||7;
+ const firstDate=domain.plus(today,daysUntil),secondDate=domain.plus(firstDate,7);
+ assert(domain.weekdayForDate(firstDate)===scheduleDay,'first dynamic date is not schedule weekday');
+ assert(domain.weekdayForDate(secondDate)===scheduleDay,'second dynamic date is not schedule weekday');
  const sid='phase-review-runtime';
- if(!domain.data.students[sid])domain.saveStudent({id:sid,name:'Biweekly phase runtime',startDate:'2026-09-01',custom:false,settings:{}});
+ if(!domain.data.students[sid])domain.saveStudent({id:sid,name:'Biweekly phase runtime',startDate:domain.plus(today,-30),custom:false,settings:{}});
  domain.data.schedules['runtime-biweekly']=[];
  lessons=lessons.filter(x=>x.id!=='runtime-biweekly');
- const base={id:'runtime-biweekly',studentId:sid,name:domain.data.students[sid].name,day:1,start:'11:00',duration:30,repeat:'biweekly',reminder:20,phase:0};
+ const base={id:'runtime-biweekly',studentId:sid,name:domain.data.students[sid].name,day:scheduleDay,start:'11:00',duration:30,repeat:'biweekly',reminder:20,phase:0};
  domain.saveSchedule(base,today);lessons.push({...base});idrisPhase=0;persist();renderAll();
  document.getElementById('toggleIdrisPhase').click();
  const before=domain.versionAt('runtime-biweekly',today);
  assert(before.phase===1,'phase toggle did not reach 1');
  assert(lessons.find(x=>x.id==='runtime-biweekly').phase===1,'lessons projection missing phase 1');
- assert(!domain.occurrences('2026-09-21').some(r=>r.scheduleId==='runtime-biweekly'),'phase 1 should omit 2026-09-21');
- assert(domain.occurrences('2026-09-28').some(r=>r.scheduleId==='runtime-biweekly'),'phase 1 should include 2026-09-28');
+ const beforeFirst=domain.occurrences(firstDate).some(r=>r.scheduleId==='runtime-biweekly');
+ const beforeSecond=domain.occurrences(secondDate).some(r=>r.scheduleId==='runtime-biweekly');
+ assert(beforeFirst!==beforeSecond,'adjacent biweekly candidates must alternate');
  selectedStudent=sid;switchView('students');renderStudents();
  const row=document.querySelector('[data-schedule="runtime-biweekly"]');assert(row,'runtime schedule row missing');row.click();
  const duration=document.getElementById('fDuration');duration.value='45';duration.dispatchEvent(new Event('input',{bubbles:true}));
@@ -124,9 +128,11 @@ result=evaluate(ws,"""(()=>{
  assert(after.phase===1,'duration edit lost phase 1');
  assert(after.duration===45,'duration edit did not save');
  assert(lessons.find(x=>x.id==='runtime-biweekly').phase===1,'projection lost phase after edit');
- assert(!domain.occurrences('2026-09-21').some(r=>r.scheduleId==='runtime-biweekly'),'2026-09-21 flipped after edit');
- assert(domain.occurrences('2026-09-28').some(r=>r.scheduleId==='runtime-biweekly'),'2026-09-28 flipped after edit');
- return {today,phase:after.phase,duration:after.duration,beforeDates:[false,true],afterDates:[false,true],versions:domain.data.schedules['runtime-biweekly'].length};
+ const afterFirst=domain.occurrences(firstDate).some(r=>r.scheduleId==='runtime-biweekly');
+ const afterSecond=domain.occurrences(secondDate).some(r=>r.scheduleId==='runtime-biweekly');
+ assert(afterFirst===beforeFirst,'first alternating date changed after edit');
+ assert(afterSecond===beforeSecond,'second alternating date changed after edit');
+ return {today,firstDate,secondDate,expectedFirst:beforeFirst,expectedSecond:beforeSecond,phase:after.phase,duration:after.duration,beforeDates:[beforeFirst,beforeSecond],afterDates:[afterFirst,afterSecond],versions:domain.data.schedules['runtime-biweekly'].length};
 })()""")
 ws.close()
 
@@ -135,15 +141,19 @@ wait_stopped()
 start_app()
 ws=connect(60)
 wait_runtime_ready(ws,60)
-after_restart=evaluate(ws,"""(()=>({
- phase:domain.versionAt('runtime-biweekly',domain.teacherNow().date).phase,
+first_date=json.dumps(result['firstDate'])
+second_date=json.dumps(result['secondDate'])
+effective_date=json.dumps(result['today'])
+after_restart=evaluate(ws,f"""(()=>({{
+ phase:domain.versionAt('runtime-biweekly',{effective_date}).phase,
  mirror:lessons.find(x=>x.id==='runtime-biweekly')?.phase,
- duration:domain.versionAt('runtime-biweekly',domain.teacherNow().date).duration,
- first:domain.occurrences('2026-09-21').some(r=>r.scheduleId==='runtime-biweekly'),
- second:domain.occurrences('2026-09-28').some(r=>r.scheduleId==='runtime-biweekly')
-}))()""")
+ duration:domain.versionAt('runtime-biweekly',{effective_date}).duration,
+ first:domain.occurrences({first_date}).some(r=>r.scheduleId==='runtime-biweekly'),
+ second:domain.occurrences({second_date}).some(r=>r.scheduleId==='runtime-biweekly')
+}}))()""")
 ws.close()
-assert after_restart=={'phase':1,'mirror':1,'duration':45,'first':False,'second':True},after_restart
+expected_restart={'phase':1,'mirror':1,'duration':45,'first':result['expectedFirst'],'second':result['expectedSecond']}
+assert after_restart==expected_restart,(after_restart,expected_restart)
 
 logcat=adb('logcat','-d')
 assert 'FATAL EXCEPTION' not in logcat,'fatal runtime exception after biweekly review test'
