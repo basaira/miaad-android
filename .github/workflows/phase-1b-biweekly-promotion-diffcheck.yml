@@ -1,0 +1,87 @@
+name: Phase 1B Biweekly Promotion Diff-Check V1
+
+on:
+  push:
+    branches:
+      - miaad/phase-1b-biweekly-promotion-diffcheck-v1
+
+permissions:
+  contents: read
+
+env:
+  OFFICIAL_SHA: 0a83e1bb32b23f0eff4ecb898cabb6f96a1664c2
+  CANDIDATE_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  CANDIDATE_TREE: 9e211ac47ba27df146e07d603196203119c4303c
+  WORKFLOW_PATH: .github/workflows/phase-1b-biweekly-promotion-diffcheck.yml
+
+jobs:
+  promotion-diff-check:
+    name: Prove final promotion diff-check gate
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout verification branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify topology and run exact promotion diff-check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          verification_head="$(git rev-parse HEAD)"
+          verification_parent="$(git rev-parse HEAD^)"
+          candidate_tree="$(git rev-parse "$CANDIDATE_SHA^{tree}")"
+
+          test "$verification_parent" = "$CANDIDATE_SHA"
+          test "$candidate_tree" = "$CANDIDATE_TREE"
+
+          git cat-file -e "$OFFICIAL_SHA^{commit}"
+          git cat-file -e "$CANDIDATE_SHA^{commit}"
+
+          mapfile -t changed_paths < <(git diff --name-only "$CANDIDATE_SHA" HEAD)
+          test "${#changed_paths[@]}" -eq 1
+          test "${changed_paths[0]}" = "$WORKFLOW_PATH"
+
+          git merge-base --is-ancestor "$OFFICIAL_SHA" "$CANDIDATE_SHA"
+          merge_base="$(git merge-base "$OFFICIAL_SHA" "$CANDIDATE_SHA")"
+          test "$merge_base" = "$OFFICIAL_SHA"
+
+          echo "official_sha=$OFFICIAL_SHA"
+          echo "candidate_sha=$CANDIDATE_SHA"
+          echo "candidate_tree=$candidate_tree"
+          echo "merge_base=$merge_base"
+          echo "diff_check_command=git diff --check $OFFICIAL_SHA..$CANDIDATE_SHA"
+
+          {
+            echo "verification_head=$verification_head"
+            echo "verification_parent=$verification_parent"
+            echo "official_sha=$OFFICIAL_SHA"
+            echo "candidate_sha=$CANDIDATE_SHA"
+            echo "candidate_tree=$candidate_tree"
+            echo "merge_base=$merge_base"
+            echo "diff_check_command=git diff --check $OFFICIAL_SHA..$CANDIDATE_SHA"
+          } > promotion-diffcheck-evidence.txt
+
+          set +e
+          git diff --check 0a83e1bb32b23f0eff4ecb898cabb6f96a1664c2..ca703d82a9a500393a0ce8948b279488f8e6c517
+          diff_check_exit_code=$?
+          set -e
+
+          echo "diff_check_exit_code=$diff_check_exit_code" | tee -a promotion-diffcheck-evidence.txt
+
+          if [ "$diff_check_exit_code" -ne 0 ]; then
+            exit "$diff_check_exit_code"
+          fi
+
+          echo "PROMOTION DIFF CHECK PASS"
+
+      - name: Upload promotion diff-check evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1b-biweekly-promotion-diffcheck-v1
+          path: promotion-diffcheck-evidence.txt
+          if-no-files-found: error
+          retention-days: 30
