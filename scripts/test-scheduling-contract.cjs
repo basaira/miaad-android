@@ -112,6 +112,11 @@ for(const [label,makeBad] of [
 check('VALIDATE effective date',()=>{const {d,good}=validationFixture(),before=JSON.stringify(d.data);assert.throws(()=>d.saveSchedule({...good,id:'bad-effective'},'2026-02-30'));assert.equal(JSON.stringify(d.data),before)});
 check('VALIDATE legacy name-only identity remains accepted',()=>{const {d}=validationFixture(),l=d.saveSchedule({id:'legacy-name-only',name:'Legacy Name',day:1,start:'',displayTime:'بعد المغرب',duration:0,repeat:'flex'},'2026-09-21');assert.ok(l.studentId);assert.equal(l.start,'')});
 
+
+check('P1C resolve weekly occurrence',()=>{const {d,st,good}=validationFixture();const r=d.resolveScheduleOccurrence(good.id,'2026-09-21');assert.ok(r);assert.equal(r.id,'2026-09-21__valid');assert.equal(d.resolveScheduleOccurrence(good.id,'2026-09-22'),null)});
+check('P1C resolve respects student startDate',()=>{const d=createMiaadDomain({}, {},()=>new Date(now)),st=d.saveStudent({id:'late',name:'Late',startDate:'2026-09-22',custom:false,settings:{}});d.saveSchedule({id:'late-weekly',studentId:st.id,name:st.name,day:1,start:'10:00',duration:30,repeat:'weekly'},'2026-09-21');assert.equal(d.resolveScheduleOccurrence('late-weekly','2026-09-21'),null)});
+check('P1C resolve biweekly phase 0/1',()=>{const d=createMiaadDomain({}, {},()=>new Date(now)),st=d.saveStudent({id:'phase',name:'Phase',startDate:'2026-09-01',custom:false,settings:{}});d.saveSchedule({id:'p0',studentId:st.id,name:st.name,day:1,start:'10:00',duration:30,repeat:'biweekly',phase:0},'2026-09-21');d.saveSchedule({id:'p1',studentId:st.id,name:st.name,day:1,start:'11:00',duration:30,repeat:'biweekly',phase:1},'2026-09-21');assert.ok(d.resolveScheduleOccurrence('p0','2026-09-21'));assert.equal(d.resolveScheduleOccurrence('p0','2026-09-28'),null);assert.equal(d.resolveScheduleOccurrence('p1','2026-09-21'),null);assert.ok(d.resolveScheduleOccurrence('p1','2026-09-28'))});
+
 const failures=cases.filter(x=>!x.ok);
 if(failures.length){console.error('SCHEDULING CONTRACT FAILURES');for(const f of failures)console.error(`- ${f.id}: ${f.error}`);console.error(`FAILED ${failures.length}/${cases.length} cases`);process.exit(1)}
 console.log(`PHASE 1B SCHEDULING CONTRACT PASS: ${cases.length} focused cases`);
