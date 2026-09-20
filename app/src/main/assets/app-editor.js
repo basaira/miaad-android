@@ -27,7 +27,7 @@ function renderAvailability(){
      <span class="slot-score ${cls}">ملاءمة ${c.score}%</span>
    </button>`
  }).join(''):'<div class="availability-empty">لا توجد فترة تستوعب هذه المدة في هذا اليوم.</div>';
- list.querySelectorAll('[data-slot]').forEach(b=>b.onclick=()=>{document.getElementById('fStart').value=b.dataset.slot;markEditorDirty();renderAvailability();tap();showToast(`تم اختيار ${b.dataset.slot}`)});
+ list.querySelectorAll('[data-slot]').forEach(b=>b.onclick=()=>{document.getElementById('fStart').value=b.dataset.slot;markScheduleDirty();renderAvailability();tap();showToast(`تم اختيار ${b.dataset.slot}`)});
 
  const wins=SmartScheduleEngine.freeWindows(date,excludeId).filter(w=>w.seconds>=duration*60),
    visible=freeWindowsExpanded?wins:wins.slice(0,4),
@@ -40,17 +40,34 @@ function renderAvailability(){
      <span class="free-window-duration">مدة الفراغ: ${humanDuration(w.seconds)}${w.softRisks.length?` · <span class="free-window-risk">يوجد موعد غير محدد الساعة</span>`:''}</span>
      <span class="free-window-cta">استخدم البداية</span>
    </button>`).join(''):'<div class="availability-empty">لا توجد فترات فارغة كافية لهذه المدة.</div>';
- free.querySelectorAll('[data-free-start]').forEach(b=>b.onclick=()=>{document.getElementById('fStart').value=b.dataset.freeStart;markEditorDirty();renderAvailability();tap();showToast(`بدأ الموعد عند ${b.dataset.freeStart}`)})
+ free.querySelectorAll('[data-free-start]').forEach(b=>b.onclick=()=>{document.getElementById('fStart').value=b.dataset.freeStart;markScheduleDirty();renderAvailability();tap();showToast(`بدأ الموعد عند ${b.dataset.freeStart}`)})
 }
 
 function renderAll(){renderHeader();renderFocus();renderTodayAgenda();renderWeekView();renderStudents(document.getElementById('studentSearch').value||'');renderDesktop();renderReport();renderClock()}
 
+let sheetOccurrenceHandoff=null,sheetOccurrenceContext={kind:'incidental',date:''},scheduleDirty=false,occurrenceDirty=false;
+function markScheduleDirty(){scheduleDirty=true;markEditorDirty()}
+function markOccurrenceDirty(){occurrenceDirty=true;markEditorDirty()}
+function visibleCivilDateLabel(d){
+ if(typeof d==='string'&&Number.isInteger(domain.weekdayForDate(d)))return d;
+ if(d&&typeof d.__miaadCivilDate==='string'&&Number.isInteger(domain.weekdayForDate(d.__miaadCivilDate)))return d.__miaadCivilDate;
+ if(d instanceof Date&&Number.isFinite(+d)){const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;return Number.isInteger(domain.weekdayForDate(key))?key:''}
+ return''
+}
+function occurrenceContextDate(l,d,kind){
+ if(kind==='occurrence'&&l?.recordId){const persisted=domain.data.records[l.recordId];if(persisted?.date)return persisted.date;const match=/^(\d{4}-\d{2}-\d{2})__/.exec(l.recordId);if(match&&Number.isInteger(domain.weekdayForDate(match[1])))return match[1]}
+ return visibleCivilDateLabel(d)
+}
+function openSheetWithContext(l=null,d=selectedDate,kind='incidental',focusNote=false){
+ const carries=kind==='occurrence'||kind==='calendar',context={kind,date:carries?occurrenceContextDate(l,d,kind):''};
+ sheetOccurrenceHandoff=context;
+ try{return openSheet(l,d,focusNote)}finally{sheetOccurrenceHandoff=null}
+}
 function openSheet(l=null,d=selectedDate,focusNote=false){
- sheetContextDate=d;editorDirty=false;freeWindowsExpanded=false;
+ sheetContextDate=d;sheetOccurrenceContext=sheetOccurrenceHandoff?{...sheetOccurrenceHandoff}:{kind:'incidental',date:''};editorDirty=false;scheduleDirty=false;occurrenceDirty=false;freeWindowsExpanded=false;
  const sheet=document.getElementById('lessonSheet');
  sheet.classList.add('show');document.getElementById('sheetBackdrop').classList.add('show');sheet.setAttribute('aria-hidden','false');
  document.getElementById('sheetTitle').textContent=l?'تعديل الدرس':'إضافة موعد';
- document.getElementById('sheetSub').textContent=l?'كل تفاصيل الموعد والحصة قابلة للتعديل هنا.':'اختر اليوم والمدة؛ مِيعاد يرتب أفضل الفترات تلقائيًا.';
  document.getElementById('editId').value=l?.id||'';
  document.getElementById('fName').value=l?.name||'';
  document.getElementById('fDay').value=l?.day??d.getDay();
@@ -61,12 +78,18 @@ function openSheet(l=null,d=selectedDate,focusNote=false){
  document.getElementById('fReminder').value=l?.reminder??20;
  document.getElementById('fDisplayTime').value=l?.displayTime||'';
  document.getElementById('fNote').value=l?.note||'';
- document.getElementById('fSessionNote').value=l?sessionNotes[keyFor(l,d)]||'':'';
  document.getElementById('deleteLesson').style.display=l?'grid':'none';
- const currentState=l?(sessionState[keyFor(l,d)]||''):'';
- document.querySelectorAll('#sessionStatePicker button').forEach(b=>b.classList.toggle('active',b.dataset.state===currentState));
+
+ const explicit=sheetOccurrenceContext.kind==='occurrence'||sheetOccurrenceContext.kind==='calendar',D=sheetOccurrenceContext.date;
+ let occurrence=null,tombstone=false;
+ if(l&&explicit&&D){const id=D+'__'+l.id,persisted=domain.data.records[id];if(persisted?.deleted)tombstone=true;else occurrence=persisted||domain.resolveScheduleOccurrence(l.id,D)}
+ const enabled=explicit&&!!D&&!tombstone,currentState=occurrence?.status==='pending'?'':(occurrence?.status||'');
+ document.getElementById('fSessionNote').value=occurrence?.note||'';
+ document.getElementById('fSessionNote').disabled=!enabled;
+ document.querySelectorAll('#sessionStatePicker button').forEach(b=>{b.disabled=!enabled;b.classList.toggle('active',b.dataset.state===currentState)});
+ document.getElementById('sheetSub').textContent=tombstone?'هذه الحصة محذوفة تاريخيًا؛ عدّل الموعد المتكرر دون إعادة إنشاء الحصة.':!enabled?'هذا التعديل يخص الموعد المتكرر، وليس حصة محددة.':D?`الحالة والملاحظة تخصان حصة ${D} فقط.`:(l?'كل تفاصيل الموعد قابلة للتعديل هنا.':'اختر اليوم والمدة؛ مِيعاد يرتب أفضل الفترات تلقائيًا.');
  editorState(l?'جاهز للتعديل':'موعد جديد');
  document.getElementById('editorScroll').scrollTop=0;
  renderAvailability();
- if(focusNote)setTimeout(()=>document.getElementById('fSessionNote').focus(),220)
+ if(focusNote&&enabled)setTimeout(()=>document.getElementById('fSessionNote').focus(),220)
 }

@@ -16,6 +16,40 @@ assert.deepEqual(await page.evaluate(()=>(()=>{const l=domain.versionAt('bi-revi
 // Other exposed recurrence edits must not mutate the unexposed authoritative phase.
 for(const [selector,value,kind] of [['#fStart','11:15','fill'],['#fNote','phase-one-note','fill'],['#fMaxDuration','60','fill']]){await page.locator('[data-schedule="bi-review"]').click();if(kind==='fill')await page.locator(selector).fill(value);await page.locator('#saveLesson').click();assert.equal(await page.evaluate(()=>domain.versionAt('bi-review',domain.teacherNow().date).phase),1);assert.equal(await page.evaluate(()=>lessons.find(x=>x.id==='bi-review').phase),1);assert.equal(await page.evaluate(()=>domain.data.schedules['bi-review'].length),2)}
 assert.equal(await page.evaluate(()=>[0,1].includes(domain.versionAt('bi-review',domain.teacherNow().date).phase)),true);
+
+// Phase 1C C1: authoritative record must defeat deliberately stale compatibility mirrors in the real recurring editor.
+await page.evaluate(()=>{const r=domain.resolveScheduleOccurrence('existing','2026-09-15');domain.record({...r,status:'entered',note:'canonical-occurrence',actualMinutes:23,countOverride:false});sessionState[r.id]='absent';sessionNotes[r.id]='stale-legacy-note';saveLocalState();openSheetWithContext(lessons.find(x=>x.id==='existing'),domain.parse('2026-09-15'),'occurrence')});
+assert.equal(await page.locator('#sessionStatePicker button.active').getAttribute('data-state'),'entered');
+assert.equal(await page.locator('#fSessionNote').inputValue(),'canonical-occurrence');
+await page.locator('#fReminder').selectOption('30');await page.locator('#saveLesson').click();
+assert.deepEqual(await page.evaluate(()=>{const r=domain.data.records['2026-09-15__existing'];return[r.status,r.note,r.actualMinutes,r.countOverride,sessionState[r.id],sessionNotes[r.id]]}),['entered','canonical-occurrence',23,false,'entered','canonical-occurrence']);
+await page.reload();
+assert.deepEqual(await page.evaluate(()=>{const r=domain.data.records['2026-09-15__existing'];return[r.status,r.note,r.actualMinutes,r.countOverride,sessionState[r.id],sessionNotes[r.id]]}),['entered','canonical-occurrence',23,false,'entered','canonical-occurrence']);
+
+// Phase 1C C2 real-D: explicit calendar provenance may create exactly the proven occurrence record.
+await page.evaluate(()=>openSheetWithContext(null,domain.parse('2026-09-15'),'calendar'));
+await page.locator('#editId').evaluate(el=>el.value='ui-real');await page.locator('#fName').fill('Calendar Real');await page.locator('#fDay').selectOption('2');await page.locator('#fStart').fill('20:00');await page.locator('#fRepeat').selectOption('weekly');await page.locator('#sessionStatePicker button[data-state="entered"]').click();await page.locator('#fSessionNote').fill('real-occurrence-note');await page.locator('#saveLesson').click();
+assert.deepEqual(await page.evaluate(()=>{const rows=Object.values(domain.data.records).filter(r=>r.id==='2026-09-15__ui-real');return[rows.length,rows[0]?.status,rows[0]?.note,sessionState['2026-09-15__ui-real'],sessionNotes['2026-09-15__ui-real']]}),[1,'entered','real-occurrence-note','entered','real-occurrence-note']);
+await page.reload();assert.equal(await page.evaluate(()=>domain.data.records['2026-09-15__ui-real']?.status),'entered');
+
+// Phase 1C C2 invalid-D: wrong weekday rolls back schedule and occurrence atomically.
+await page.evaluate(()=>openSheetWithContext(null,domain.parse('2026-09-15'),'calendar'));
+await page.locator('#editId').evaluate(el=>el.value='ui-invalid-weekday');await page.locator('#fName').fill('Invalid Weekday');await page.locator('#fDay').selectOption('3');await page.locator('#fStart').fill('21:00');await page.locator('#fRepeat').selectOption('weekly');await page.locator('#sessionStatePicker button[data-state="entered"]').click();await page.locator('#saveLesson').click();
+assert.deepEqual(await page.evaluate(()=>[domain.data.schedules['ui-invalid-weekday'],domain.data.records['2026-09-15__ui-invalid-weekday'],sessionState['2026-09-15__ui-invalid-weekday'],sessionNotes['2026-09-15__ui-invalid-weekday']]),[undefined,undefined,undefined,undefined]);
+await page.evaluate(()=>closeSheet(true));
+
+// Phase 1C C2 invalid-D: matching weekday but wrong biweekly phase also rolls back, including note-only intent.
+await page.evaluate(()=>openSheetWithContext(null,domain.parse('2026-09-28'),'calendar'));
+await page.locator('#editId').evaluate(el=>el.value='ui-invalid-phase');await page.locator('#fName').fill('Invalid Phase');await page.locator('#fDay').selectOption('1');await page.locator('#fStart').fill('21:30');await page.locator('#fRepeat').selectOption('biweekly');await page.locator('#fSessionNote').fill('must-not-survive');await page.locator('#saveLesson').click();
+assert.deepEqual(await page.evaluate(()=>[domain.data.schedules['ui-invalid-phase'],domain.data.records['2026-09-28__ui-invalid-phase'],sessionState['2026-09-28__ui-invalid-phase'],sessionNotes['2026-09-28__ui-invalid-phase']]),[undefined,undefined,undefined,undefined]);
+await page.evaluate(()=>closeSheet(true));
+
+// Schedule-only context exposes no implicit occurrence authority.
+await page.evaluate(()=>openSheetWithContext(null,selectedDate,'schedule'));
+assert.equal(await page.locator('#fSessionNote').isDisabled(),true);assert.equal(await page.locator('#sessionStatePicker button').first().isDisabled(),true);
+await page.locator('#editId').evaluate(el=>el.value='ui-generic');await page.locator('#fName').fill('Generic Schedule');await page.locator('#fDay').selectOption('2');await page.locator('#fStart').fill('22:00');await page.locator('#saveLesson').click();
+assert.deepEqual(await page.evaluate(()=>[!!domain.data.schedules['ui-generic'],Object.keys(domain.data.records).some(k=>k.endsWith('__ui-generic'))]),[true,false]);
+
 assert.equal(await page.evaluate(()=>domain.versionAt('existing',domain.teacherNow().date).repeat),'weekly');assert.equal(await page.evaluate(()=>domain.occurrences('2026-09-22').some(r=>r.scheduleId==='existing')),true);assert.equal(await page.evaluate(()=>domain.occurrences('2026-09-29').some(r=>r.scheduleId==='existing')),true);
 await page.locator('[data-record="2026-09-08__existing"]').click();await page.locator('.record-form [name="status"]').selectOption('student_cancelled');await page.locator('.record-form button:not([type])').click();assert.match(await page.locator('.cycle-progress').innerText(),/0 \/ 12/);
 await page.locator('#periodCreate').click();await page.locator('#periodForm [name="operation"]').selectOption('edit');await page.locator('#periodForm [name="mode"]').selectOption('monthly');await page.locator('#periodForm [name="start"]').fill('2026-09-08');await page.locator('#periodForm [name="end"]').fill('2026-10-07');await page.locator('#periodForm button').click();assert.equal(await page.evaluate(()=>domain.period(selectedStudent).end),'2026-10-07');

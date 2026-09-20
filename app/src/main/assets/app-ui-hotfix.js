@@ -102,7 +102,7 @@
       const row=rows.find(r=>r.id===button.dataset.dayRecord),host=$$('[data-day-record-host]',panel).find(node=>node.dataset.dayRecordHost===button.dataset.dayRecord);
       if(row&&host&&typeof openRecordForm==='function')openRecordForm(row,row.studentId,host);
     });
-    const add=$('#addForSelectedDay',panel);if(add)add.onclick=()=>{if(typeof openSheet==='function')openSheet(null,selectedDate)};
+    const add=$('#addForSelectedDay',panel);if(add)add.onclick=()=>{if(typeof openSheetWithContext==='function')openSheetWithContext(null,selectedDate,'calendar')};
   }
 
   function renderMonthCalendar(){

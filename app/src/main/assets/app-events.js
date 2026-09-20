@@ -1,18 +1,20 @@
 function closeSheet(force=false){
  if(editorDirty&&!force&&!confirm('لديك تغييرات غير محفوظة. هل تريد الخروج دون حفظها؟'))return false;
  const sheet=document.getElementById('lessonSheet');sheet.classList.remove('show');document.getElementById('sheetBackdrop').classList.remove('show');sheet.setAttribute('aria-hidden','true');
- editorDirty=false;editorState('جاهز');return true
+ editorDirty=false;scheduleDirty=false;occurrenceDirty=false;sheetOccurrenceContext={kind:'incidental',date:''};editorState('جاهز');return true
 }
 
 document.querySelectorAll('#sessionStatePicker button').forEach(b=>b.onclick=()=>{
- document.querySelectorAll('#sessionStatePicker button').forEach(x=>x.classList.remove('active'));b.classList.add('active');markEditorDirty();tap()
+ if(b.disabled)return;document.querySelectorAll('#sessionStatePicker button').forEach(x=>x.classList.remove('active'));b.classList.add('active');markOccurrenceDirty();tap()
 });
+document.getElementById('sessionStatePicker').addEventListener('click',e=>{const b=e.target.closest?.('button[data-state]');if(b&&!b.disabled)markOccurrenceDirty()});
 document.getElementById('sheetBackdrop').onclick=()=>closeSheet();
 document.getElementById('closeSheetBtn').onclick=()=>closeSheet();
 document.getElementById('toggleFreeWindows').onclick=()=>{freeWindowsExpanded=!freeWindowsExpanded;renderAvailability();tap()};
 
-const editorFieldIds=['fName','fDay','fStart','fDuration','fMaxDuration','fRepeat','fReminder','fDisplayTime','fNote','fSessionNote'];
-editorFieldIds.forEach(id=>document.getElementById(id).addEventListener('input',markEditorDirty));
+const scheduleFieldIds=['fName','fDay','fStart','fDuration','fMaxDuration','fRepeat','fReminder','fDisplayTime','fNote'];
+scheduleFieldIds.forEach(id=>document.getElementById(id).addEventListener('input',markScheduleDirty));
+document.getElementById('fSessionNote').addEventListener('input',markOccurrenceDirty);
 ['fDay','fDuration','fMaxDuration','fStart'].forEach(id=>document.getElementById(id).addEventListener('input',renderAvailability));
 
 document.getElementById('saveLesson').onclick=()=>{
@@ -27,21 +29,32 @@ document.getElementById('saveLesson').onclick=()=>{
      start:document.getElementById('fStart').value,duration,
      repeat:document.getElementById('fRepeat').value,reminder:+document.getElementById('fReminder').value||0,
      displayTime:document.getElementById('fDisplayTime').value.trim(),note:document.getElementById('fNote').value.trim()
-   };
+   },
+   context={...sheetOccurrenceContext},hasOccurrenceIntent=occurrenceDirty,
+   chosenState=document.querySelector('#sessionStatePicker button.active')?.dataset.state??'',
+   occurrenceNote=document.getElementById('fSessionNote').value.trim();
  if(!obj.start&&!obj.displayTime){showToast('أدخل ساعة البداية أو وصف الوقت مثل بعد المغرب');return}
  if(maxDuration>duration)obj.maxDuration=maxDuration;else delete obj.maxDuration;
  if(obj.repeat!=='biweekly')delete obj.phase;
+ if(hasOccurrenceIntent&&!['occurrence','calendar'].includes(context.kind))throw Error('اختر حصة أو يومًا محددًا قبل تعديل حالة الحصة أو ملاحظتها');
+ if(hasOccurrenceIntent&&!context.date)throw Error('تعذر تحديد تاريخ الحصة المقصودة');
  const check=hasFixedTime(obj)?SmartScheduleEngine.conflict(chosenSheetDate(),toSeconds(obj.start),maxDuration||30,oldId):{hard:[],soft:[]};
  if(check.hard.length&&!confirm(`يوجد تعارض مع ${check.hard.map(x=>x.name).join('، ')}. هل تريد حفظ الموعد رغم ذلك؟`))return;
- const occurrenceDate=sheetContextDate||selectedDate,k=keyFor(obj,occurrenceDate),oldOccurrence=domain.occurrences(dateKey(occurrenceDate)).find(r=>r.id===k);
- const chosenState=document.querySelector('#sessionStatePicker button.active')?.dataset.state??'';
- if(dateKey(occurrenceDate)>dateKey(new Date())&&['entered','absent','makeup','missed'].includes(chosenState)){showToast('لا يمكن تسجيل حضور أو غياب لحصة مستقبلية');return}
- const previous=authoritative||lessons.find(x=>x.id===obj.id);obj.studentId=previous?.name===name?previous.studentId:domain.studentFor(name).id;const saved=domain.saveSchedule(obj,effectiveDate);const idx=lessons.findIndex(x=>x.id===obj.id);if(idx>=0)lessons[idx]=saved;else lessons.push(saved);
- // Occurrence status is edited separately, without changing recurrence history.
- const note=document.getElementById('fSessionNote').value.trim();
- if(note)sessionNotes[k]=note;else delete sessionNotes[k];
- if(oldOccurrence&&(oldOccurrence.status!==(chosenState||'pending')||oldOccurrence.note!==note))domain.record({...oldOccurrence,status:chosenState||'pending',note});
- persist();editorDirty=false;closeSheet(true);renderAll();showToast('حُفظت التعديلات')
+ const result=domain.atomic(()=>{
+   const previous=authoritative||lessons.find(x=>x.id===obj.id);
+   obj.studentId=previous?.name===name?previous.studentId:domain.studentFor(name).id;
+   const saved=domain.saveSchedule(obj,effectiveDate);
+   if(hasOccurrenceIntent){
+     const id=context.date+'__'+saved.id,persisted=domain.data.records[id];
+     if(persisted?.deleted)throw Error('الحصة المحددة محذوفة تاريخيًا ولا يمكن إعادة إنشائها من محرر الموعد');
+     const base=persisted||domain.resolveScheduleOccurrence(saved.id,context.date);
+     if(!base)throw Error('التاريخ المحدد ليس حصة فعلية لهذا الموعد بعد التعديل');
+     domain.record({...base,status:chosenState||'pending',note:occurrenceNote});
+   }
+   return{saved}
+ });
+ const idx=lessons.findIndex(x=>x.id===obj.id);if(idx>=0)lessons[idx]=result.saved;else lessons.push(result.saved);
+ refreshLegacyOccurrenceMirrors();persist();editorDirty=false;scheduleDirty=false;occurrenceDirty=false;closeSheet(true);renderAll();showToast('حُفظت التعديلات')
 };
 document.getElementById('deleteLesson').onclick=()=>{
  const id=document.getElementById('editId').value;if(!id)return;
@@ -74,15 +87,15 @@ function switchView(target){
 document.querySelectorAll('.nav-btn').forEach(btn=>btn.onclick=()=>switchView(btn.dataset.view));
 document.getElementById('studentSearch').addEventListener('input',e=>renderStudents(e.target.value));
 document.getElementById('focusEnterBtn').onclick=()=>{if(currentFocus)handleSessionAction('entered',currentFocus.lesson,currentFocus.date)};
-document.getElementById('focusMoreBtn').onclick=()=>{if(currentFocus)openSheet(currentFocus.lesson,currentFocus.date)};
+document.getElementById('focusMoreBtn').onclick=()=>{if(currentFocus)openSheetWithContext(currentFocus.lesson,currentFocus.date,'occurrence')};
 document.getElementById('bellBtn').onclick=()=>document.querySelector('[data-view="settings"]').click();
-document.getElementById('addLessonBtn').onclick=()=>openSheet(null,selectedDate);
-document.getElementById('smartFreeStrip').onclick=()=>openSheet(null,new Date());document.getElementById('smartFreeStrip').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openSheet(null,new Date())}};
+document.getElementById('addLessonBtn').onclick=()=>openSheetWithContext(null,selectedDate,'schedule');
+document.getElementById('smartFreeStrip').onclick=()=>openSheetWithContext(null,new Date(),'incidental');document.getElementById('smartFreeStrip').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openSheetWithContext(null,new Date(),'incidental')}};
 document.getElementById('toggleIdrisPhase').onclick=()=>{idrisPhase=idrisPhase?0:1;persist();renderAll();showToast('تم قلب أسبوع إدريس')};
 document.getElementById('enableNotif').onclick=async()=>{if(NATIVE&&typeof NATIVE.requestNotificationPermission==='function'){try{NATIVE.requestNotificationPermission();setTimeout(renderHeader,350);showToast('تم طلب إذن تنبيهات أندرويد');return}catch{}}if(!('Notification'in window)){showToast('هذا المتصفح لا يدعم الإشعارات');return}const p=await Notification.requestPermission();renderHeader();showToast(p==='granted'?'تم تفعيل الإشعارات':'لم يُمنح الإذن')};
 document.getElementById('reportMonth').addEventListener('change',renderReport);document.getElementById('reportCsv').onclick=()=>exportReportCsv();document.getElementById('reportPrint').onclick=()=>window.print();
 document.getElementById('exportBtn').onclick=()=>{const data={...snapshotData(),generatedAt:new Date().toISOString()};downloadBlob(JSON.stringify(data,null,2),`miad-backup-${dateKey(new Date())}.json`,'application/json');showToast('تم تجهيز النسخة الاحتياطية')};
-document.getElementById('importBtn').onclick=()=>document.getElementById('importFile').click();document.getElementById('importFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.lessons)||data.lessons.some(l=>!l||typeof l.id!=='string'||typeof l.name!=='string'||!Number.isInteger(l.day)||l.day<0||l.day>6))throw new Error('صيغة غير صحيحة');domain.merge(data.domain);const existing=new Map(lessons.map(x=>[x.id,x]));data.lessons.forEach(x=>existing.set(x.id,x));lessons=normalizeSchedule([...existing.values()]);sessionState={...sessionState,...(data.sessionState||{})};sessionNotes={...sessionNotes,...(data.sessionNotes||{})};for(const [k,v] of Object.entries(data.sessionAudit||{}))sessionAudit[k]=[...(sessionAudit[k]||[]),...v].sort((a,b)=>String(a.at).localeCompare(String(b.at)));if(Number.isFinite(Number(data.idrisPhase)))idrisPhase=Number(data.idrisPhase);domain.replace(domain.data,{lessons,sessionState,sessionNotes,sessionAudit,idrisPhase});if(!data.domain){for(const l of data.lessons)domain.saveSchedule({...l,studentId:domain.studentFor(l.name).id});for(const [key,status] of Object.entries(data.sessionState||{})){const r=domain.occurrences(key.slice(0,10)).find(x=>x.id===key);if(r)domain.record({...r,status:status||'pending',note:data.sessionNotes?.[key]??r.note})}}persist();renderAll();showToast('تم دمج قاعدة البيانات بنجاح')}catch(err){showToast('تعذر استيراد الملف: صيغة JSON غير متوافقة')}finally{e.target.value=''}};
+document.getElementById('importBtn').onclick=()=>document.getElementById('importFile').click();document.getElementById('importFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.lessons)||data.lessons.some(l=>!l||typeof l.id!=='string'||typeof l.name!=='string'||!Number.isInteger(l.day)||l.day<0||l.day>6))throw new Error('صيغة غير صحيحة');domain.merge(data.domain);const existing=new Map(lessons.map(x=>[x.id,x]));data.lessons.forEach(x=>existing.set(x.id,x));lessons=normalizeSchedule([...existing.values()]);sessionState={...sessionState,...(data.sessionState||{})};sessionNotes={...sessionNotes,...(data.sessionNotes||{})};for(const [k,v] of Object.entries(data.sessionAudit||{}))sessionAudit[k]=[...(sessionAudit[k]||[]),...v].sort((a,b)=>String(a.at).localeCompare(String(b.at)));if(Number.isFinite(Number(data.idrisPhase)))idrisPhase=Number(data.idrisPhase);domain.replace(domain.data,{}, {migrateLegacy:false});if(!data.domain){for(const l of data.lessons)domain.saveSchedule({...l,studentId:domain.studentFor(l.name).id});for(const [key,status] of Object.entries(data.sessionState||{})){const r=domain.occurrences(key.slice(0,10)).find(x=>x.id===key);if(r)domain.record({...r,status:status||'pending',note:data.sessionNotes?.[key]??r.note})}}refreshLegacyOccurrenceMirrors();persist();renderAll();showToast('تم دمج قاعدة البيانات بنجاح')}catch(err){showToast('تعذر استيراد الملف: صيغة JSON غير متوافقة')}finally{e.target.value=''}};
 
 setInterval(()=>{renderClock();renderFocus()},1000);
 renderAll();
