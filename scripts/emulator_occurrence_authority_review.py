@@ -215,7 +215,8 @@ wait_stopped()
 start_app()
 ws=connect(60)
 wait_runtime_ready(ws,60)
-restart=evaluate(ws,r"""((ids)=>{
+restart_ids=json.dumps({"c1":result["c1RecordId"],"real":result["realId"],"bad":result["invalidWeekdayId"],"phaseBad":result["invalidPhaseId"]})
+restart_expression=r"""((ids)=>{
  const c1=domain.data.records[ids.c1],real=domain.data.records[ids.real];
  return {
   c1Status:c1&&c1.status,
@@ -233,7 +234,8 @@ restart=evaluate(ws,r"""((ids)=>{
   invalidPhaseState:sessionState[ids.phaseBad],
   invalidPhaseNote:sessionNotes[ids.phaseBad]
  };
-})("""+json.dumps({"c1":result["c1RecordId"],"real":result["realId"],"bad":result["invalidWeekdayId"],"phaseBad":result["invalidPhaseId"]})+""")""")
+})("""+restart_ids+")"
+restart=evaluate(ws,restart_expression)
 ws.close()
 
 assert restart["c1Status"]=="entered",restart
