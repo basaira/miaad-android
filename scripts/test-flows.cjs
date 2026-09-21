@@ -55,5 +55,58 @@ await page.locator('[data-record="2026-09-08__existing"]').click();await page.lo
 await page.locator('#periodCreate').click();await page.locator('#periodForm [name="operation"]').selectOption('edit');await page.locator('#periodForm [name="mode"]').selectOption('monthly');await page.locator('#periodForm [name="start"]').fill('2026-09-08');await page.locator('#periodForm [name="end"]').fill('2026-10-07');await page.locator('#periodForm button').click();assert.equal(await page.evaluate(()=>domain.period(selectedStudent).end),'2026-10-07');
 await page.locator('#periodNext').click();assert.equal(await page.evaluate(()=>domain.period(selectedStudent).end),'2026-11-07');assert.equal(await page.locator('[data-period]').count(),1);
 await page.locator('[data-view="settings"]').click();await page.locator('#globalSettings [name="working_2"]').fill('17:30-19:00');await page.locator('#globalSettings [name="minSlot"]').fill('30');await page.locator('#globalSettings button.save-btn').click();assert.deepEqual(await page.evaluate(()=>domain.availability('2026-09-15').map(w=>[w.start,w.end])),[[1050,1080]]);
+
+// Phase 1C Review Fix RF2: actual shipping legacy import may fill only missing proven occurrences.
+await page.evaluate(()=>{const sid=domain.studentFor('Legacy import tombstone').id,saved=domain.saveSchedule({id:'legacy-import-tomb',studentId:sid,name:domain.data.students[sid].name,day:2,start:'12:45',duration:30,repeat:'weekly'},domain.teacherNow().date);if(!lessons.some(x=>x.id===saved.id))lessons.push(saved);const r=domain.resolveScheduleOccurrence(saved.id,'2026-09-15');domain.removeRecord(r);refreshLegacyOccurrenceMirrors();persist()});
+const legacyImport={
+ lessons:[
+  {id:'legacy-status-only',name:'Legacy Status Only',day:2,start:'12:00',duration:30,repeat:'weekly'},
+  {id:'legacy-note-only',name:'Legacy Note Only',day:2,start:'12:15',duration:30,repeat:'weekly'},
+  {id:'legacy-both',name:'Legacy Both',day:2,start:'12:30',duration:30,repeat:'weekly'},
+  {id:'legacy-import-tomb',name:'Legacy import tombstone',day:2,start:'12:45',duration:30,repeat:'weekly'},
+  {id:'legacy-wrong-day',name:'Legacy Wrong Day',day:3,start:'13:00',duration:30,repeat:'weekly'},
+  {id:'legacy-off-phase',name:'Legacy Off Phase',day:2,start:'13:15',duration:30,repeat:'biweekly',phase:0}
+ ],
+ sessionState:{
+  '2026-09-15__existing':'absent',
+  '2026-09-15__legacy-status-only':'absent',
+  '2026-09-15__legacy-both':'entered',
+  '2026-09-15__legacy-import-tomb':'entered',
+  '2026-09-15__legacy-wrong-day':'entered',
+  '2026-09-15__legacy-off-phase':'entered'
+ },
+ sessionNotes:{
+  '2026-09-15__existing':'stale-import',
+  '2026-09-15__legacy-note-only':'important note',
+  '2026-09-15__legacy-both':'both note',
+  '2026-09-15__legacy-import-tomb':'resurrect',
+  '2026-09-15__legacy-wrong-day':'wrong',
+  '2026-09-15__legacy-off-phase':'off'
+ },
+ sessionAudit:{},idrisPhase:0
+};
+await page.locator('#importFile').setInputFiles({name:'legacy-rf2.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(legacyImport))});await page.waitForTimeout(300);
+assert.deepEqual(await page.evaluate(()=>(()=>{const existing=domain.data.records['2026-09-15__existing'],tomb=domain.data.records['2026-09-15__legacy-import-tomb'],status=domain.data.records['2026-09-15__legacy-status-only'],note=domain.data.records['2026-09-15__legacy-note-only'],both=domain.data.records['2026-09-15__legacy-both'];return{
+ existing:[existing.status,existing.note,existing.actualMinutes,existing.countOverride],
+ tomb:[tomb.deleted,sessionState[tomb.id],sessionNotes[tomb.id]],
+ status:[status.status,status.note],
+ note:[note.status,note.note],
+ both:[both.status,both.note],
+ wrong:domain.data.records['2026-09-15__legacy-wrong-day'],
+ off:domain.data.records['2026-09-15__legacy-off-phase'],
+ orphanState:sessionState['2026-09-15__legacy-wrong-day'],
+ orphanNote:sessionNotes['2026-09-15__legacy-wrong-day']
+}})()),{
+ existing:['entered','canonical-occurrence',23,false],
+ tomb:[true,undefined,undefined],
+ status:['absent',''],
+ note:['pending','important note'],
+ both:['entered','both note'],
+ wrong:undefined,
+ off:undefined,
+ orphanState:undefined,
+ orphanNote:undefined
+});
+
 const backup=await page.evaluate(()=>JSON.stringify(snapshotData())),before=await page.evaluate(()=>[Object.keys(domain.data.records).length,Object.keys(domain.data.periods).length]);await page.locator('#importFile').setInputFiles({name:'roundtrip.json',mimeType:'application/json',buffer:Buffer.from(backup)});await page.waitForTimeout(300);assert.deepEqual(await page.evaluate(()=>[Object.keys(domain.data.records).length,Object.keys(domain.data.periods).length]),before);
 await page.reload();assert.equal(await page.evaluate(()=>domain.occurrences('2026-09-08')[0].time),'17:00');assert.deepEqual(await page.evaluate(()=>(()=>{const l=domain.versionAt('bi-review',domain.teacherNow().date);return[l.phase,lessons.find(x=>x.id==='bi-review').phase,domain.occurrences('2026-09-21').some(r=>r.scheduleId==='bi-review'),domain.occurrences('2026-09-28').some(r=>r.scheduleId==='bi-review'),domain.versionAt('bi-review','2026-09-08').phase,domain.data.schedules['bi-review'].length]})()),[1,1,false,true,0,2]);assert.deepEqual(errors,[]);await browser.close();require('./test-biweekly-phase-domain-control.cjs');console.log('PASS: real UI legacy migration, recurrence edit preserving history, biweekly phase preservation across editor/reload, reversal, custom period editing/renewal/archive, availability settings, backup import deduplication and reload');})().catch(e=>{console.error(e);process.exit(1)});
