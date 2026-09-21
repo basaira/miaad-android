@@ -86,7 +86,7 @@ const legacyImport={
   '2026-09-15__legacy-wrong-day':'wrong',
   '2026-09-15__legacy-off-phase':'off'
  },
- sessionAudit:{},idrisPhase:0
+ sessionAudit:{}
 };
 await page.locator('#importFile').setInputFiles({name:'legacy-rf2.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(legacyImport))});await page.waitForTimeout(300);
 assert.deepEqual(await page.evaluate(()=>(()=>{const existing=domain.data.records['2026-09-15__existing'],tomb=domain.data.records['2026-09-15__legacy-import-tomb'],status=domain.data.records['2026-09-15__legacy-status-only'],note=domain.data.records['2026-09-15__legacy-note-only'],both=domain.data.records['2026-09-15__legacy-both'];return{
@@ -141,7 +141,7 @@ const rf3Import={
   '2026-09-15__existing':'stale-again',
   '2026-09-15__legacy-import-tomb':'resurrect-again'
  },
- sessionAudit:{},idrisPhase:0
+ sessionAudit:{}
 };
 await page.locator('#importFile').setInputFiles({name:'legacy-rf3.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(rf3Import))});await page.waitForTimeout(300);
 assert.deepEqual(await page.evaluate(()=>(()=>{const s=Object.values(domain.data.students).find(x=>x.name==='RF3 New Historical'),existingStudent=domain.data.students['rf3-existing-student'],status=domain.data.records['2026-09-08__rf3-status'],note=domain.data.records['2026-09-08__rf3-note'],both=domain.data.records['2026-09-08__rf3-both'],existing=domain.data.records['2026-09-15__existing'],tomb=domain.data.records['2026-09-15__legacy-import-tomb'];return{
