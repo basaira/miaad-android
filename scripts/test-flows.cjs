@@ -108,5 +108,62 @@ assert.deepEqual(await page.evaluate(()=>(()=>{const existing=domain.data.record
  orphanNote:undefined
 });
 
+
+// Phase 1C Review Fix 2 RF3: historical legacy import preserves valid starts for NEW students only.
+await page.evaluate(()=>domain.saveStudent({id:'rf3-existing-student',name:'RF3 Existing Student',startDate:'2026-09-10',custom:false,settings:{}}));
+const rf3Import={
+ lessons:[
+  {id:'rf3-status',name:'RF3 New Historical',day:2,start:'13:30',duration:30,repeat:'weekly'},
+  {id:'rf3-note',name:'RF3 New Historical',day:2,start:'14:00',duration:30,repeat:'weekly'},
+  {id:'rf3-both',name:'RF3 New Historical',day:2,start:'14:30',duration:30,repeat:'weekly'},
+  {id:'rf3-wrong',name:'RF3 New Historical',day:3,start:'15:00',duration:30,repeat:'weekly'},
+  {id:'rf3-off',name:'RF3 New Historical',day:2,start:'15:30',duration:30,repeat:'biweekly',phase:0},
+  {id:'rf3-existing-schedule',name:'RF3 Existing Student',day:2,start:'16:00',duration:30,repeat:'weekly'}
+ ],
+ sessionState:{
+  '2026-09-08__rf3-status':'absent',
+  '2026-09-08__rf3-both':'entered',
+  '2026-09-01__rf3-wrong':'entered',
+  '2026-09-01__rf3-off':'entered',
+  '2026-09-08__rf3-existing-schedule':'entered',
+  '2026-09-15__existing':'absent',
+  '2026-09-15__legacy-import-tomb':'entered'
+ },
+ sessionNotes:{
+  '2026-09-08__rf3-note':'historical note-only',
+  '2026-09-08__rf3-both':'historical both',
+  '2026-09-01__rf3-wrong':'wrong-day',
+  '2026-09-01__rf3-off':'off-phase',
+  '2026-09-08__rf3-existing-schedule':'must-not-backdate',
+  '2026-09-15__existing':'stale-again',
+  '2026-09-15__legacy-import-tomb':'resurrect-again'
+ },
+ sessionAudit:{},idrisPhase:0
+};
+await page.locator('#importFile').setInputFiles({name:'legacy-rf3.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(rf3Import))});await page.waitForTimeout(300);
+assert.deepEqual(await page.evaluate(()=>(()=>{const s=Object.values(domain.data.students).find(x=>x.name==='RF3 New Historical'),existingStudent=domain.data.students['rf3-existing-student'],status=domain.data.records['2026-09-08__rf3-status'],note=domain.data.records['2026-09-08__rf3-note'],both=domain.data.records['2026-09-08__rf3-both'],existing=domain.data.records['2026-09-15__existing'],tomb=domain.data.records['2026-09-15__legacy-import-tomb'];return{
+ newStart:s.startDate,
+ status:[status.status,status.note],
+ note:[note.status,note.note],
+ both:[both.status,both.note],
+ wrong:domain.data.records['2026-09-01__rf3-wrong'],
+ off:domain.data.records['2026-09-01__rf3-off'],
+ existingStudentStart:existingStudent.startDate,
+ preStartRecord:domain.data.records['2026-09-08__rf3-existing-schedule'],
+ existing:[existing.status,existing.note,existing.actualMinutes,existing.countOverride],
+ tomb:[tomb.deleted,sessionState[tomb.id],sessionNotes[tomb.id]]
+}})()),{
+ newStart:'2026-09-08',
+ status:['absent',''],
+ note:['pending','historical note-only'],
+ both:['entered','historical both'],
+ wrong:undefined,
+ off:undefined,
+ existingStudentStart:'2026-09-10',
+ preStartRecord:undefined,
+ existing:['entered','canonical-occurrence',23,false],
+ tomb:[true,undefined,undefined]
+});
+
 const backup=await page.evaluate(()=>JSON.stringify(snapshotData())),before=await page.evaluate(()=>[Object.keys(domain.data.records).length,Object.keys(domain.data.periods).length]);await page.locator('#importFile').setInputFiles({name:'roundtrip.json',mimeType:'application/json',buffer:Buffer.from(backup)});await page.waitForTimeout(300);assert.deepEqual(await page.evaluate(()=>[Object.keys(domain.data.records).length,Object.keys(domain.data.periods).length]),before);
 await page.reload();assert.equal(await page.evaluate(()=>domain.occurrences('2026-09-08')[0].time),'17:00');assert.deepEqual(await page.evaluate(()=>(()=>{const l=domain.versionAt('bi-review',domain.teacherNow().date);return[l.phase,lessons.find(x=>x.id==='bi-review').phase,domain.occurrences('2026-09-21').some(r=>r.scheduleId==='bi-review'),domain.occurrences('2026-09-28').some(r=>r.scheduleId==='bi-review'),domain.versionAt('bi-review','2026-09-08').phase,domain.data.schedules['bi-review'].length]})()),[1,1,false,true,0,2]);assert.deepEqual(errors,[]);await browser.close();require('./test-biweekly-phase-domain-control.cjs');console.log('PASS: real UI legacy migration, recurrence edit preserving history, biweekly phase preservation across editor/reload, reversal, custom period editing/renewal/archive, availability settings, backup import deduplication and reload');})().catch(e=>{console.error(e);process.exit(1)});
