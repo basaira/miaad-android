@@ -51,6 +51,9 @@ await page.locator('#editId').evaluate(el=>el.value='ui-generic');await page.loc
 assert.deepEqual(await page.evaluate(()=>[!!domain.data.schedules['ui-generic'],Object.keys(domain.data.records).some(k=>k.endsWith('__ui-generic'))]),[true,false]);
 
 assert.equal(await page.evaluate(()=>domain.versionAt('existing',domain.teacherNow().date).repeat),'weekly');assert.equal(await page.evaluate(()=>domain.occurrences('2026-09-22').some(r=>r.scheduleId==='existing')),true);assert.equal(await page.evaluate(()=>domain.occurrences('2026-09-29').some(r=>r.scheduleId==='existing')),true);
+const existingStudentId=await page.evaluate(()=>domain.versionAt('existing',domain.teacherNow().date).studentId);
+await page.locator('[data-view="students"]').click();
+const existingStudentCard=page.locator(`[data-student="${existingStudentId}"]`);assert.equal(await existingStudentCard.count(),1);await existingStudentCard.click();
 await page.locator('[data-record="2026-09-08__existing"]').click();await page.locator('.record-form [name="status"]').selectOption('student_cancelled');await page.locator('.record-form button:not([type])').click();assert.match(await page.locator('.cycle-progress').innerText(),/0 \/ 12/);
 await page.locator('#periodCreate').click();await page.locator('#periodForm [name="operation"]').selectOption('edit');await page.locator('#periodForm [name="mode"]').selectOption('monthly');await page.locator('#periodForm [name="start"]').fill('2026-09-08');await page.locator('#periodForm [name="end"]').fill('2026-10-07');await page.locator('#periodForm button').click();assert.equal(await page.evaluate(()=>domain.period(selectedStudent).end),'2026-10-07');
 await page.locator('#periodNext').click();assert.equal(await page.evaluate(()=>domain.period(selectedStudent).end),'2026-11-07');assert.equal(await page.locator('[data-period]').count(),1);
