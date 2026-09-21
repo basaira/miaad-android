@@ -1,10 +1,12 @@
 const localDomainSeed=loadJSON('miaadDomainV4',{});
 function isDomainMap(value){return !!value&&typeof value==='object'&&!Array.isArray(value)}
 function isModernDomainPayload(value){return isDomainMap(value)&&Number(value.version)===4&&isDomainMap(value.students)&&isDomainMap(value.records)&&isDomainMap(value.schedules)&&isDomainMap(value.settings)}
-const nativeDomainModern=isModernDomainPayload(nativeInitial?.domain),localDomainModern=isModernDomainPayload(localDomainSeed);
-const primaryDomainSeed=nativeInitial?(nativeDomainModern?nativeInitial.domain:{}):(localDomainModern?localDomainSeed:{});
-const migrateInitialLegacy=nativeInitial?!nativeDomainModern:!localDomainModern;
-const domain=createMiaadDomain(stabilizeMiaadTeacherTimeZoneSeed(primaryDomainSeed,localDomainSeed),{lessons,sessionState,sessionNotes,sessionAudit,idrisPhase},undefined,{migrateLegacy:migrateInitialLegacy});
+const nativeDomainSeed=isDomainMap(nativeInitial?.domain)?nativeInitial.domain:null;
+const localDomainMap=isDomainMap(localDomainSeed)?localDomainSeed:{};
+const primaryDomainSeed=nativeDomainSeed??localDomainMap;
+const primaryDomainModern=isModernDomainPayload(primaryDomainSeed);
+const migrateInitialLegacy=!primaryDomainModern;
+const domain=createMiaadDomain(stabilizeMiaadTeacherTimeZoneSeed(primaryDomainSeed,localDomainMap),{lessons,sessionState,sessionNotes,sessionAudit,idrisPhase},undefined,{migrateLegacy:migrateInitialLegacy});
 for(const l of lessons){const v=domain.data.schedules[l.id]?.at(-1)?.lesson;if(v)l.studentId=v.studentId}
 function buildLegacyOccurrenceMirrors(records=domain.data.records){
  const state={},notes={};
