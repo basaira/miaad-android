@@ -1,0 +1,749 @@
+name: Phase 1C Occurrence Authority External Verification V1R2
+
+on:
+  push:
+    branches:
+      - 'miaad/phase-1c-occurrence-authority-runtime-verification-v1r2'
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE_SHA: f459800ab1e8772d22c851b9fe578408a08bb5ab
+  CANDIDATE_TREE: 18e9811541f9b13b8b5f1f7c1492e4a6e336e9ad
+  OFFICIAL_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  MAIN_SHA: 16477b29106d59d0e1fe7d4e99c63b55d6d97327
+  WORKFLOW_PATH: .github/workflows/phase-1c-occurrence-authority-external-verification.yml
+
+jobs:
+  verification:
+    name: Source, generated, Android and APK gates V1R2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+
+    steps:
+      - name: Checkout verification branch with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove frozen topology, candidate range and exact diff-check
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+
+          verification_head="$(git rev-parse HEAD)"
+          verification_parent="$(git rev-parse HEAD^)"
+          candidate_tree="$(git rev-parse "$CANDIDATE_SHA^{tree}")"
+
+          test "$verification_parent" = "$CANDIDATE_SHA"
+          test "$candidate_tree" = "$CANDIDATE_TREE"
+
+          remote_candidate="$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-candidate | awk '{print $1}')"
+          remote_official="$(git ls-remote origin refs/heads/miaad/phase-1-correctness | awk '{print $1}')"
+          remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$remote_candidate" = "$CANDIDATE_SHA"
+          test "$remote_official" = "$OFFICIAL_SHA"
+          test "$remote_main" = "$MAIN_SHA"
+
+          git cat-file -e "$OFFICIAL_SHA^{commit}"
+          git cat-file -e "$CANDIDATE_SHA^{commit}"
+          git merge-base --is-ancestor "$OFFICIAL_SHA" "$CANDIDATE_SHA"
+          merge_base="$(git merge-base "$OFFICIAL_SHA" "$CANDIDATE_SHA")"
+          test "$merge_base" = "$OFFICIAL_SHA"
+
+          ahead_by="$(git rev-list --count "$OFFICIAL_SHA..$CANDIDATE_SHA")"
+          behind_by="$(git rev-list --count "$CANDIDATE_SHA..$OFFICIAL_SHA")"
+          test "$ahead_by" -eq 10
+          test "$behind_by" -eq 0
+
+          git diff --name-only "$CANDIDATE_SHA" HEAD > audit/verification-branch-paths.txt
+          test "$(wc -l < audit/verification-branch-paths.txt)" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" audit/verification-branch-paths.txt
+          git diff --check "$CANDIDATE_SHA" HEAD
+
+          git diff --name-only "$OFFICIAL_SHA" "$CANDIDATE_SHA" > audit/candidate-paths.txt
+          cat > audit/expected-candidate-paths.txt <<'EOF'
+          app/src/main/assets/app-core.js
+          app/src/main/assets/app-domain.js
+          app/src/main/assets/app-editor.js
+          app/src/main/assets/app-events.js
+          app/src/main/assets/app-features.js
+          app/src/main/assets/app-integration.js
+          app/src/main/assets/app-render.js
+          app/src/main/assets/app-ui-hotfix.js
+          scripts/emulator_occurrence_authority_review.py
+          scripts/test-flows.cjs
+          scripts/test-occurrence-authority.cjs
+          scripts/test-scheduling-contract.cjs
+          scripts/test-timezone-dst-contract.cjs
+          EOF
+          diff -u audit/expected-candidate-paths.txt audit/candidate-paths.txt
+
+          read additions deletions < <(
+            git diff --numstat "$OFFICIAL_SHA" "$CANDIDATE_SHA" |
+              awk 'BEGIN{a=0;d=0} {if ($1 ~ /^[0-9]+$/) a+=$1; if ($2 ~ /^[0-9]+$/) d+=$2} END{print a,d}'
+          )
+          test "$additions" -eq 578
+          test "$deletions" -eq 43
+
+          echo "diff_check_command=git diff --check ca703d82a9a500393a0ce8948b279488f8e6c517..f459800ab1e8772d22c851b9fe578408a08bb5ab" | tee audit/diff-check-command.txt
+          set +e
+          git diff --check ca703d82a9a500393a0ce8948b279488f8e6c517..f459800ab1e8772d22c851b9fe578408a08bb5ab 2>&1 | tee audit/diff-check-output.txt
+          diff_check_exit_code=${PIPESTATUS[0]}
+          set -e
+          echo "diff_check_exit_code=$diff_check_exit_code" | tee audit/diff-check-exit-code.txt
+          test "$diff_check_exit_code" -eq 0
+          echo "EXACT CANDIDATE DIFF CHECK PASS" | tee audit/diff-check-pass.txt
+
+          {
+            echo "verification_head=$verification_head"
+            echo "verification_parent=$verification_parent"
+            echo "candidate_sha=$CANDIDATE_SHA"
+            echo "candidate_tree=$candidate_tree"
+            echo "official_sha=$OFFICIAL_SHA"
+            echo "main_sha=$MAIN_SHA"
+            echo "merge_base=$merge_base"
+            echo "status=ahead"
+            echo "ahead_by=$ahead_by"
+            echo "behind_by=$behind_by"
+            echo "total_commits=$ahead_by"
+            echo "candidate_changed_paths=13"
+            echo "candidate_additions=$additions"
+            echo "candidate_deletions=$deletions"
+          } | tee audit/source-identity-and-range.txt
+
+      - name: Install source audit and compatibility dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install Pillow==11.3.0 androguard==4.1.3 websocket-client==1.8.0
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save --package-lock=false             playwright@1.55.0             axe-core@4.10.3             esbuild@0.28.2             acorn@8.18.0             @esbuild/linux-x64@0.28.2
+          node scripts/verify-compat-toolchain.cjs | tee audit/compat-toolchain-lock.txt
+
+      - name: Run authoritative source gates
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node scripts/test-schedule.cjs | tee audit/source-test-schedule.txt
+          node scripts/test-domain.cjs | tee audit/source-test-domain.txt
+          node scripts/test-quality-invariants.cjs | tee audit/source-quality-invariants.txt
+          node scripts/test-report-invariants.cjs | tee audit/source-report-invariants.txt
+
+          node scripts/test-occurrence-authority.cjs | tee audit/source-occurrence-authority.txt
+          grep -Fxq 'PHASE 1C OCCURRENCE AUTHORITY PASS: 38/38 focused cases' audit/source-occurrence-authority.txt
+          grep -Fq "check('G mirrors deterministically refresh'" scripts/test-occurrence-authority.cjs
+          grep -Fq "plain(vm.runInContext('sessionState',context))" scripts/test-occurrence-authority.cjs
+          grep -Fq "plain(vm.runInContext('sessionNotes',context))" scripts/test-occurrence-authority.cjs
+          grep -Fq "check('RF1-D genuine legacy initial supports status-only note-only and combined'" scripts/test-occurrence-authority.cjs
+          grep -Fq "plain(vm.runInContext(\`(()=>['status','note','both']" scripts/test-occurrence-authority.cjs
+          grep -Fq "check('RF3-E invalid historical keys still do not migrate'" scripts/test-occurrence-authority.cjs
+          grep -Fq "2026-09-14__rf3-off" scripts/test-occurrence-authority.cjs
+          {
+            echo 'Historical V1 failure G = PASS'
+            echo 'Historical V1 failure RF1-D = PASS'
+            echo 'Historical V1 failure RF3-E = PASS'
+          } | tee audit/historical-v1-test-defect-closure.txt
+          node scripts/test-flows.cjs | tee audit/source-flows.txt
+          grep -Fq "const existingStudentId=await page.evaluate(()=>domain.versionAt('existing',domain.teacherNow().date).studentId);" scripts/test-flows.cjs
+          grep -Fq "await page.locator('[data-view=\"students\"]').click();" scripts/test-flows.cjs
+          grep -Fq 'const existingStudentCard=page.locator(`[data-student="${existingStudentId}"]`);assert.equal(await existingStudentCard.count(),1);await existingStudentCard.click();' scripts/test-flows.cjs
+          grep -Fq "await page.locator('[data-record=\"2026-09-08__existing\"]').click();" scripts/test-flows.cjs
+          git diff "$CANDIDATE_SHA^" "$CANDIDATE_SHA" -- scripts/test-flows.cjs > audit/flow-context-fix.patch
+          ! grep -Fq 'selectedStudent =' audit/flow-context-fix.patch
+          ! grep -Fq 'renderStudentHistory(' audit/flow-context-fix.patch
+          ! grep -Fq 'openRecordForm(' audit/flow-context-fix.patch
+          ! grep -Fq 'commitView(' audit/flow-context-fix.patch
+          {
+            echo 'Historical V1R1 flow failure = PASS'
+            echo 'Resolved student ID from authoritative existing schedule = PASS'
+            echo 'Visible Students → exact student → historical record path = PASS'
+            echo 'Exact student card count = 1'
+            echo 'Internal UI/state bypass in fix delta = NONE'
+          } | tee audit/historical-v1r1-flow-defect-closure.txt
+          node scripts/test-browser.cjs | tee audit/source-browser.txt
+
+          node scripts/test-biweekly-phase-domain-control.cjs | tee audit/source-biweekly-domain-control.txt
+          node scripts/test-scheduling-contract.cjs | tee audit/source-scheduling-contract.txt
+          node scripts/test-timezone-dst-contract.cjs | tee audit/source-timezone-dst-contract.txt
+
+          node scripts/test-webview-harness-compat.cjs | tee audit/source-webview-harness-compat.txt
+          node scripts/audit-js-compat.cjs | tee audit/source-js-compat.txt
+
+          for marker in             'RF1-A modern initial hydration does not replay stale mirrors'             'RF3-A historical status-only legacy occurrence establishes new student start'             'RF4-A wrong-weekday-only evidence cannot establish startDate'             'RF4-F legacy idrisPhase matches migrated schedule phase'; do
+            grep -Fq "$marker" scripts/test-occurrence-authority.cjs
+          done
+          grep -Fq 'Phase 1C Review Fix RF2' scripts/test-flows.cjs
+          grep -Fq 'Phase 1C Review Fix 2 RF3' scripts/test-flows.cjs
+
+          {
+            echo 'RF1 formal regression = PASS'
+            echo 'RF2 formal regression = PASS'
+            echo 'RF3 formal regression = PASS'
+            echo 'RF4 formal regression = PASS'
+          } | tee audit/rf1-rf4-formal.txt
+
+          {
+            echo 'test-occurrence-authority:'
+            tail -n 1 audit/source-occurrence-authority.txt
+            echo 'test-scheduling-contract:'
+            tail -n 1 audit/source-scheduling-contract.txt
+            echo 'test-timezone-dst-contract:'
+            tail -n 1 audit/source-timezone-dst-contract.txt
+            echo 'test-flows: PASS'
+            echo 'test-domain: PASS'
+            echo 'test-quality-invariants: PASS'
+            echo 'test-report-invariants: PASS'
+            echo 'test-browser: PASS'
+          } | tee audit/source-test-summary.txt
+
+      - name: Generate tested WebView69 shipping assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build-compat.cjs | tee audit/compat-generation.txt
+
+          cat > "$RUNNER_TEMP/run-phase1c-generated-suite.sh" <<'BASH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          : "${MIAAD_ASSET_ROOT:?}"
+          : "${AUDIT_PREFIX:?}"
+          : "${RUNNER_TEMP:?}"
+          : "${GITHUB_WORKSPACE:?}"
+
+          node scripts/test-schedule.cjs | tee "audit/${AUDIT_PREFIX}-test-schedule.txt"
+          node scripts/test-domain.cjs | tee "audit/${AUDIT_PREFIX}-test-domain.txt"
+
+          QUALITY_HARNESS="$RUNNER_TEMP/${AUDIT_PREFIX}-quality-harness"
+          rm -rf "$QUALITY_HARNESS"
+          mkdir -p "$QUALITY_HARNESS/scripts" "$QUALITY_HARNESS/app/src/main"
+          cp scripts/test-quality-invariants.cjs "$QUALITY_HARNESS/scripts/test-quality-invariants.cjs"
+          ln -s "$MIAAD_ASSET_ROOT" "$QUALITY_HARNESS/app/src/main/assets"
+          node "$QUALITY_HARNESS/scripts/test-quality-invariants.cjs" | tee "audit/${AUDIT_PREFIX}-quality-invariants.txt"
+
+          REPORT_HARNESS="$RUNNER_TEMP/${AUDIT_PREFIX}-report-harness"
+          rm -rf "$REPORT_HARNESS"
+          mkdir -p "$REPORT_HARNESS/scripts" "$REPORT_HARNESS/app/src/main"
+          cp scripts/test-report-invariants.cjs "$REPORT_HARNESS/scripts/test-report-invariants.cjs"
+          ln -s "$MIAAD_ASSET_ROOT" "$REPORT_HARNESS/app/src/main/assets"
+          NODE_PATH="$GITHUB_WORKSPACE/node_modules" node "$REPORT_HARNESS/scripts/test-report-invariants.cjs"             | tee "audit/${AUDIT_PREFIX}-report-invariants.txt"
+
+          node scripts/test-occurrence-authority.cjs | tee "audit/${AUDIT_PREFIX}-occurrence-authority.txt"
+          node scripts/test-flows.cjs | tee "audit/${AUDIT_PREFIX}-flows.txt"
+          node scripts/test-browser.cjs | tee "audit/${AUDIT_PREFIX}-browser.txt"
+
+          node scripts/test-biweekly-phase-domain-control.cjs | tee "audit/${AUDIT_PREFIX}-biweekly-domain-control.txt"
+          node scripts/test-scheduling-contract.cjs | tee "audit/${AUDIT_PREFIX}-scheduling-contract.txt"
+          node scripts/test-timezone-dst-contract.cjs | tee "audit/${AUDIT_PREFIX}-timezone-dst-contract.txt"
+
+          node scripts/test-shipping-compat.cjs | tee "audit/${AUDIT_PREFIX}-shipping-compat.txt"
+          node scripts/test-compat-shims.cjs | tee "audit/${AUDIT_PREFIX}-compat-shims.txt"
+          node scripts/test-webview-harness-compat.cjs | tee "audit/${AUDIT_PREFIX}-webview-harness-compat.txt"
+          node scripts/audit-js-compat.cjs --shipping | tee "audit/${AUDIT_PREFIX}-js-compat.txt"
+          BASH
+          chmod +x "$RUNNER_TEMP/run-phase1c-generated-suite.sh"
+
+      - name: Verify tested generated WebView69 assets
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+          MIAAD_ASSET_ROOT: ${{ github.workspace }}/app/build/generated/compatAssets
+          AUDIT_PREFIX: generated
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/run-phase1c-generated-suite.sh"
+
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-tested.json             > audit/generated-assets-tested.sha256
+
+          {
+            echo 'Generated WebView69 source suite = PASS'
+            tail -n 1 audit/generated-occurrence-authority.txt
+            tail -n 1 audit/generated-scheduling-contract.txt
+            tail -n 1 audit/generated-timezone-dst-contract.txt
+          } | tee audit/generated-test-summary.txt
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - name: Install required Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --version | tee audit/sdkmanager-version.txt
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          adb version | tee audit/adb-version.txt
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          test -d "$ANDROID_HOME/platforms/android-36"
+          test -d "$ANDROID_HOME/build-tools/36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Prove clean regeneration equivalence
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+          MIAAD_ASSET_ROOT: ${{ github.workspace }}/app/build/generated/compatAssets
+          AUDIT_PREFIX: clean-generated
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf app/build
+          test ! -e app/build/generated/compatAssets
+
+          gradle :app:generateCompatAssets --rerun-tasks --stacktrace             | tee audit/clean-generate-compat-assets.txt
+
+          "$RUNNER_TEMP/run-phase1c-generated-suite.sh"
+
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-cleanbuild.json             > audit/generated-assets-cleanbuild.sha256
+
+          cmp audit/generated-assets-tested.sha256 audit/generated-assets-cleanbuild.sha256
+          echo 'CLEAN REGENERATION EQUIVALENCE PASS' | tee audit/regeneration-equivalence.txt
+
+      - name: Android lint gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:lintDebug --stacktrace | tee audit/android-lint.txt
+
+      - name: Android debug unit-test task
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:testDebugUnitTest --stacktrace | tee audit/android-unit-task.txt
+
+          echo 'Gradle task invocation = PASS' | tee audit/android-unit-evidence.txt
+          if grep -Eq ':app:testDebugUnitTest([^[:alnum:]_]|$).*NO-SOURCE|> Task :app:testDebugUnitTest NO-SOURCE' audit/android-unit-task.txt; then
+            echo 'Native Android unit-test payload = NO-SOURCE' | tee -a audit/android-unit-evidence.txt
+          else
+            echo 'Native Android unit-test payload = EXECUTED' | tee -a audit/android-unit-evidence.txt
+          fi
+
+      - name: Assemble debug APK and verify final generated equivalence
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:assembleDebug --stacktrace | tee audit/android-assemble-debug.txt
+
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-final.json             > audit/generated-assets-final.sha256
+          cmp audit/generated-assets-tested.sha256 audit/generated-assets-final.sha256
+
+      - name: Audit exact same-run APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+
+          python3 scripts/audit_brand.py             --apk "$APK"             --output audit             --apk-assets app/build/generated/compatAssets             | tee audit/apk-audit-console.txt
+
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" > audit/aapt-badging.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump resources "$APK" > audit/aapt-resources.txt
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"             > audit/apk-signature.txt
+
+          node scripts/verify-apk-compat.cjs "$APK" | tee audit/apk-compat.txt
+
+          sha256sum "$APK" | tee audit/apk-sha256-full.txt
+          sha256sum "$APK" | awk '{print $1}' > audit/apk-sha256.txt
+          stat -c '%s' "$APK" > audit/apk-size-bytes.txt
+          printf '%s\n' "$APK" > audit/apk-path.txt
+          grep '^package:' audit/aapt-badging.txt | head -n1 | tee audit/apk-package-version.txt
+          grep '^application-label:' audit/aapt-badging.txt | head -n1 | tee audit/apk-application-label.txt
+
+          python3 - <<'PY' | tee audit/apk-identity-summary.txt
+          import json
+          from pathlib import Path
+
+          data=json.loads(Path('audit/apk-audit.json').read_text(encoding='utf-8'))
+          assert data['result']=='PASS'
+          assert data['package']=='com.miaad.app'
+          assert data['signature_present'] is True
+          assert data['firebase_config_matches'] is True
+          assert data['all_web_assets_match_shipping_root'] is True
+          assert data['zip_crc']=='PASS'
+          assert data['png_crc_and_full_decode']=='PASS'
+
+          print(f"raw_apk_sha256={data['apk_sha256']}")
+          print(f"raw_apk_size={data['apk_bytes']}")
+          print(f"package={data['package']}")
+          print(f"versionName={data['version']}")
+          print(f"versionCode={data['version_code']}")
+          print(f"applicationLabel={data['app_name']}")
+          print(f"shippingAssetCount={data['shipping_asset_count']}")
+          PY
+
+      - name: Upload exact same-run APK
+        id: upload_apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r2-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record APK artifact archive digest separately
+        env:
+          ARTIFACT_ARCHIVE_DIGEST: ${{ steps.upload_apk.outputs['artifact-digest'] }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "raw_apk_sha256=$(cat audit/apk-sha256.txt)"
+            echo "artifact_archive_digest=$ARTIFACT_ARCHIVE_DIGEST"
+            echo 'NOTE: artifact_archive_digest is the uploaded artifact archive digest, not the raw APK SHA256.'
+          } | tee audit/apk-artifact-digest-distinction.txt
+
+      - name: Upload static/source/generated verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r2-static-audit
+          path: audit/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  android-api:
+    name: Android API ${{ matrix.api }} installed-runtime gate V1R2
+    needs: verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+
+    strategy:
+      fail-fast: false
+      matrix:
+        api:
+          - 26
+          - 36
+
+    steps:
+      - name: Checkout verification branch with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert runtime source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+
+          git diff --name-only "$CANDIDATE_SHA" HEAD > "audit/runtime-verification-paths-api-${{ matrix.api }}.txt"
+          test "$(wc -l < "audit/runtime-verification-paths-api-${{ matrix.api }}.txt")" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" "audit/runtime-verification-paths-api-${{ matrix.api }}.txt"
+
+          remote_candidate="$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-candidate | awk '{print $1}')"
+          remote_official="$(git ls-remote origin refs/heads/miaad/phase-1-correctness | awk '{print $1}')"
+          remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$remote_candidate" = "$CANDIDATE_SHA"
+          test "$remote_official" = "$OFFICIAL_SHA"
+          test "$remote_main" = "$MAIN_SHA"
+
+          {
+            echo "verification_head=$(git rev-parse HEAD)"
+            echo "verification_parent=$(git rev-parse HEAD^)"
+            echo "candidate_sha=$CANDIDATE_SHA"
+            echo "candidate_tree=$CANDIDATE_TREE"
+            echo "official_sha=$OFFICIAL_SHA"
+            echo "main_sha=$MAIN_SHA"
+          } | tee "audit/runtime-source-identity-api-${{ matrix.api }}.txt"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - name: Ensure runtime platform tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --version
+          sdkmanager "platform-tools"
+          adb version
+          test -x "$ANDROID_HOME/platform-tools/adb"
+
+      - name: Install runtime Python dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install websocket-client==1.8.0
+
+      - name: Download exact same-run APK
+        uses: actions/download-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r2-apk
+          path: app/build/outputs/apk/debug
+
+      - name: Download static SHA evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r2-static-audit
+          path: static-audit
+
+      - name: Verify exact raw APK identity before installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat static-audit/apk-sha256.txt)"
+          actual="$(sha256sum app/build/outputs/apk/debug/app-debug.apk | awk '{print $1}')"
+          expected_size="$(cat static-audit/apk-size-bytes.txt)"
+          actual_size="$(stat -c '%s' app/build/outputs/apk/debug/app-debug.apk)"
+
+          test -n "$expected"
+          test "$actual" = "$expected"
+          test "$actual_size" = "$expected_size"
+
+          {
+            echo "main_job_raw_apk_sha256=$expected"
+            echo "runtime_raw_apk_sha256=$actual"
+            echo "main_job_raw_apk_size=$expected_size"
+            echo "runtime_raw_apk_size=$actual_size"
+          } | tee "audit/runtime-apk-identity-api-${{ matrix.api }}.txt"
+
+      - name: Prepare verification-only runtime harness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HARNESS="$RUNNER_TEMP/miaad-phase1c-v1r2-runtime-harness"
+          rm -rf "$HARNESS"
+          mkdir -p "$HARNESS"
+
+          cp scripts/emulator_occurrence_authority_review.py "$HARNESS/emulator_occurrence_authority_review.py"
+          cp scripts/emulator_smoke.sh "$HARNESS/emulator_smoke.sh"
+          cmp scripts/emulator_occurrence_authority_review.py "$HARNESS/emulator_occurrence_authority_review.py"
+          cmp scripts/emulator_smoke.sh "$HARNESS/emulator_smoke.sh"
+
+          cat > "$HARNESS/log_classifier.py" <<'PY'
+          #!/usr/bin/env python3
+          import argparse, json, re
+          from pathlib import Path
+
+          BENIGN="Blocked call to navigator.vibrate because user hasn't tapped on the frame or any embedded frame yet"
+          FATAL_PATTERNS=[
+              re.compile(r'FATAL EXCEPTION'),
+              re.compile(r'\b[EF]\s+AndroidRuntime:'),
+              re.compile(r'\bSyntaxError\b'),
+              re.compile(r'\bReferenceError\b'),
+              re.compile(r'\b(?:Uncaught\s+)?TypeError\b'),
+              re.compile(r'MIAAD_RUNTIME_FATAL'),
+              re.compile(r'runtime probe failure',re.I),
+              re.compile(r'RenderProcessGone|renderer(?: process)?\s+(?:death|died|crash)',re.I),
+              re.compile(r'WebView.*(?:load failed|ERR_)',re.I),
+          ]
+
+          def classify(lines):
+              benign=[]
+              fatal=[]
+              for line in lines:
+                  if 'E MiaadWeb' in line and BENIGN in line:
+                      benign.append(line)
+                      continue
+                  if 'E MiaadWeb' in line:
+                      fatal.append(line)
+                      continue
+                  if any(pattern.search(line) for pattern in FATAL_PATTERNS):
+                      fatal.append(line)
+              return benign,fatal
+
+          parser=argparse.ArgumentParser()
+          parser.add_argument('log')
+          parser.add_argument('--stage',default='runtime')
+          parser.add_argument('--api',default='unknown')
+          parser.add_argument('--output',required=True)
+          args=parser.parse_args()
+
+          lines=Path(args.log).read_text(encoding='utf-8',errors='replace').splitlines()
+          benign,fatal=classify(lines)
+          evidence={
+              'apiLevel':str(args.api),
+              'stage':args.stage,
+              'benignWebViewUserGestureWarningCount':len(benign),
+              'genuineFatalRuntimeErrorCount':len(fatal),
+              'result':'PASS' if not fatal else 'FAIL',
+          }
+          Path(args.output).write_text(json.dumps(evidence,indent=2)+'\n',encoding='utf-8')
+          if benign:
+              print('BENIGN WEBVIEW USER-GESTURE WARNING — NON-FATAL')
+          print(f'benign ignored message count = {len(benign)}')
+          print(f'genuine fatal Miaad/WebView error count = {len(fatal)}')
+          if fatal:
+              for line in fatal[:20]:
+                  print(line)
+              raise SystemExit(1)
+          PY
+          chmod +x "$HARNESS/log_classifier.py"
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          harness=Path(os.environ['RUNNER_TEMP'])/'miaad-phase1c-v1r2-runtime-harness'
+          smoke=harness/'emulator_smoke.sh'
+          text=smoke.read_text(encoding='utf-8')
+
+          old="""if grep -q 'E MiaadWeb' "audit/logcat-${SUFFIX}.txt"; then
+            echo "FAIL: Miaad WebView JavaScript error detected on Android API ${API_LEVEL}" >&2
+            grep 'E MiaadWeb' "audit/logcat-${SUFFIX}.txt" >&2 || true
+            exit 1
+          fi"""
+          new="""python3 "$MIAAD_PHASE1C_CLASSIFIER" "audit/logcat-${SUFFIX}.txt" \
+            --stage first-frame \
+            --api "$API_LEVEL" \
+            --output "audit/phase1c-log-classification-first-frame-${SUFFIX}.json" """
+          assert text.count(old)==1
+          text=text.replace(old,new)
+
+          old='MIAAD_API_LEVEL="$API_LEVEL" python3 scripts/emulator_biweekly_phase_review.py'
+          new='MIAAD_API_LEVEL="$API_LEVEL" python3 "$MIAAD_PHASE1C_PROBE"'
+          assert text.count(old)==1
+          text=text.replace(old,new)
+
+          smoke.write_text(text,encoding='utf-8')
+          PY
+
+          python3 -m py_compile "$HARNESS/emulator_occurrence_authority_review.py"
+          python3 -m py_compile "$HARNESS/log_classifier.py"
+          bash -n "$HARNESS/emulator_smoke.sh"
+
+          cat > /tmp/miaad-phase1c-v1r2-runtime.sh <<'BASH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          : "${RUNNER_TEMP:?}"
+          : "${MIAAD_API_LEVEL:?}"
+          export MIAAD_PHASE1C_PROBE="$RUNNER_TEMP/miaad-phase1c-v1r2-runtime-harness/emulator_occurrence_authority_review.py"
+          export MIAAD_PHASE1C_CLASSIFIER="$RUNNER_TEMP/miaad-phase1c-v1r2-runtime-harness/log_classifier.py"
+          bash "$RUNNER_TEMP/miaad-phase1c-v1r2-runtime-harness/emulator_smoke.sh"
+          BASH
+          chmod +x /tmp/miaad-phase1c-v1r2-runtime.sh
+          bash -n /tmp/miaad-phase1c-v1r2-runtime.sh
+
+      - name: Enable emulator KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"'             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run installed APK acceptance and occurrence-authority probe on API ${{ matrix.api }}
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          MIAAD_API_LEVEL: ${{ matrix.api }}
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: bash /tmp/miaad-phase1c-v1r2-runtime.sh
+
+      - name: Validate exact occurrence-authority runtime evidence on API ${{ matrix.api }}
+        shell: bash
+        env:
+          MIAAD_API_LEVEL: ${{ matrix.api }}
+        run: |
+          set -euo pipefail
+
+          HARNESS="$RUNNER_TEMP/miaad-phase1c-v1r2-runtime-harness"
+          python3 "$HARNESS/log_classifier.py"             "audit/logcat-api$MIAAD_API_LEVEL.txt"             --stage complete-runtime             --api "$MIAAD_API_LEVEL"             --output "audit/phase1c-log-classification-api$MIAAD_API_LEVEL.json"             | tee "audit/phase1c-log-classification-api$MIAAD_API_LEVEL.txt"
+
+          python3 - <<'PY' | tee "audit/occurrence-authority-summary-api$MIAAD_API_LEVEL.txt"
+          import json
+          import os
+          from pathlib import Path
+
+          api=os.environ['MIAAD_API_LEVEL']
+          path=Path(f'audit/occurrence-authority-review-api{api}.json')
+          assert path.is_file(),path
+          data=json.loads(path.read_text(encoding='utf-8'))
+
+          assert data['result']=='PASS'
+          assert str(data['apiLevel'])==str(api)
+          assert data['c1Status']=='entered'
+          assert data['c1Note']=='canonical-runtime-note'
+          assert data['c1ActualMinutes']==23
+          assert data['c1CountOverride'] is False
+          assert data['realId']==data['today']+'__runtime-occ-real'
+          assert data['realStatus']=='entered'
+          assert data['realNote']=='real-runtime-note'
+          assert data['genuineFatalMiaadWebErrorCount']==0
+
+          restart=data['afterRestart']
+          assert restart['c1Status']=='entered'
+          assert restart['c1Note']=='canonical-runtime-note'
+          assert restart['c1ActualMinutes']==23
+          assert restart['c1CountOverride'] is False
+          assert restart['realStatus']=='entered'
+          assert restart['realNote']=='real-runtime-note'
+          assert restart['invalidWeekdayRecord'] is False
+          assert restart['invalidPhaseRecord'] is False
+          assert restart['invalidWeekdaySchedule'] is False
+          assert restart['invalidPhaseSchedule'] is False
+          assert restart.get('invalidWeekdayState') is None
+          assert restart.get('invalidWeekdayNote') is None
+          assert restart.get('invalidPhaseState') is None
+          assert restart.get('invalidPhaseNote') is None
+
+          classifier=json.loads(Path(f'audit/phase1c-log-classification-api{api}.json').read_text(encoding='utf-8'))
+          assert classifier['result']=='PASS'
+          assert classifier['genuineFatalRuntimeErrorCount']==0
+
+          print(f"apiLevel={api}")
+          print(f"today={data['today']}")
+          print(f"c1RecordId={data['c1RecordId']}")
+          print(f"c1Status={data['c1Status']}")
+          print(f"c1Note={data['c1Note']}")
+          print(f"c1ActualMinutes={data['c1ActualMinutes']}")
+          print(f"c1CountOverride={str(data['c1CountOverride']).lower()}")
+          print(f"realId={data['realId']}")
+          print(f"realStatus={data['realStatus']}")
+          print(f"realNote={data['realNote']}")
+          print(f"invalidWeekdayId={data['invalidWeekdayId']}")
+          print(f"invalidPhaseDate={data['invalidPhaseDate']}")
+          print(f"invalidPhaseId={data['invalidPhaseId']}")
+          print(f"afterRestart={json.dumps(restart,sort_keys=True)}")
+          print(f"probeBenignMiaadWebWarnings={data['benignMiaadWebWarnings']}")
+          print(f"probeGenuineFatalMiaadWebErrorCount={data['genuineFatalMiaadWebErrorCount']}")
+          print(f"classifierBenignIgnoredCount={classifier['benignWebViewUserGestureWarningCount']}")
+          print(f"classifierGenuineFatalCount={classifier['genuineFatalRuntimeErrorCount']}")
+          print('result=PASS')
+          PY
+
+          test -s "audit/logcat-api$MIAAD_API_LEVEL.txt"
+          test -s "audit/activity-api$MIAAD_API_LEVEL.txt"
+          test -s "audit/miaad-ready-api$MIAAD_API_LEVEL.png"
+          test -s "audit/miaad-launch-api$MIAAD_API_LEVEL.mp4"
+
+          echo "Occurrence authority installed-APK verification on API $MIAAD_API_LEVEL: PASS"
+
+      - name: Upload API ${{ matrix.api }} runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r2-runtime-api-${{ matrix.api }}
+          path: audit/
+          if-no-files-found: ignore
+          retention-days: 30
