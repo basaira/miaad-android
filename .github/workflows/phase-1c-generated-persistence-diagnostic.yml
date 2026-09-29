@@ -1,0 +1,65 @@
+name: Phase 1C Generated Persistence Differential Diagnostic V1
+on:
+  push:
+    branches: ['miaad/phase-1c-occurrence-authority-generated-diagnostic-v1']
+permissions:
+  contents: read
+env:
+  CANDIDATE_SHA: 6a3b367e4f0a9d007846452b9343733ff3adf086
+  CANDIDATE_TREE: 92558e4b3859baf71c3eaec4de26d1436e921eec
+  OFFICIAL_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  MAIN_SHA: 16477b29106d59d0e1fe7d4e99c63b55d6d97327
+  WORKFLOW_PATH: .github/workflows/phase-1c-generated-persistence-diagnostic.yml
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Reproduce and diagnose source/generated persistence
+        env: {PLAYWRIGHT_CHANNEL: chrome}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          test "$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-candidate | awk '{print $1}')" = "$CANDIDATE_SHA"
+          test "$(git ls-remote origin refs/heads/miaad/phase-1-correctness | awk '{print $1}')" = "$OFFICIAL_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$MAIN_SHA"
+          test "$(git merge-base "$OFFICIAL_SHA" "$CANDIDATE_SHA")" = "$OFFICIAL_SHA"
+          test "$(git rev-list --count "$OFFICIAL_SHA..$CANDIDATE_SHA")" -eq 13
+          test "$(git rev-list --count "$CANDIDATE_SHA..$OFFICIAL_SHA")" -eq 0
+          git diff --name-only "$CANDIDATE_SHA" HEAD > audit/diagnostic-paths.txt
+          test "$(wc -l < audit/diagnostic-paths.txt)" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" audit/diagnostic-paths.txt
+          read additions deletions < <(git diff --numstat "$OFFICIAL_SHA" "$CANDIDATE_SHA" | awk 'BEGIN{a=0;d=0}{a+=$1;d+=$2}END{print a,d}')
+          test "$additions" -eq 581; test "$deletions" -eq 44
+          git diff --check "$CANDIDATE_SHA" HEAD
+          printf 'head=%s\nparent=%s\ntree=%s\nahead=13\nbehind=0\npaths=13\n+%s/-%s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD^)" "$(git rev-parse "$CANDIDATE_SHA^{tree}")" "$additions" "$deletions" | tee audit/identity.txt
+
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save --package-lock=false playwright@1.55.0 esbuild@0.28.2 acorn@8.18.0 @esbuild/linux-x64@0.28.2
+          node scripts/verify-compat-toolchain.cjs | tee audit/compat-toolchain-lock.txt
+          node scripts/build-compat.cjs | tee audit/compat-generation.txt
+          node - <<'NODE' | tee audit/hash-evidence.txt
+          const fs=require('fs'),c=require('crypto'),a=require('assert/strict'),p=require('path');const h=x=>c.createHash('sha256').update(fs.readFileSync(x)).digest('hex'),r=JSON.parse(fs.readFileSync('audit/compat-generation.json'));a.equal(r.files.length,14);a.equal(r.sourceBytes,186763);a.equal(r.generatedBytes,217807);const e={'app-core.js':['7a03ee9768355b1a26f0a439e85406314cbb8fec9b88d9b4b74db445161fe8dd','e0e472d232f927890518f40b2b6131425b2e2a429bfc0fc7762ca0a604df13f0'],'app-domain.js':['332aaa0de0d9a73fb977053652f0ca58b3ea7563678f85549bdf4d7bffa9469b','b6393820dbbf15e2e3e081582e0c61114ab2c7e15789a2c09cce0d1dbe55ecb6'],'app-integration.js':['f59918acc9d1f0fc560395d4b402e6364002ad2fb3d49a28d8d5a121bfecca','28a8ca70004129aa97bbb346f712c248935da6012e7d216edb814e98e679ee59']};for(const[f,[s,g]]of Object.entries(e)){const x=h(p.join('app/src/main/assets',f)),y=h(p.join('app/build/generated/compatAssets',f));console.log(f,x,y);a.equal(x,s);a.equal(y,g)}console.log('HISTORICAL V1R5R2 GENERATED OUTPUT REPRODUCED PASS');
+          NODE
+
+          python3 - <<'PY'
+          import base64,gzip,os
+          open(os.path.join(os.environ['RUNNER_TEMP'],'phase1c-generated-persistence-diagnostic.cjs'),'wb').write(gzip.decompress(base64.b64decode('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')))
+          open(os.path.join(os.environ['RUNNER_TEMP'],'phase1c-generated-transform-audit.cjs'),'wb').write(gzip.decompress(base64.b64decode('H4sIAAAAAAAC/5VWbW/bNhD+vl+hAkUoorSSbRg22FCAoEmDrk1TxF2/uAbCSCeZtUSqJJVaMPTfd6RkSW7TDvMHWzzdPXf33AudKGlskJlYw5daaAhJZghl1XiuuN2ghCdKy1HqjyguR1F0ahItKmtOE1Wi1azkUmRgbPTZKKe7jAmvqlOjk9OSC3nKjQFrCLvu5A+1KNLTHCRobiHtUS56pQtUqlNhySLxIb+JV8RYpYEwUiie/r28fYePhj/CW5XwYmkRxAkkr8xG2UtuOR4lt+IRXkthBS+8KepeKhfPEiAdNI5EE6UbXqGg0qLkujlSOpLdqBSQH0ZKkbtseodvIedJg+JEA0pvBOdpZ4AyDZkGs+l0bpOk1hpkgkpaK23IelGADVRt49V6kSkddjxkgcpWjr8ZVgSQakRyp9TDjmchLbhQhPLCNR0gVlopywr+AMUasVZLRpa3/9y9vCJrtrpm5Prq3dXdxYerS7Je033n1caZiTCH9JUoYNnIJKyiz0rI0GNllJHaZn8RusB4o6o2m/A+dp/g+T5r8ct7awMvu6eTdLaYTvDm4EbENhIyhd1tFm7pQmShOI/P6Ag6m80QbdsG+PBJPt/byBQigfAGmzYq+S48Y2L2+x9nlHUSjNBGBcjcbph48Se+oO09bVvM5qsWFoZ07p/vL9qxGWfY2VZgF8yMFFWFHRnZnb1nLhKfN/kkP2GP08UvWS0Tx3IgeQkmlNgJrKsa3WMCz5yAarC1lq6aLiknimxTAbJBXqcgrcgEaDIm6jUcIF1AYSD41uj24TMk9j231rXdWNtg5/j0qpVWFWgrwPg4doPt++5FQ2gX8S565EXtgx69jep3ONFXBZQY5WjBdV47iTdqnwzxQmve/DRC6FDNAfU4gmMwY0QunfaAONKNBc7sT4yfyMC/P0piMZaoHUqaYsxYvb47ubGx34NRxbUB/47tISn5R9AG9eekwOYxljCjap3ABwxgTrotSVrK9PEoS8cEgkYPKm18keQQ80euBX8o4BKSgndjTOj+WxajdHxtJhy7JL1CXy6RUqq7zto7GdvilM1l5H7aSf0G9696BqbuT06kA5rizJ0kGhHJgTnMdvE96ssCr4D/C5k4I8Rr+wLptl+EOLoGCWUlr2IJXwNc1d/syaCMzAbHV8h82V1Vh1KaOA1/sNGWk3VGWf5jxesjRbP1QSzBhgY3URXu4vOdJ/gFmZMXu26aKcO9rFVaJ5DGeYQ5YDM71WdmG224q9V3JgufaU+Re55nfX/NDRs21jyfQLfTFetbJe+WEQbWu+mw3Rnv2/7McGctnCgfRPTYry9JF+PE3Xx8jIwqIWzi88abY9U7nJOTxlt5gXugWNG+kmld4RJ3kxOvosiRtz4wE64YrGl8Dv0SP/+VenLDlY8Xh1fjgnMafWP3ElbAzq3vO5hMyJ0w23mvcHAA8fmK4EXr7mgXjPv1DbfGiygp6hTnB7qA6SGGM6Zk0eCE3urDnAyw8Ai66VAfuUa0YSKeAGxdcf/rJsoL9YD30HTS/R+se+b+AkUG/cpcZE1XI8NGNlsm66Jgv6EXl5sqkEWVh2TA7maIsK7B+muSjABkAja87pkNNLJ5rDF28y76Ef8HEvHi/Bc2bpf7iwoAAA==')))
+          PY
+          node --check "$RUNNER_TEMP/phase1c-generated-persistence-diagnostic.cjs"
+          node --check "$RUNNER_TEMP/phase1c-generated-transform-audit.cjs"
+          node "$RUNNER_TEMP/phase1c-generated-persistence-diagnostic.cjs" | tee audit/diagnostic-stdout.txt
+          node "$RUNNER_TEMP/phase1c-generated-transform-audit.cjs" | tee audit/generated-global-audit-summary.txt
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-generated-diagnostic-v1
+          path: audit/
+          if-no-files-found: error
+          retention-days: 30
