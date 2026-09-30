@@ -1,0 +1,286 @@
+name: Phase 1C Generated Full-Flow Sequence Differential Diagnostic V1R3
+on:
+  push:
+    branches: ['miaad/phase-1c-occurrence-authority-generated-diagnostic-v1r3']
+permissions:
+  contents: read
+env:
+  CANDIDATE_SHA: 6a3b367e4f0a9d007846452b9343733ff3adf086
+  CANDIDATE_TREE: 92558e4b3859baf71c3eaec4de26d1436e921eec
+  OFFICIAL_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  MAIN_SHA: 16477b29106d59d0e1fe7d4e99c63b55d6d97327
+  WORKFLOW_PATH: .github/workflows/phase-1c-generated-full-flow-diagnostic.yml
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reproduce original full flow and capture source generated differential
+        shell: bash
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          test "$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-candidate | awk '{print $1}')" = "$CANDIDATE_SHA"
+          test "$(git ls-remote origin refs/heads/miaad/phase-1-correctness | awk '{print $1}')" = "$OFFICIAL_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$MAIN_SHA"
+          test "$(git merge-base "$OFFICIAL_SHA" "$CANDIDATE_SHA")" = "$OFFICIAL_SHA"
+          test "$(git rev-list --count "$OFFICIAL_SHA..$CANDIDATE_SHA")" -eq 13
+          test "$(git rev-list --count "$CANDIDATE_SHA..$OFFICIAL_SHA")" -eq 0
+          git diff --name-only "$CANDIDATE_SHA" HEAD > audit/diagnostic-paths.txt
+          test "$(wc -l < audit/diagnostic-paths.txt)" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" audit/diagnostic-paths.txt
+          read additions deletions < <(git diff --numstat "$OFFICIAL_SHA" "$CANDIDATE_SHA" | awk 'BEGIN{a=0;d=0}{a+=$1;d+=$2}END{print a,d}')
+          test "$additions" -eq 581
+          test "$deletions" -eq 44
+          git diff --check "$CANDIDATE_SHA" HEAD
+          printf 'head=%s\nparent=%s\ntree=%s\nahead=13\nbehind=0\npaths=13\n+%s/-%s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD^)" "$(git rev-parse "$CANDIDATE_SHA^{tree}")" "$additions" "$deletions" | tee audit/identity.txt
+
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save --package-lock=false playwright@1.55.0 esbuild@0.28.2 acorn@8.18.0 @esbuild/linux-x64@0.28.2
+          node scripts/verify-compat-toolchain.cjs | tee audit/compat-toolchain-lock.txt
+          {
+            NODE_PATH="$GITHUB_WORKSPACE/node_modules" node -e "console.log('DIAGNOSTIC PLAYWRIGHT RESOLUTION PASS');console.log(require.resolve('playwright'))"
+            NODE_PATH="$GITHUB_WORKSPACE/node_modules" node -e "console.log('DIAGNOSTIC ACORN RESOLUTION PASS');console.log(require.resolve('acorn'))"
+          } | tee audit/module-resolution.txt
+
+          node - <<'NODE' | tee audit/hash-reference-format.txt
+          const refs=[
+            '7a03ee9768355b1a26f0a439e85406314cbb8fec9b88d9b4b74db445161fe8dd',
+            'e0e472d232f927890518f40b2b6131425b2e2a429bfc0fc7762ca0a604df13f0',
+            '332aaa0de0d9a73fb977053652f0ca58b3ea7563678f85549bdf4d7bffa9469b',
+            'b6393820dbbf15e2e3e081582e0c61114ab2c7e15789a2c09cce0d1dbe55ecb6',
+            'f59918acc9d1f0fc560395d4b402e6364002ad2fb3d49a28d8d8d5a121bfecca',
+            '28a8ca70004129aa97bbb346f712c248935da6012e7d216edb814e98e679ee59'
+          ];
+          for(const ref of refs) if(!/^[0-9a-f]{64}$/.test(ref)) throw new Error('Malformed historical SHA256 reference: '+ref);
+          console.log('HISTORICAL HASH REFERENCES FORMAT PASS');
+          NODE
+
+          node scripts/build-compat.cjs | tee audit/compat-generation.txt
+          node - <<'NODE' | tee audit/hash-evidence.txt
+          const fs=require('fs'),crypto=require('crypto'),assert=require('assert/strict'),path=require('path');
+          const hash=x=>crypto.createHash('sha256').update(fs.readFileSync(x)).digest('hex');
+          const report=JSON.parse(fs.readFileSync('audit/compat-generation.json'));
+          assert.equal(report.files.length,14);assert.equal(report.sourceBytes,186763);assert.equal(report.generatedBytes,217807);
+          const expected={
+            'app-core.js':['7a03ee9768355b1a26f0a439e85406314cbb8fec9b88d9b4b74db445161fe8dd','e0e472d232f927890518f40b2b6131425b2e2a429bfc0fc7762ca0a604df13f0'],
+            'app-domain.js':['332aaa0de0d9a73fb977053652f0ca58b3ea7563678f85549bdf4d7bffa9469b','b6393820dbbf15e2e3e081582e0c61114ab2c7e15789a2c09cce0d1dbe55ecb6'],
+            'app-integration.js':['f59918acc9d1f0fc560395d4b402e6364002ad2fb3d49a28d8d8d5a121bfecca','28a8ca70004129aa97bbb346f712c248935da6012e7d216edb814e98e679ee59']
+          };
+          for(const [file,[sourceExpected,generatedExpected]] of Object.entries(expected)){
+            const source=hash(path.join('app/src/main/assets',file)),generated=hash(path.join('app/build/generated/compatAssets',file));
+            console.log(file,'source',source,'generated',generated);
+            assert.equal(source,sourceExpected);assert.equal(generated,generatedExpected);
+          }
+          console.log('HISTORICAL V1R5R2 GENERATED OUTPUT REPRODUCED PASS');
+          NODE
+
+          set +e
+          MIAAD_ASSET_ROOT=app/src/main/assets PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs 2>&1 | tee audit/original-source-flow.log
+          source_original_exit=\${PIPESTATUS[0]}
+          MIAAD_ASSET_ROOT=app/build/generated/compatAssets PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs 2>&1 | tee audit/original-generated-flow.log
+          generated_phase_a_exit=\${PIPESTATUS[0]}
+          MIAAD_ASSET_ROOT=app/build/generated/compatAssets PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs 2>&1 | tee audit/generated-original-attempt-1.log
+          generated_attempt_1_exit=\${PIPESTATUS[0]}
+          MIAAD_ASSET_ROOT=app/build/generated/compatAssets PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs 2>&1 | tee audit/generated-original-attempt-2.log
+          generated_attempt_2_exit=\${PIPESTATUS[0]}
+          MIAAD_ASSET_ROOT=app/build/generated/compatAssets PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs 2>&1 | tee audit/generated-original-attempt-3.log
+          generated_attempt_3_exit=\${PIPESTATUS[0]}
+          set -e
+
+          printf 'ORIGINAL SOURCE FLOW EXIT = %s\nORIGINAL GENERATED FLOW EXIT = %s\ngenerated-original-attempt-1=%s\ngenerated-original-attempt-2=%s\ngenerated-original-attempt-3=%s\n' "$source_original_exit" "$generated_phase_a_exit" "$generated_attempt_1_exit" "$generated_attempt_2_exit" "$generated_attempt_3_exit" | tee audit/original-flow-exit-status.txt
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const lines=fs.readFileSync('audit/original-flow-exit-status.txt','utf8').trim().split(/\n/);
+          const status={};for(const line of lines){const m=line.match(/^(.*?)\s*=\s*(\d+)$/);if(m)status[m[1]]=Number(m[2])}
+          const marker='PASS: real UI legacy migration, recurrence edit preserving history, biweekly phase preservation across editor/reload, reversal, custom period editing/renewal/archive, availability settings, backup import deduplication and reload';
+          const files=[
+            ['source','audit/original-source-flow.log',status['ORIGINAL SOURCE FLOW EXIT']],
+            ['generated-phase-a','audit/original-generated-flow.log',status['ORIGINAL GENERATED FLOW EXIT']],
+            ['generated-original-attempt-1','audit/generated-original-attempt-1.log',status['generated-original-attempt-1']],
+            ['generated-original-attempt-2','audit/generated-original-attempt-2.log',status['generated-original-attempt-2']],
+            ['generated-original-attempt-3','audit/generated-original-attempt-3.log',status['generated-original-attempt-3']]
+          ];
+          const rows=files.map(([name,file,exit])=>{const text=fs.readFileSync(file,'utf8'),ls=text.split(/\r?\n/);return{name,exit,passMarker:text.includes(marker),failureLine:ls.find(x=>/TypeError:|AssertionError|Error:|scripts\/test-flows\.cjs:\d+:\d+/.test(x))||null,historicalExact:/Cannot read properties of undefined \(reading 'status'\)/.test(text)&&/scripts\/test-flows\.cjs:27:29/.test(text),semanticReload:/Cannot read properties of undefined \(reading 'status'\)/.test(text)}});
+          fs.writeFileSync('audit/original-flow-attempts.json',JSON.stringify(rows,null,2));
+          const attempts=rows.filter(x=>x.name.startsWith('generated-original-attempt-')),pass=attempts.filter(x=>x.exit===0&&x.passMarker).length,fail=attempts.length-pass;
+          const out=['attempt count = '+attempts.length,'pass count = '+pass,'fail count = '+fail,...rows.map(r=>r.name+': exit='+r.exit+' passMarker='+r.passMarker+' failure='+String(r.failureLine))];
+          if(pass===3)out.push('HISTORICAL GENERATED FLOW FAILURE NOT REPRODUCED IN 3/3 FRESH ATTEMPTS');else if(pass>0&&fail>0)out.push('NONDETERMINISTIC GENERATED FLOW FAILURE');else if(fail===3)out.push('GENERATED ORIGINAL FLOW FAILED 3/3');
+          fs.writeFileSync('audit/original-flow-summary.txt',out.join('\n')+'\n');console.log(out.join('\n'));
+          NODE
+
+          python3 - <<'PY'
+          import os
+          source_path='scripts/test-flows.cjs'
+          with open(source_path,'r',encoding='utf-8') as f: out=f.read()
+          original=out
+          def once(anchor,replacement,label):
+              global out
+              count=out.count(anchor)
+              if count != 1:
+                  raise RuntimeError(f'INSTRUMENTATION ANCHOR {label} MATCHED {count} TIMES')
+              out=out.replace(anchor,replacement,1)
+              print('ANCHOR PASS',label)
+
+          first="""const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright'),path=require('path'),assert=require('node:assert/strict');"""
+          once(first,first+"\nconst __diagFs=require('fs');const __diag={assetRoot:process.env.MIAAD_ASSET_ROOT||null,checkpoints:[],failure:null};function __diagWrite(){if(process.env.DIAG_OUT)__diagFs.writeFileSync(process.env.DIAG_OUT,JSON.stringify(__diag,null,2))}",'bootstrap')
+
+          preamble="""(async()=>{const browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL||'chrome'}),context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'}),page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());"""
+          telemetry=preamble+r"""
+const __consoleErrors=[];page.on('console',m=>{if(m.type()==='error')__consoleErrors.push(m.text())});
+async function __capture(stage){
+  const data=await page.evaluate((stage)=>{
+    const C1='2026-09-15__existing',H='2026-09-08__existing';
+    const safe=fn=>{try{return{accessible:true,value:fn()}}catch(e){return{accessible:false,error:String(e)}}};
+    const rawDomain=localStorage.getItem('miaadDomainV4');let persisted=null,persistError=null;
+    try{persisted=rawDomain?JSON.parse(rawDomain):null}catch(e){persistError=String(e)}
+    return {
+      stage,
+      domainVersion:safe(()=>domain.data.version),
+      recordKeys:safe(()=>Object.keys(domain.data.records).sort()),
+      scheduleKeys:safe(()=>Object.keys(domain.data.schedules).sort()),
+      c1:safe(()=>domain.data.records[C1]),
+      historicalRecord:safe(()=>domain.data.records[H]),
+      existingSchedules:safe(()=>domain.data.schedules.existing),
+      biReviewSchedules:safe(()=>domain.data.schedules['bi-review']),
+      currentExisting:safe(()=>domain.versionAt('existing',domain.teacherNow().date)),
+      currentBiReview:safe(()=>domain.versionAt('bi-review',domain.teacherNow().date)),
+      lessonExisting:safe(()=>lessons.find(x=>x.id==='existing')),
+      lessonBiReview:safe(()=>lessons.find(x=>x.id==='bi-review')),
+      idrisPhase:safe(()=>idrisPhase),
+      sessionStateC1:safe(()=>sessionState[C1]),
+      sessionNotesC1:safe(()=>sessionNotes[C1]),
+      lastUpdatedAt:safe(()=>typeof lastUpdatedAt==='undefined'?null:lastUpdatedAt),
+      rawDomainV4:rawDomain,
+      persistedParseError:persistError,
+      persistedC1:persisted?.records?.[C1]??null,
+      persistedExistingSchedules:persisted?.schedules?.existing??null,
+      persistedBiReviewSchedules:persisted?.schedules?.['bi-review']??null,
+      rawLessonsV2:localStorage.getItem('miadLessonsV2'),
+      rawSessionStateV2:localStorage.getItem('miadSessionStateV2'),
+      rawSessionNotesV2:localStorage.getItem('miadSessionNotesV2'),
+      rawIdrisPhaseV2:localStorage.getItem('miadIdrisPhaseV2'),
+      rawUpdatedAtV1:localStorage.getItem('miadUpdatedAtV1'),
+      localStorageKeys:Object.keys(localStorage).sort(),
+      loadJSONC1:safe(()=>loadJSON('miaadDomainV4',{}).records?.[C1]),
+      localDomainSeedC1:safe(()=>localDomainSeed?.records?.[C1]),
+      localDomainMapC1:safe(()=>localDomainMap?.records?.[C1]),
+      primaryDomainSeedC1:safe(()=>primaryDomainSeed?.records?.[C1]),
+      primaryDomainModern:safe(()=>primaryDomainModern),
+      migrateInitialLegacy:safe(()=>migrateInitialLegacy),
+      nativeDomainSeed:safe(()=>nativeDomainSeed)
+    };
+  },stage);
+  data.pageErrors=[...errors];data.consoleErrors=[...__consoleErrors];
+  __diag.checkpoints.push(data);__diagWrite();console.log('FULL-SEQUENCE CHECKPOINT '+stage+' CAPTURED');
+  return data;
+}"""
+          once(preamble,telemetry,'telemetry-preamble')
+
+          go=r"""const assetRoot=path.resolve(process.env.MIAAD_ASSET_ROOT||path.join(__dirname,'../app/src/main/assets'));await page.goto('file:///'+path.join(assetRoot,'index.html').replaceAll('\\','/'));"""
+          once(go,go+"\nawait __capture('S0');",'S0')
+
+          existing_save="""await page.locator('#fStart').fill('18:00');await page.locator('#fDuration').fill('45');await page.locator('#saveLesson').click();"""
+          once(existing_save,existing_save+"await __capture('S1');",'S1')
+
+          phase0="""assert.deepEqual(await page.evaluate(()=>(()=>{const l=domain.versionAt('bi-review',domain.teacherNow().date);return[l.phase,lessons.find(x=>x.id==='bi-review').phase,domain.occurrences('2026-09-21').some(r=>r.scheduleId==='bi-review'),domain.occurrences('2026-09-28').some(r=>r.scheduleId==='bi-review'),domain.versionAt('bi-review','2026-09-08').phase,domain.data.schedules['bi-review'].length]})()),[0,0,true,false,0,2]);"""
+          once(phase0,phase0+"await __capture('S2');",'S2')
+
+          toggle="""await page.locator('[data-view="settings"]').click();await page.locator('#toggleIdrisPhase').click();"""
+          once(toggle,toggle+"await __capture('S3');",'S3')
+
+          edit_loop="""for(const [selector,value,kind] of [['#fStart','11:15','fill'],['#fNote','phase-one-note','fill'],['#fMaxDuration','60','fill']]){await page.locator('[data-schedule="bi-review"]').click();if(kind==='fill')await page.locator(selector).fill(value);await page.locator('#saveLesson').click();assert.equal(await page.evaluate(()=>domain.versionAt('bi-review',domain.teacherNow().date).phase),1);assert.equal(await page.evaluate(()=>lessons.find(x=>x.id==='bi-review').phase),1);assert.equal(await page.evaluate(()=>domain.data.schedules['bi-review'].length),2)}"""
+          once(edit_loop,edit_loop+"await __capture('S4');",'S4')
+
+          pre_c1="""assert.equal(await page.evaluate(()=>[0,1].includes(domain.versionAt('bi-review',domain.teacherNow().date).phase)),true);"""
+          once(pre_c1,pre_c1+"await __capture('S5');",'S5')
+
+          c1="""await page.evaluate(()=>{const r=domain.resolveScheduleOccurrence('existing','2026-09-15');domain.record({...r,status:'entered',note:'canonical-occurrence',actualMinutes:23,countOverride:false});sessionState[r.id]='absent';sessionNotes[r.id]='stale-legacy-note';saveLocalState();openSheetWithContext(lessons.find(x=>x.id==='existing'),domain.parse('2026-09-15'),'occurrence')});"""
+          once(c1,c1+"await __capture('S6');",'S6')
+
+          c1_save="""assert.equal(await page.locator('#fSessionNote').inputValue(),'canonical-occurrence');
+await page.locator('#fReminder').selectOption('30');await page.locator('#saveLesson').click();"""
+          once(c1_save,c1_save+"await __capture('S7');",'S7')
+
+          before_reload="""await page.locator('#fReminder').selectOption('30');await page.locator('#saveLesson').click();
+assert.deepEqual(await page.evaluate(()=>{const r=domain.data.records['2026-09-15__existing'];return[r.status,r.note,r.actualMinutes,r.countOverride,sessionState[r.id],sessionNotes[r.id]]}),['entered','canonical-occurrence',23,false,'entered','canonical-occurrence']);"""
+          once(before_reload,before_reload+"await __capture('S8');\nawait __capture('S9');",'S8-S9')
+
+          reload="""await page.reload();
+assert.deepEqual(await page.evaluate(()=>{const r=domain.data.records['2026-09-15__existing'];return[r.status,r.note,r.actualMinutes,r.countOverride,sessionState[r.id],sessionNotes[r.id]]}),['entered','canonical-occurrence',23,false,'entered','canonical-occurrence']);"""
+          reload_instrumented="""await page.reload();
+await __capture('S10');
+await __capture('S11');
+__diagWrite();
+assert.deepEqual(await page.evaluate(()=>{const r=domain.data.records['2026-09-15__existing'];return[r.status,r.note,r.actualMinutes,r.countOverride,sessionState[r.id],sessionNotes[r.id]]}),['entered','canonical-occurrence',23,false,'entered','canonical-occurrence']);"""
+          once(reload,reload_instrumented,'S10-S11')
+
+          ending="""})().catch(e=>{console.error(e);process.exit(1)});"""
+          once(ending,"""})().catch(e=>{__diag.failure={name:e?.name||null,message:e?.message||String(e),stack:e?.stack||null};__diagWrite();console.error(e);process.exit(1)});""",'failure-writer')
+
+          if out == original: raise RuntimeError('instrumentation produced no change')
+          target=os.path.join(os.environ['RUNNER_TEMP'],'test-flows-full-sequence-instrumented.cjs')
+          with open(target,'w',encoding='utf-8') as f:f.write(out)
+          with open('audit/instrumentation-summary.txt','w',encoding='utf-8') as f:f.write('source_sha=d91646ee3e45d79c3769eb26a5402c4f4c1cddd0\ncheckpoints=S0,S1,S2,S3,S4,S5,S6,S7,S8,S9,S10,S11\nall anchors matched exactly once\n')
+          print('FULL-SEQUENCE INSTRUMENTATION BUILD PASS')
+          PY
+
+          node --check "$RUNNER_TEMP/test-flows-full-sequence-instrumented.cjs"
+          ln -sf "$GITHUB_WORKSPACE/scripts/test-biweekly-phase-domain-control.cjs" "$RUNNER_TEMP/test-biweekly-phase-domain-control.cjs"
+
+          set +e
+          DIAG_OUT="$GITHUB_WORKSPACE/audit/full-sequence-source.json" PLAYWRIGHT_PATH="$GITHUB_WORKSPACE/node_modules/playwright" MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/src/main/assets" PLAYWRIGHT_CHANNEL=chrome NODE_PATH="$GITHUB_WORKSPACE/node_modules" node "$RUNNER_TEMP/test-flows-full-sequence-instrumented.cjs" 2>&1 | tee audit/instrumented-source-flow.log
+          instrumented_source_exit=\${PIPESTATUS[0]}
+          DIAG_OUT="$GITHUB_WORKSPACE/audit/full-sequence-generated.json" PLAYWRIGHT_PATH="$GITHUB_WORKSPACE/node_modules/playwright" MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" PLAYWRIGHT_CHANNEL=chrome NODE_PATH="$GITHUB_WORKSPACE/node_modules" node "$RUNNER_TEMP/test-flows-full-sequence-instrumented.cjs" 2>&1 | tee audit/instrumented-generated-flow.log
+          instrumented_generated_exit=\${PIPESTATUS[0]}
+          set -e
+          printf 'instrumented_source_exit=%s\ninstrumented_generated_exit=%s\n' "$instrumented_source_exit" "$instrumented_generated_exit" | tee audit/instrumented-exit-status.txt
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const source=JSON.parse(fs.readFileSync('audit/full-sequence-source.json','utf8')),generated=JSON.parse(fs.readFileSync('audit/full-sequence-generated.json','utf8'));
+          const order=['S0','S1','S2','S3','S4','S5','S6','S7','S8','S9','S10','S11'];
+          const fields=['domainVersion','recordKeys','scheduleKeys','c1','historicalRecord','existingSchedules','biReviewSchedules','currentExisting','currentBiReview','lessonExisting','lessonBiReview','idrisPhase','sessionStateC1','sessionNotesC1','lastUpdatedAt','rawDomainV4','persistedParseError','persistedC1','persistedExistingSchedules','persistedBiReviewSchedules','rawLessonsV2','rawSessionStateV2','rawSessionNotesV2','rawIdrisPhaseV2','rawUpdatedAtV1','localStorageKeys','loadJSONC1','localDomainSeedC1','localDomainMapC1','primaryDomainSeedC1','primaryDomainModern','migrateInitialLegacy','nativeDomainSeed','pageErrors','consoleErrors'];
+          const stable=v=>Array.isArray(v)?v.map(stable):(v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])])):v);
+          const eq=(a,b)=>JSON.stringify(stable(a))===JSON.stringify(stable(b)),map=x=>new Map((x.checkpoints||[]).map(c=>[c.stage,c]));
+          const sm=map(source),gm=map(generated),lines=['checkpoint | field | source | generated'];let first=null;
+          for(const stage of order){const s=sm.get(stage),g=gm.get(stage);if(!s||!g){if(!first)first={stage,field:'checkpoint-presence',source:!!s,generated:!!g};lines.push(stage+' | checkpoint-presence | '+!!s+' | '+!!g);continue}for(const field of fields)if(!eq(s[field],g[field])){if(!first)first={stage,field,source:s[field],generated:g[field]};lines.push(stage+' | '+field+' | '+JSON.stringify(s[field])+' | '+JSON.stringify(g[field]))}}
+          const marker=first?('FIRST FULL-SEQUENCE SOURCE/GENERATED DIVERGENCE = '+first.stage+' + '+first.field):'FIRST FULL-SEQUENCE SOURCE/GENERATED DIVERGENCE = NONE_OBSERVED';
+          lines.unshift(marker);fs.writeFileSync('audit/full-sequence-differential.txt',lines.join('\n')+'\n');fs.writeFileSync('audit/full-sequence-first-divergence.json',JSON.stringify(first,null,2));
+          const pack=x=>({failure:x.failure||null,checkpoints:(x.checkpoints||[]).map(c=>({stage:c.stage,pageErrors:c.pageErrors,consoleErrors:c.consoleErrors}))});
+          fs.writeFileSync('audit/source-page-console-errors.json',JSON.stringify(pack(source),null,2));fs.writeFileSync('audit/generated-page-console-errors.json',JSON.stringify(pack(generated),null,2));console.log(marker);
+          NODE
+
+          node - <<'NODE' | tee audit/generated-global-audit-summary.txt
+          const fs=require('fs'),path=require('path'),acorn=require('acorn'),manifest=require('./scripts/compat-manifest.json');
+          const S='app/src/main/assets',G='app/build/generated/compatAssets',keys=['store','loadJSON','saveLocalState','snapshotData','nativeInitial','localDomainSeed','nativeDomainSeed','localDomainMap','primaryDomainSeed','primaryDomainModern','migrateInitialLegacy','createMiaadDomain','refreshLegacyOccurrenceMirrors'];
+          const names=(node,out=[])=>{if(!node)return out;if(node.type==='Identifier')out.push(node.name);else if(node.type==='ObjectPattern')for(const x of node.properties){if(x.type==='Property')names(x.value,out);else if(x.type==='RestElement')names(x.argument,out)}else if(node.type==='ArrayPattern')for(const x of node.elements)names(x,out);else if(node.type==='AssignmentPattern')names(node.left,out);else if(node.type==='RestElement')names(node.argument,out);return out};
+          const declarations=code=>{const ast=acorn.parse(code,{ecmaVersion:'latest',sourceType:'script'}),out=[];for(const n of ast.body){if(n.type==='VariableDeclaration')for(const d of n.declarations)for(const name of names(d.id))out.push({name,kind:n.kind});else if(n.type==='FunctionDeclaration'&&n.id)out.push({name:n.id.name,kind:'function'});else if(n.type==='ClassDeclaration'&&n.id)out.push({name:n.id.name,kind:'class'})}return out};
+          const files=[],globalMap=new Map,snippets=[];
+          for(const file of manifest.shippingScripts){const sourceText=fs.readFileSync(path.join(S,file),'utf8'),generatedText=fs.readFileSync(path.join(G,file),'utf8'),sourceDecl=declarations(sourceText),generatedDecl=declarations(generatedText),sourceSet=new Set(sourceDecl.map(x=>x.kind+':'+x.name)),introduced=generatedDecl.filter(x=>!sourceSet.has(x.kind+':'+x.name));files.push({file,source:sourceDecl,generated:generatedDecl,introduced});for(const x of generatedDecl){if(!globalMap.has(x.name))globalMap.set(x.name,[]);globalMap.get(x.name).push({file,kind:x.kind,introduced:introduced.some(y=>y.name===x.name&&y.kind===x.kind)})}for(const key of keys){const i=generatedText.indexOf(key);if(i>=0)snippets.push('===== '+file+' :: '+key+' =====\n'+generatedText.slice(Math.max(0,i-350),Math.min(generatedText.length,i+750)))}}
+          const duplicates=[...globalMap].filter(([,entries])=>entries.length>1).map(([name,entries])=>({name,entries,lexicalRedeclarationRisk:entries.some(e=>['let','const','class'].includes(e.kind)),onlyVarOrFunction:entries.every(e=>['var','function'].includes(e.kind))})),lexical=duplicates.filter(x=>x.lexicalRedeclarationRisk);
+          fs.writeFileSync('audit/generated-global-declarations.json',JSON.stringify({files,duplicates},null,2));fs.writeFileSync('audit/generated-critical-snippets.txt',snippets.join('\n\n'));
+          console.log('generated files',files.length,'duplicates',duplicates.length,'lexical risks',lexical.length);for(const d of duplicates)console.log('duplicate',d.name,JSON.stringify(d.entries),'lexicalRisk='+d.lexicalRedeclarationRisk);
+          NODE
+
+          node - <<'NODE' | tee audit/final-diagnostic-decision.txt
+          const fs=require('fs'),attempts=JSON.parse(fs.readFileSync('audit/original-flow-attempts.json','utf8')),generatedAttempts=attempts.filter(x=>x.name.startsWith('generated-original-attempt-')),pass=generatedAttempts.filter(x=>x.exit===0&&x.passMarker).length,fail=generatedAttempts.length-pass,first=JSON.parse(fs.readFileSync('audit/full-sequence-first-divergence.json','utf8')),gen=JSON.parse(fs.readFileSync('audit/full-sequence-generated.json','utf8')),src=JSON.parse(fs.readFileSync('audit/full-sequence-source.json','utf8')),phaseA=attempts.find(x=>x.name==='generated-phase-a'),allGenerated=[phaseA,...generatedAttempts].filter(Boolean);
+          let historical='NOT REPRODUCED';if(allGenerated.some(x=>x.historicalExact))historical='EXACTLY REPRODUCED';else if(allGenerated.some(x=>x.semanticReload))historical='SEMANTICALLY REPRODUCED AT SAME C1 RELOAD';else if(allGenerated.some(x=>x.exit!==0))historical='DIFFERENT FAILURE';
+          console.log('SOURCE INSTRUMENTED FAILURE = '+JSON.stringify(src.failure));console.log('GENERATED INSTRUMENTED FAILURE = '+JSON.stringify(gen.failure));console.log('HISTORICAL V1R5R2 FAILURE COMPARISON = '+historical);console.log('generated attempts = '+generatedAttempts.length+' pass='+pass+' fail='+fail);console.log('FIRST FULL-SEQUENCE SOURCE/GENERATED DIVERGENCE = '+(first?(first.stage+' + '+first.field):'NONE_OBSERVED'));console.log('CLASSIC SCRIPT COLLISION = '+(first?'INCONCLUSIVE':'NOT CORRELATED'));if(pass===3&&!first)console.log('CASE C: HISTORICAL GENERATED FAILURE NOT REPRODUCED');else if(fail>0&&!first)console.log('CASE B: FAILURE OBSERVED BUT FIRST DIVERGENCE UNRESOLVED');else if(first)console.log('CASE A: FIRST DIVERGENCE PROVEN');
+          NODE
+
+      - name: Upload full-flow diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-generated-full-flow-diagnostic-v1r3
+          path: audit/
+          if-no-files-found: warn
+          retention-days: 30
