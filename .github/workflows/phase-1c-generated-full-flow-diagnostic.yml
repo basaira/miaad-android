@@ -1,0 +1,123 @@
+name: Phase 1C Generated Full-Flow Sequence Differential Diagnostic V1R4
+on:
+  push:
+    branches:
+      - miaad/phase-1c-occurrence-authority-generated-diagnostic-v1r4
+permissions:
+  contents: read
+env:
+  CANDIDATE_SHA: 6a3b367e4f0a9d007846452b9343733ff3adf086
+  CANDIDATE_TREE: 92558e4b3859baf71c3eaec4de26d1436e921eec
+  OFFICIAL_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  MAIN_SHA: 16477b29106d59d0e1fe7d4e99c63b55d6d97327
+  WORKFLOW_PATH: .github/workflows/phase-1c-generated-full-flow-diagnostic.yml
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Full-flow diagnostic
+        shell: bash
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          test "$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-candidate | awk '{print $1}')" = "$CANDIDATE_SHA"
+          test "$(git ls-remote origin refs/heads/miaad/phase-1-correctness | awk '{print $1}')" = "$OFFICIAL_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$MAIN_SHA"
+          test "$(git merge-base "$OFFICIAL_SHA" "$CANDIDATE_SHA")" = "$OFFICIAL_SHA"
+          test "$(git rev-list --count "$OFFICIAL_SHA..$CANDIDATE_SHA")" -eq 13
+          test "$(git rev-list --count "$CANDIDATE_SHA..$OFFICIAL_SHA")" -eq 0
+          git diff --name-only "$CANDIDATE_SHA" HEAD > audit/diagnostic-paths.txt
+          test "$(wc -l < audit/diagnostic-paths.txt)" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" audit/diagnostic-paths.txt
+          read additions deletions < <(git diff --numstat "$OFFICIAL_SHA" "$CANDIDATE_SHA" | awk 'BEGIN{a=0;d=0}{a+=$1;d+=$2}END{print a,d}')
+          test "$additions" -eq 581
+          test "$deletions" -eq 44
+          git diff --check "$CANDIDATE_SHA" HEAD
+          printf 'head=%s\nparent=%s\ntree=%s\nahead=13\nbehind=0\npaths=13\n+%s/-%s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD^)" "$(git rev-parse "$CANDIDATE_SHA^{tree}")" "$additions" "$deletions" | tee audit/identity.txt
+
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save --package-lock=false playwright@1.55.0 esbuild@0.28.2 acorn@8.18.0 @esbuild/linux-x64@0.28.2
+          node scripts/verify-compat-toolchain.cjs | tee audit/compat-toolchain-lock.txt
+          {
+            NODE_PATH="$GITHUB_WORKSPACE/node_modules" node -e "console.log('DIAGNOSTIC PLAYWRIGHT RESOLUTION PASS'); console.log(require.resolve('playwright'))"
+            NODE_PATH="$GITHUB_WORKSPACE/node_modules" node -e "console.log('DIAGNOSTIC ACORN RESOLUTION PASS'); console.log(require.resolve('acorn'))"
+          } | tee audit/module-resolution.txt
+          printf '%s' 'H4sIAAAAAAAAA+w8/XPayJL7s/8KJZeKpIsQSHzjUlysQ9a+568DnK1XmOcM0oC1BomVhGOfzf9+3TOjT8BxXnb36mrD1ho0093TM9OfM61M/WBBotKMRFS3fwt/+jM+Ffg0ajX8Npr1ivg2WDv+NszqT0bdrDerRsNoApxRrZmNn6TKn8JN4bMKIxJI0k8+cZ+Fg/7r8IYE1PkruPrLPrbvhZEU0GlojfbkJqlUKW03G61qvT4xiNmYVkit2qateq3SqBo1ezJpTandnrRaTntSmzRrzqRWq8O+TWnLcWRtT6YVWmuajlk1p22z2WpX6kZrWqtMzEnDAApmfWJSk9TM9mRqV6Z2s9kwbVIhjUrNmRrVaQVpVKsmIaTi0IrTJs3qdNJuNiv1aqNuTis2qbcmVUqa9Ua10WxNW/V6rT1xpjWnOZlOSbvWaE+QxqRRbVdbZsWZTKZGnZq0Sisto94yacVuGIZRIxPTblKjDjwS0660bRuGM5wJrdepPWkgjWm93TZaxLbbjjEFZuuNSrVdd2qTWsWkMHytUjGJY04nVacGRFoO/lcnhmlMYJVsgjTMFmnZpAmCXjPMNiHt5mQyqdYa06Zh2mat1a7WHZi9YdKmYxoN6kxaRo22W7TRbFNab8t74/29qR8oyVZJ/pTtmOpOlVflf40qpTYpTcePjdr6TVmPaBgp0K2q0U3gf5E8+kXqBQEQkE/JHAgtqCPduGHkB65N5tLgqGvWG0iQBtSzaUeS3yH6/h4O6M+pPvdninx0PBie948PuyfSUXdwJPV7H3v93tlhbyB9PO+fdofSRXcwkAHt/1qkf3y+4XNDwpsSvXMd3Po/yQN8xf6bNcNI7X+D2f8muIQf9v8v+HCjAtY/oL+v3IAq8jSUVc0OHpaRnzbyZ+ggYUiDKO3gz+UwAmMSQf+SRDdpLz7JwpJEEsqadW+958R0O6AQdRxBoyLDyoIRklV9tXSgUZmGOvQ6H905HTx4tnKvqrrjztC0yTf0PqUZ0KUP/PzX4PxMX5Ig3ESVycpxo7LtL5YY6FCPBiRyfU//LfQ9WQVKfA46ME3mCieoTwE91OfUm0U3mlHbARX6q8CmPz+AzdWMVqPZqO4AFMNSh8OaRrNVaSaToPdLakOn9bgnk+WyZPsBBfbkzugP8Mjf75DHGmfL8RfE9QRj3++iv99Dx4y5XkRnya4id9/vuL/fb4/31lnHPUKR0kZcZHpix7VEMOKW8Rjd+/nkN3jSqQd6RUMlFhBVfdyTODlOx0KdUlDN9N9811NwOcphYJdxp8ooiVEoazgyCrpATcbcij1ZuXOnnMAIxeluIxUHB2xmMudI1vi3Jick5HSWiJnTDwGcX5UNqAR/c70Adr0zUvlk9Ot9U/qld9brd4e9D9L55fDicgjBy0X//MPlIbT8zaMW4pH5w//QEokiulhG4Z8RAnzF/4MFqqT+32iA/6/VTfOH//8rPtv9f+qY3Ci0HnN2bO56FE3UDj8LWcXMBaEqTef+lxIjoEf3ERjUVTRtgYcHi7ZQVD1czt1IKV8FB1demdk1YZ0WFo6gL0hk3yjlfyn6fx6olnLlvFPflNV9SHkWKqM6WoyM8dg6Wy0mNFAWI3OcmIJIWoL5OCXBLQ0sGTW8A4EC5DqXx9Kczoj9IC1c4TA06LFXAUt9JAozkJYBBdNz53ozkSY9aNLE/ULp7fxBWoLJpDEIIyARO/DDkOH6QTmgc584SPWOBiGZa5INIuYvpCUNXN9hYEAa4CAxI/MyCewb945qErkj7pxMXFiWBwmMLUKFMDKxb1dLyV1gHCE51FnBwtliZM+R+HhyvGMhWEVM5aVRYo+LG8Pb2f6gwZQTyw3uFNASC1uKMTZJpDAZKlsQOUVhW0pGQigFTfoEkRQ2j2s+g2sWcM0CbvUZ3GoBtwpue5wEl/6X0GIrCuK4VJSRRxaUuUDtlj6MVet94o4jeh9ZRZXgfpHLvYZSHVoIV5B9DcXZ4jKNZBM/PQWBWAX0xOfbzfQihMjUcxSIosuhHbhgsa/KmPGzjQiv0Hx3QFfwf3EUAKHz05O3ms8TuvTepsttFP+lDB+WlB0WPHWZ/wUg/sj+qp2YptBiVT0QvwpDpOcLg4hEq9AqHxLP8zFeJw6oj79E4jREQ7LyHAosUEe6UrAbFU8OGZp8pYoRcd3UzAyIHR0lY1jF4d6+3b06ZrNjtgtUAxqtAk96ZPuLO6GlBuQCdd2LOmznXM+erxyIyNJ+VSvsk5asr1bkSyswDoZ1DeOD3HwJ3Ig+b0sTF80SF42lPJh3eTN3+qCgrGq4B5qpZrMjsOzQg/lMBGaS7XIs68lm4rRTJJyahZgZpHudCallVd6+vdc3FkeNMyVcCqtaQoDEIq0WCxI8WKPPmTCsf/zL8RkEaN3hsHd6MRxIFhtWevOIX2upzIQfHvELHyM/Avtd/Zw/C2MnYTA9VQyiL1cQ0H5+8xiwOa07zINZ+Iw/1lm/gI0bE1lnlINjiae1NI/VENsLW77+DKsHroktnWVV8/xkI9J0DT6enP8qfewen1z2e9LZeS4oPT6TquWq9LHfGxwlaySnY7yHbUAW3lcKI52dn33oDXv90+MzGPP4cMd4ghTbrU12t+xTggyNwJn8YqGNKbMQIH7gycYVZN/v2N/8UeMm1N83PP/TPyzbgwQaDMlqAQpAnT8+A3g+/jerufsfFv/XK9Uf9z9/yWfH+d9zx3g8WrxACHDkNg1DnXp3OpqI68H5Zf+w9/QkC/eb8b4oV0mYCms+o9F2GsNu/5fe8OkpPZfIgvQvz8A6XaNJhGF0CN3SIUpT8H+lENjGaH5DqnEKcxpJ/mozVEsnFQdsMauxPbMALcmLxIG5NUJ/tPJsFo770KIQz77xAw3855zYFAfXIKqn80yGY/srL0JyIhDkKLEPLRkQkEhgnRnYK8syVKl4k/P5+Gww7F+e9s6G3eHx+ZnUPTs8Ou+Dv2RjraXT7vDwCGz1m0dGZS0Nj097A/RSEps+Di5Y3MIxA0suBbhPLY6AWRWnl7XdO8HixGzqBmFkveYPjzbMa+GuFutE1rJbfXHS/eev4IGOhtcX3eERbDdw+ABOZ3az66h543za8x3aKRxS77/e32N7xZjR2N93r688ztT1teOS2cdiRpzttB7ZyVrf96NOluHT4273wzXMuDe87p+fD3lQrNk31L5dgiBHYWc0jsPFDvat9xPp4aR/RZeqqI/o6DOUPxx3f7k+vxyqMXcF37sNthghctQkRly/1uSfgUkQpO4Finsc/oFeLCZzar1WSIi0Mc3hXROMtSB0Il8I5Mnx5ulzAnO4UR5vQKHmwEUHtI7CrCHip/POjh09POqCIp/ApjI6VF6rGozC8ihOX4ymg9gf8g7l8c6lXzAR7jx+cZ3oplNtV7QbigLRadVqaxBiZ2VT59THJe3I/BFJL8mMxnxzYkj3AloVSMBQqUJUZgTTfQ/FaUZZs6xR6z0H4JpA9QVMB7ohLEnAYWVZHulY7x2d2Bg0QnaEghanh3PQrAjC4Hh53w3YxugB+fJ5LxYuoUq9TX5Ej6wtYDfwEESPIFWDvbEsmfOpFtA5twCHCwfbzW4mYD+ljMTZZAmJD1XAB8J8UgvlkIiI1WIc0DsyX+G9jIBkia8UQx8almxWzEap0i4Z9etrCLVDPL2QtaO0o9LKdOxnsEMypdbUA5KwPI88E3vEJQxDF9aJCxOOTztTT1HXa5udDAG7m7BTMg8p384OX1+AW6/X2fFgwT+wiwwLI3pIzPwApwju6BjSIkVeuIQ4HOJTDfQCPQZkqyGwTh2LaY94ZOtsibwXPsh/CpmMc5C5nEoaVa7+yVxyJFPWGd04O2UPksS2QBMP/E7mE2KDwONaKqiw4qoG91G/451qjBJQ2w+cf9CHMIUX9w230KhkcTlsqOohKB1IUUwjBJvmrOb0ZVRi6E06trGdZzHu6NAYJ7BpMt1nvc9jHqWIsdgNYja2YyZc6jFCQmHi9imanpdSGMkTtxQwFDnlgx8zRj1BfYOG2KhupMipCom+iBIgHpz5XxQVB6NqkezPgsfnyKZcvYAumnLf2+SWt6fHRve66zAzFPNcJLHJ2S4SKX8pDdcJ3PACj11T/LQtlUi0Ab6H5yz0MCNV2facOImOMx/ixy0IrD2HMCdhdMmup51ulMKjHfan+V6cS3KsJR+gqndyAKkyxgbhU62T/I47E2NygcaD2YZO1lBswME8kt8HsSoc6DiNA8bFBkZvQzcyBBJ5PkhUYgeZnzcUZDuZnGLkacHsT7hYfDI7O02zk8DI2TUcZHb5WfQ84DYabONfQkMA5mgcJ4L5LIUsWA4/EZBPxjPoGagUOwvOzHLWGmc7YyOcIhIHXVRWCeK2ojvUHtdqXq7y43PAAWWimKGW6zr4OoVTstxBAHp24S8DFw+OtvOw0fkiKqeQPgTeDiq8M0HkV0r02HMjiAZP2D1TirmtN0H1SOTe0ZS3FK3YozIMFtCsNR6M4W/mfjBUi0NHXdd50DreZ32FyBK6C+EiXjuIHETPJCw8ikQS6n4uQ9nP3bl/vDw5KQ16/32JFYESpJ6H/7g4Pz4bSvI7xuQ7WTrsXgwv+70PMmNYxDRIGJLDzyIhi4NjLYmXNXnYO+md9ob9f2ZylJkfp5BJImax44KAAk93+TRyMytLTxZwSgE79Zd1vbyteAKi+EwgPPMjHxJCSLs65XJZfpdSShjRZHBq9F6/iRZzWY2z7O58rshX8JE1uSyraQ4687WZj9knHyWNyeVBBVNVjX/vpTey3F6TO8jQMpyx42ks8hzhmpbQwlpXr8NoBUl8FF69HgMv9ty1b5XchApoAv6FwMKuwzgxW18f5z+mYHsDyMLxdgHWxGh1KjjB7bAfVvyWNgGv1XfBhrAi3DlkOIhXObtsWvZh+8obYuWNbF6M5roCa84LUxxKlz1WnLI1TwLVVTKZ89z694Kxfa4no7nOhtdeEDgJSEHSt+PL7VBJcjET5gVOYAH5iPU+SPzzcZHU80Ra30Zk+8wz+WGR9WdCanFUNl6rmEuMKlpFY2kiz/8qGtYCxFvP903jX9u32xTbbWa2O/Jns/mLVExc1b9A9DnN1PlvEVQOovGv7dxWBbfVrFlw3OjE95fW60zBWQhG1IaRefas3YLMsOKy0SjRQk02jI5Rh29UL3msYRcGNtDCVqzke7Tk8YYMyCm5T1RTkxuVpHesPr7IYCSbmV82d6ogmyhCjJ66hVg8LWES2OS+xSbkKst2Ke+/p65cgFXNeOEoL1bnl5N8sfKomqmuE/so5EeLf2wXvZoQvVr+vPDQSMzi88yBphrj9BL9uxZZZSqf0XPkQ2N/tzNfF8zXM8zbRk7Dc8wK0x3EplvEFnGKc54YxWy6njkIg2ESTAw0lUeIugKNVzZ0ZLyWCLA4ErWrI9vE8z083Cil1lbWiB3Bep663gpyjY5Z1dhx/jmsWOA64rxrre7nktwAhGhsyWSCF9ryfi6fFX3Aw5yWeCkU1+59piq+qFTA+M5fUm9wQ2n0qxvdxAewX8/9433j51255dDkzNTwQDLeOtvQ7B2b1hCb1shtmoh+dohcNtZIJw+q5HrLVfQJ7QVkP9tXXN2PuSiS6tMFBnYBej1mgc5ZYYAiV3eGL8+GJHwWGv/aPvmmmHwzr259VvL1DZFIUZJzB2Xbj27HceQBnp2XrgQ6Cgp85WQSnnMiqW2KorYpgeC4wY0kGrBD+EHcuUP/GuS4sGu8Jk7J2Qa+aNqPRduyaFmZa8nb29tF1UgXWeNYe/kbQ1lcBQ7acY11LmPc6E0E3A+jRMK3DAdM/NjCZAtfs0Ke9C45Xb30PvmVZVXY5U65LA1vqDRoSZnLXonM8Sb8IW5zpAhg+HJL/G5Yl07xnoJ1sAo2dhWNQ5UEXHznLuGdO1DTkwtfvGXz8cr3jxC1H3tf2Htm3cQSa3/UEm+mw5UdZAyDdeQPhn5sUm6TNLF+u8yjYTxrH9PuJNfzsETWeo3Jry4uEMVSIjY79lMgME7OwO7BLhjZeItT0IoUxOmfqE+wWDVshx6wUkpRyiCuvrFV/Hx6Sm4rMbS1b7GP/eAo6x3Hhs+xqcmZOsVMvScrFx7hgRg7m2EZO0uEWUrCQnsWKrKQiXklDUWd74DGxHXMDCG+OI02M8lEPmek+s1juJbVz+pm2Y28cEFgvJkkYPF0k9W2cBMMgXBcLLQFN61G4sX7MG9WqyB5voS1EjO6taoyrZTSYAhRApo53eRyct37dPwBz15VaYPCM9BaIpPPl2Ty811WBFqsPDo7/9BLq0z/xm9S/f/8sLf7ApqvnPuDS0C/9v5Xo94s1n/WzOaP+s+/4vP8+1/iJdOvv12dL7zkaOI9BVFOmdBM3z79VrIJ5g7KEDXQwPpO/7CfFCrSuRMCtVyFDUCl5TP45lSmDgaDABy0WKeCr2AXb9nx7efilTni5ytE0pb4fh1a8mUZSUMGIq2OQA5zdRFpg6h7QPxsYQJOMC1JwFPgzRqEbCujsLuaINu5USPAx0ov9Nlj4YI+2xZfuLO23BU6a8neisOsCtfhrCm+6I77s1fF+TZ2AY3cb94pF1v5NTC0brvihebiFS7iJze1uMXZa9hUAMEuYRXmnfW+GwTkQXdD9q3cqQd37HU0DqB2lLu3b0URyh2exfns3l8+EPf/08Bf9MR75NmSgLu4DoARu7Xej241TlK5G92O1bGqdu7SN0F/txSiTSBmL1SVChSiYini9r5JqqIwFP4LEBgWneIbdffZu+anp9GYc2MDN7bOC93scYoeLiw2c2ZfVG3GH9O3y8VLdiM5pSo9cVWGb44GP9I308esvI8XJfNCvky0icNjxMnsSubNeytcYD2GqIXUZtYs+7y/x8JLmM2rGavjfcXIq3yQRz4pxlInw2aJvVLqpe/Pd169CtO33eFptt7nr+vF7zgxSmuYzhYq0PrmESisxY8ZvqGEha+QHNH1npTOki8Ovs/LDB77N4Xo70o4Ys9jbSZ+qM/PJeY6xUtYjyns5P/NIwPgP4siFA+/tTdhDqa3To4cFvwFL8bkweePx/3BUMoXKPDXFMrpi04fjj/1+r+wPovxA6i6YPBd0sDZ/NyRv53m2flZ7/r850Gv/wmi5P09vhQrL7xxp5HCOX7mpaq8I3TcKfvHmtDM8DerOLnNIP5l9NjsgCqkyjOeDWx7w5BXyxdfMVxCpocqrTzGde33cQa5pfz9GYVXuEB0Yr1PbSQ0pQ9azlxCV+55zQudd01bvPqM1Er/297V9iZuBOHv/RWuVGEsHC7kpR8cORVxSIrES4RJ1CqtFB84OauOQRhVQSf+e2dm340hIbpcP5z3wwXWs8/uzi7rmZ3d53i5A362u7TL2Dm52qieb4NX14v3q0FbwEz1Cv9Lzo9vbv8tF1GWIynYAXXhQxigXrH/f20dF+3/k+OT08r+/x5pj/tfbgTWbKZRP+FXyH6OsuQxzrVLN01x+1qwLgkRzrkk1o7QL+erufbfwESDRgy86dHWjjXjDi1cI5SJGVk0z7/MlpfRMpIGGTfTNk3BcpPNtA3LLMN97ULGf9VX5yvJuXiEN/gXJqMizP2kYBzillzu1/F2E24L+fdERoAvaMxy+Ok6vLEGeZhF10XQOuzi+a4E3mQL28EtMHobkwTdAj+L0zy2ioWY3XiDF8dxyJX18IKWA4mqO/1kKLzIsjfswcp2qNHwhB1Hod0sUZsSH8E06aQUmVAlosUT7ZxRoXVpE8k43tnCmKHmAtVsgQkG/sZThtISkRUiqTR+XO4oXNIDem504kwN0VoM6jSepBE7VJP7EygiN8jBQ/Pp58bdZXzofo0nz5G4+QFeHN6DFNYj8jh4/BImXn9ic+RMqSVDtQBs8/NsuqIRy2QH7qJFgob7pWqPrlGyFrOm3lrtKXaYBKjj02YyddQ8YwQLeMLHy5r4Z63pUNZ/xS8o6fXXahlCmUge5jUVpi2uNtmluAF4uvn+oBMsBojrkiEjmjjQrPuUzj5HKawMPvdt3DxL5nNYqdgdUc3eTkk/ckkEC3A+J5+Zlswiw9e4jFhEHTsNGSOXZBmRq+Ur5a4L5VhlqBxfH9i6aoSGvSlmVCvQwnhJ2gjRN5L4ZO/R0RFUb8P27IZgoHDBKOS74r5RmcZE8bPEboLzXy9BAQeMsfexMSUSFuGdyFbo/olek9aENSGZC4khyzwiOfK8PawRKhfeVjzXhVX6TD14kg8cvak06Vi3tMZ46iM7dLnyz1dUGGY2Q6nVVk1+eI4VB1PYcPXgjYl9wBenwxeWxDdGrklHl4ePdZChw3jJuX/oiJnMPTcfE/lEKXhHngcfQXxtUf5f2UPDhMzTZBLX+zjznqOX+qGbHByfHjouy4GpaIpzIpGkAZai42henSA+itnxdanHv8XkqN+7nC8PX4b8I8c7bzk6hY8mx9cknuOm8QvbudOm9yjJ//EEHikfVuZ7O42XfPeG/tIqoR1ui9kYwNqbpStYUocLsa5JLKSIWjGwfyPcVpPrVwnOWvlcvJG+UolB1bKtD2/yXJheD/Rfd7nnQuOfu6oN6708JFjtlhQulbOLUYSIb8KX5fwfRS4ZCcR+63w6iuFeP7gPqmHwUNOUkuB6shagGxTi36WEsW7TW0/BFBhn5AOsi3HPbO5WTAWfo7MWQ4jD4mORbWNGzDImPUvQa4dhN7DCYNS9GVvBsNfrhhiK863uIBgOgt5t2L3rWJ+IVSYYjkadnojNbRuXghtY0bb8KOmRqHpg0iVoRn4MAfRr8b/j0yPp/x8dI//zSat1WPn/3yPtjv8JyrE3hOp2cpUVI3XESyZl/j9uMraPvW8ccst2abGT+WLyzSOnHxAzZcN2LaOy2rCIM97czCxjeFRTJdUw7jdgXTz7DuMmrbWLGbw4ooxT8qiYqW+bXGg2nXjR0ZkJxgfeoNNzHAOo80c7GPf+NMGEW7gFscjYV4AMO/32YIxMbgau1R5bYbvfsYIW5PaG7TfUhJOWTmaaNVx2r+g/VhhLrjamoWkMWgNzOcmffZ1QTjDIBbcjLAXNKtNfgTTOACtyxmlNlwRxRoGitJzuAREb1eHT5i4//xHCFOJS8GmblIAsHJkKZs9zUEXsy6p8v3VUq0lM/CptZBYJ/Ml6YIEZ7eASkuFxrfklESdoPQ9gOGAlAoAK6bwVA/tmYvBGaDdjg+Et/IuFRXeKtZUKi84y4U2uazkfhv2b9qgbkl34y1c1xYq1vJ+LEXHUXOhbzDC9gtaMu7xabd6wet8djfutrgXlGrbVsOyGFpVzPNsMsbHq3msrPyAJLHr3W6ago4UybSRcGgyJbvH39mjQCUPAK56Tw+r6Nz1QF50F5T8wQRhZq/HIqo4btEMYR88qp48sZY7UsdlvfTvyhSdBtJXskyVUaF3cwkjReGkDcjsYdcJh765QV3kVbW8TAGq66wx2BieZTZpET9ksBydRmac7Y526M1KUqVyRKlWpSlWqUpWqVKUqValKP3z6D8s8J4UAeAAA' | base64 -d > "$RUNNER_TEMP/v1r4-helper-scripts.tgz"
+          mkdir -p "$RUNNER_TEMP/v1r4-helper-scripts"
+          tar -xzf "$RUNNER_TEMP/v1r4-helper-scripts.tgz" -C "$RUNNER_TEMP/v1r4-helper-scripts"
+          H="$RUNNER_TEMP/v1r4-helper-scripts"
+          for f in "$H"/*.cjs; do node --check "$f"; done
+          echo "TRANSFORM AUDIT NODE SYNTAX PASS" | tee audit/transform-node-syntax.txt
+          node "$H/format-gate.cjs" | tee audit/hash-reference-format.txt
+          node scripts/build-compat.cjs | tee audit/compat-generation.txt
+          node "$H/hash-evidence.cjs" | tee audit/hash-evidence.txt
+
+          set +e
+          MIAAD_ASSET_ROOT=app/src/main/assets PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs > audit/original-source-flow.log 2>&1
+          source_exit=$?
+          MIAAD_ASSET_ROOT=app/build/generated/compatAssets PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs > audit/original-generated-flow.log 2>&1
+          generated_original_exit=$?
+          MIAAD_ASSET_ROOT=app/build/generated/compatAssets PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs > audit/generated-attempt-1.log 2>&1
+          attempt1_exit=$?
+          MIAAD_ASSET_ROOT=app/build/generated/compatAssets PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs > audit/generated-attempt-2.log 2>&1
+          attempt2_exit=$?
+          MIAAD_ASSET_ROOT=app/build/generated/compatAssets PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs > audit/generated-attempt-3.log 2>&1
+          attempt3_exit=$?
+          set -e
+          printf 'source=%s\ngenerated-original=%s\nattempt-1=%s\nattempt-2=%s\nattempt-3=%s\n' "$source_exit" "$generated_original_exit" "$attempt1_exit" "$attempt2_exit" "$attempt3_exit" | tee audit/original-flow-exits.txt
+          cat audit/original-source-flow.log
+          cat audit/original-generated-flow.log
+          cat audit/generated-attempt-1.log
+          cat audit/generated-attempt-2.log
+          cat audit/generated-attempt-3.log
+          node "$H/analyze-attempts.cjs"
+
+          set +e
+          FLOW_SOURCE="$GITHUB_WORKSPACE/scripts/test-flows.cjs" FLOW_TARGET="$RUNNER_TEMP/test-flows-full-sequence-instrumented.cjs" ANCHOR_EVIDENCE="$GITHUB_WORKSPACE/audit/instrumentation-anchor-evidence.txt" NODE_PATH="$GITHUB_WORKSPACE/node_modules" node "$H/build-instrumented.cjs" > audit/instrumentation-build.log 2>&1
+          builder_exit=$?
+          set -e
+          cat audit/instrumentation-build.log
+          instrumented_source_exit=125
+          instrumented_generated_exit=125
+          if [ "$builder_exit" -eq 0 ]; then
+            node --check "$RUNNER_TEMP/test-flows-full-sequence-instrumented.cjs"
+            echo "FULL-FLOW INSTRUMENTATION NODE SYNTAX PASS" | tee audit/instrumentation-node-syntax.txt
+            ln -sf "$GITHUB_WORKSPACE/scripts/test-biweekly-phase-domain-control.cjs" "$RUNNER_TEMP/test-biweekly-phase-domain-control.cjs"
+            set +e
+            DIAG_OUT="$GITHUB_WORKSPACE/audit/full-sequence-source.json" PLAYWRIGHT_PATH="$GITHUB_WORKSPACE/node_modules/playwright" MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/src/main/assets" PLAYWRIGHT_CHANNEL=chrome NODE_PATH="$GITHUB_WORKSPACE/node_modules" node "$RUNNER_TEMP/test-flows-full-sequence-instrumented.cjs" > audit/instrumented-source-flow.log 2>&1
+            instrumented_source_exit=$?
+            DIAG_OUT="$GITHUB_WORKSPACE/audit/full-sequence-generated.json" PLAYWRIGHT_PATH="$GITHUB_WORKSPACE/node_modules/playwright" MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" PLAYWRIGHT_CHANNEL=chrome NODE_PATH="$GITHUB_WORKSPACE/node_modules" node "$RUNNER_TEMP/test-flows-full-sequence-instrumented.cjs" > audit/instrumented-generated-flow.log 2>&1
+            instrumented_generated_exit=$?
+            set -e
+            cat audit/instrumented-source-flow.log
+            cat audit/instrumented-generated-flow.log
+          else
+            printf '{"assetRoot":"source","checkpoints":[],"failure":{"name":"InstrumentationBuilderFailure","message":"builder exit %s"}}\n' "$builder_exit" > audit/full-sequence-source.json
+            printf '{"assetRoot":"generated","checkpoints":[],"failure":{"name":"InstrumentationBuilderFailure","message":"builder exit %s"}}\n' "$builder_exit" > audit/full-sequence-generated.json
+          fi
+          if [ ! -s audit/full-sequence-source.json ]; then
+            printf '{"assetRoot":"source","checkpoints":[],"failure":{"name":"NoTelemetry","message":"instrumented source exit %s"}}\n' "$instrumented_source_exit" > audit/full-sequence-source.json
+          fi
+          if [ ! -s audit/full-sequence-generated.json ]; then
+            printf '{"assetRoot":"generated","checkpoints":[],"failure":{"name":"NoTelemetry","message":"instrumented generated exit %s"}}\n' "$instrumented_generated_exit" > audit/full-sequence-generated.json
+          fi
+          node "$H/compare-full-sequence.cjs" | tee audit/full-sequence-differential-stdout.txt
+          node "$H/transform-audit.cjs" | tee audit/transform-audit-stdout.txt
+          printf 'builder_exit=%s\ninstrumented_source_exit=%s\ninstrumented_generated_exit=%s\n' "$builder_exit" "$instrumented_source_exit" "$instrumented_generated_exit" | tee audit/diagnostic-exit-status-summary.txt
+          node "$H/final-decision.cjs" | tee audit/final-diagnostic-decision-stdout.txt
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-generated-full-flow-diagnostic-v1r4
+          path: audit/
+          if-no-files-found: warn
+          retention-days: 30
