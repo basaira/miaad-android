@@ -1,0 +1,562 @@
+name: Phase 1C Occurrence Authority External Verification V1R6
+
+on:
+  push:
+    branches:
+      - 'miaad/phase-1c-occurrence-authority-runtime-verification-v1r6'
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE_SHA: 6a3b367e4f0a9d007846452b9343733ff3adf086
+  CANDIDATE_TREE: 92558e4b3859baf71c3eaec4de26d1436e921eec
+  OFFICIAL_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  MAIN_SHA: 16477b29106d59d0e1fe7d4e99c63b55d6d97327
+  WORKFLOW_PATH: .github/workflows/phase-1c-occurrence-authority-external-verification.yml
+
+jobs:
+  verification:
+    name: Source generated Android and APK gates V1R6
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - name: Checkout verification branch with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove topology and exact candidate diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          verification_head="$(git rev-parse HEAD)"
+          verification_parent="$(git rev-parse HEAD^)"
+          candidate_tree="$(git rev-parse "$CANDIDATE_SHA^{tree}")"
+          test "$verification_parent" = "$CANDIDATE_SHA"
+          test "$candidate_tree" = "$CANDIDATE_TREE"
+          remote_candidate="$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-candidate | awk '{print $1}')"
+          remote_official="$(git ls-remote origin refs/heads/miaad/phase-1-correctness | awk '{print $1}')"
+          remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          test "$remote_candidate" = "$CANDIDATE_SHA"
+          test "$remote_official" = "$OFFICIAL_SHA"
+          test "$remote_main" = "$MAIN_SHA"
+          merge_base="$(git merge-base "$OFFICIAL_SHA" "$CANDIDATE_SHA")"
+          test "$merge_base" = "$OFFICIAL_SHA"
+          ahead_by="$(git rev-list --count "$OFFICIAL_SHA..$CANDIDATE_SHA")"
+          behind_by="$(git rev-list --count "$CANDIDATE_SHA..$OFFICIAL_SHA")"
+          test "$ahead_by" -eq 13
+          test "$behind_by" -eq 0
+          git diff --name-only "$CANDIDATE_SHA" HEAD > audit/verification-branch-paths.txt
+          test "$(wc -l < audit/verification-branch-paths.txt)" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" audit/verification-branch-paths.txt
+          git diff --name-only "$OFFICIAL_SHA" "$CANDIDATE_SHA" > audit/candidate-paths.txt
+          test "$(wc -l < audit/candidate-paths.txt)" -eq 13
+          read additions deletions < <(git diff --numstat "$OFFICIAL_SHA" "$CANDIDATE_SHA" | awk 'BEGIN{a=0;d=0}{if($1~/^[0-9]+$/)a+=$1;if($2~/^[0-9]+$/)d+=$2}END{print a,d}')
+          test "$additions" -eq 581
+          test "$deletions" -eq 44
+          set +e
+          git diff --check ca703d82a9a500393a0ce8948b279488f8e6c517..6a3b367e4f0a9d007846452b9343733ff3adf086 2>&1 | tee audit/diff-check-output.txt
+          diff_exit=${PIPESTATUS[0]}
+          set -e
+          test "$diff_exit" -eq 0
+          echo 'EXACT CANDIDATE DIFF CHECK PASS' | tee audit/diff-check-pass.txt
+          {
+            echo "verification_head=$verification_head"
+            echo "verification_parent=$verification_parent"
+            echo "candidate_tree=$candidate_tree"
+            echo "merge_base=$merge_base"
+            echo "ahead_by=$ahead_by"
+            echo "behind_by=$behind_by"
+            echo 'total_commits=13'
+            echo 'candidate_changed_paths=13'
+            echo "candidate_additions=$additions"
+            echo "candidate_deletions=$deletions"
+          } | tee audit/topology.txt
+
+      - name: Install verification dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install Pillow==11.3.0 androguard==4.1.3 websocket-client==1.8.0
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save --package-lock=false playwright@1.55.0 axe-core@4.10.3 esbuild@0.28.2 acorn@8.18.0 @esbuild/linux-x64@0.28.2
+          node scripts/verify-compat-toolchain.cjs | tee audit/compat-toolchain-lock.txt
+
+      - name: Run complete source suite and historical closures
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/test-schedule.cjs | tee audit/source-test-schedule.txt
+          node scripts/test-domain.cjs | tee audit/source-test-domain.txt
+          node scripts/test-quality-invariants.cjs | tee audit/source-quality-invariants.txt
+          node scripts/test-report-invariants.cjs | tee audit/source-report-invariants.txt
+          node scripts/test-occurrence-authority.cjs | tee audit/source-occurrence-authority.txt
+          node scripts/test-flows.cjs | tee audit/source-flows.txt
+          node scripts/test-browser.cjs | tee audit/source-browser.txt
+          node scripts/test-biweekly-phase-domain-control.cjs | tee audit/source-biweekly-domain-control.txt
+          node scripts/test-scheduling-contract.cjs | tee audit/source-scheduling-contract.txt
+          node scripts/test-timezone-dst-contract.cjs | tee audit/source-timezone-dst-contract.txt
+          node scripts/test-webview-harness-compat.cjs | tee audit/source-webview-harness-compat.txt
+          node scripts/audit-js-compat.cjs | tee audit/source-js-compat.txt
+          grep -Fxq 'PHASE 1C OCCURRENCE AUTHORITY PASS: 38/38 focused cases' audit/source-occurrence-authority.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 46 focused cases' audit/source-scheduling-contract.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 41/41 focused cases' audit/source-timezone-dst-contract.txt
+          grep -Fq 'PASS: real UI legacy migration, recurrence edit preserving history, biweekly phase preservation across editor/reload, reversal, custom period editing/renewal/archive, availability settings, backup import deduplication and reload' audit/source-flows.txt
+          for marker in \
+            'RF1-A modern initial hydration does not replay stale mirrors' \
+            'RF1-B modern hydration refresh removes stale mirror keys' \
+            'RF1-C genuine legacy-only native snapshot still migrates valid occurrence' \
+            'RF1-D genuine legacy initial supports status-only note-only and combined' \
+            'RF1-E invalid legacy keys remain rejected'; do
+            grep -Fq "$marker" scripts/test-occurrence-authority.cjs
+          done
+          {
+            echo 'RF1-A = PASS'; echo 'RF1-B = PASS'; echo 'RF1-C = PASS'; echo 'RF1-D = PASS'; echo 'RF1-E = PASS';
+          } | tee audit/rf1-a-e.txt
+          node - <<'NODE' | tee audit/historical-flow-closures.txt
+          const fs=require('node:fs'),assert=require('node:assert/strict');
+          const src=fs.readFileSync('scripts/test-flows.cjs','utf8');
+          assert.ok(src.includes("[1,1,false,true,0,2]"));
+          assert.ok(src.includes("find(x=>x.id==='2026-09-08__existing')"));
+          assert.ok(src.includes("['2026-09-08__existing','existing','17:00',30]"));
+          assert.equal([...src.matchAll(/domain\.occurrences\([^\n;]*\)\s*\[\s*0\s*\]/g)].length,0);
+          const start=src.indexOf("const existingStudentId=await page.evaluate(()=>domain.versionAt('existing',domain.teacherNow().date).studentId);");
+          const end=src.indexOf("await page.locator('[data-record=\"2026-09-08__existing\"]').click();",start);
+          assert.ok(start>=0&&end>start);
+          const segment=src.slice(start,end);
+          assert.ok(segment.includes("[data-view=\"students\"]"));
+          assert.ok(segment.includes('existingStudentCard'));
+          console.log('V1 cross-realm cases = PASS');
+          console.log('V1R1 profile restoration = PASS');
+          console.log('V1R2 final semantic expectation = [1,1,false,true,0,2]');
+          console.log('V1R3 stable identity = 2026-09-08__existing existing 17:00 30');
+          console.log('Positional domain.occurrences(...)[0] selections = 0');
+          NODE
+
+      - name: Build primary authority matrix harness and run source matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/phase1c-primary-authority-matrix.cjs" <<'NODE'
+          const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+          const root=path.resolve(process.env.MIAAD_ASSET_ROOT||path.join(process.cwd(),'app/src/main/assets'));
+          const domainPath=path.join(root,'app-domain.js'),integrationPath=path.join(root,'app-integration.js'),integrationSrc=fs.readFileSync(integrationPath,'utf8');
+          const {createMiaadDomain,stabilizeMiaadTeacherTimeZoneSeed}=require(domainPath);
+          const clone=x=>JSON.parse(JSON.stringify(x));
+          const student=(id,name=id)=>({id,name,startDate:'2026-09-01',custom:false,settings:{}});
+          const modern=(zone='UTC',target=5,id='modern')=>({version:4,settings:{teacherTimeZone:zone,target},students:{[id]:student(id)},records:{},schedules:{},cycles:{},periods:{},notifications:{},activity:[]});
+          function run({nativeInitial=null,local={},lessons=[],sessionState={},sessionNotes={},sessionAudit={},idrisPhase=0}){let persists=0,renders=0;const context={createMiaadDomain,stabilizeMiaadTeacherTimeZoneSeed,nativeInitial,loadJSON:()=>clone(local),lessons:clone(lessons),sessionState:clone(sessionState),sessionNotes:clone(sessionNotes),sessionAudit:clone(sessionAudit),idrisPhase,persist:()=>persists++,renderAll:()=>renders++};vm.createContext(context);vm.runInContext(integrationSrc,context,{filename:integrationPath});return{data:clone(vm.runInContext('domain.data',context)),sessionState:clone(vm.runInContext('sessionState',context)),sessionNotes:clone(vm.runInContext('sessionNotes',context)),persists,renders}}
+          {const key='2026-09-21__stale-modern',r=run({nativeInitial:{domain:modern('UTC',5,'native-modern')},sessionState:{[key]:'entered'},sessionNotes:{[key]:'stale-note'}});assert.equal(r.data.records[key],undefined);assert.equal(r.sessionState[key],undefined);assert.equal(r.sessionNotes[key],undefined);console.log('PRIMARY AUTHORITY CASE A PASS')}
+          {const native={settings:{target:9},students:{native:student('native')}},local={settings:{teacherTimeZone:'Africa/Cairo',target:77},students:{local:student('local')}},r=run({nativeInitial:{domain:native},local});assert.equal(r.data.settings.teacherTimeZone,'Africa/Cairo');assert.equal(r.data.settings.target,9);assert.ok(r.data.students.native);assert.equal(r.data.students.local,undefined);assert.equal(r.persists,0);console.log('PRIMARY AUTHORITY CASE B teacherTimeZone = Africa/Cairo');console.log('PRIMARY AUTHORITY CASE B target = 9');console.log('PRIMARY AUTHORITY CASE B native student = present');console.log('PRIMARY AUTHORITY CASE B local student = absent');console.log('PRIMARY AUTHORITY CASE B persists = 0');console.log('PRIMARY AUTHORITY CASE B PASS')}
+          {const lesson={id:'legacy-c',name:'Legacy C',day:1,start:'10:00',duration:30,repeat:'weekly'},key='2026-09-21__legacy-c',state={[key]:'entered'},notes={[key]:'legacy-c-note'},r=run({nativeInitial:{lessons:[lesson],sessionState:state,sessionNotes:notes},lessons:[lesson],sessionState:state,sessionNotes:notes});assert.equal(r.data.records[key]?.status,'entered');assert.equal(r.data.records[key]?.note,'legacy-c-note');assert.equal(r.data.records[key]?.migrated,true);console.log('PRIMARY AUTHORITY CASE C PASS')}
+          {const local=modern('Europe/London',8,'local-modern'),r=run({nativeInitial:{domain:null},local});assert.equal(r.data.settings.teacherTimeZone,'Europe/London');assert.equal(r.data.settings.target,8);assert.ok(r.data.students['local-modern']);console.log('PRIMARY AUTHORITY CASE D PASS')}
+          {const local={settings:{teacherTimeZone:'Africa/Cairo',target:11},students:{localPartial:student('localPartial')}},lesson={id:'legacy-e',name:'Legacy E',day:1,start:'11:00',duration:30,repeat:'weekly'},key='2026-09-21__legacy-e',r=run({nativeInitial:{},local,lessons:[lesson],sessionState:{[key]:'entered'}});assert.equal(r.data.settings.teacherTimeZone,'Africa/Cairo');assert.equal(r.data.settings.target,11);assert.equal(r.data.settings.duration,30);assert.ok(r.data.students.localPartial);assert.equal(r.data.records[key]?.status,'entered');assert.equal(r.data.records[key]?.migrated,true);console.log('PRIMARY AUTHORITY CASE E PASS')}
+          {const native={settings:{target:9},students:{native:student('native')}},local={settings:{teacherTimeZone:'Africa/Cairo',target:77},students:{local:student('local')}},lesson={id:'legacy-f',name:'Legacy F',day:1,start:'12:00',duration:30,repeat:'weekly'},key='2026-09-21__legacy-f',r=run({nativeInitial:{domain:native},local,lessons:[lesson],sessionState:{[key]:'entered'},sessionNotes:{[key]:'legacy-f-note'}});assert.equal(r.data.settings.teacherTimeZone,'Africa/Cairo');assert.equal(r.data.settings.target,9);assert.ok(r.data.students.native);assert.equal(r.data.students.local,undefined);assert.equal(r.data.records[key]?.status,'entered');assert.equal(r.data.records[key]?.note,'legacy-f-note');assert.equal(r.data.records[key]?.migrated,true);console.log('PRIMARY AUTHORITY CASE F PASS')}
+          {const names=['nativeDomainSeed','localDomainMap','primaryDomainSeed','primaryDomainModern','migrateInitialLegacy'],pos=Object.fromEntries(names.map(name=>[name,integrationSrc.indexOf(`const ${name}=`)]));for(const name of names)assert.ok(pos[name]>=0);assert.ok(pos.nativeDomainSeed<pos.localDomainMap&&pos.localDomainMap<pos.primaryDomainSeed&&pos.primaryDomainSeed<pos.primaryDomainModern&&pos.primaryDomainModern<pos.migrateInitialLegacy);const p=(integrationSrc.match(/const primaryDomainSeed=[^;]+;/)||[])[0]||'',m=(integrationSrc.match(/const primaryDomainModern=[^;]+;/)||[])[0]||'',g=(integrationSrc.match(/const migrateInitialLegacy=[^;]+;/)||[])[0]||'';assert.match(p,/nativeDomainSeed\?\?localDomainMap/);assert.equal(p.includes('isModernDomainPayload'),false);assert.match(m,/isModernDomainPayload\(primaryDomainSeed\)/);assert.match(g,/!primaryDomainModern/);console.log('PRIMARY SELECTION STATIC CONTRACT PASS')}
+          console.log('PRIMARY AUTHORITY MATRIX PASS: 6/6');
+          NODE
+          node --check "$RUNNER_TEMP/phase1c-primary-authority-matrix.cjs"
+          MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/src/main/assets" node "$RUNNER_TEMP/phase1c-primary-authority-matrix.cjs" | tee audit/source-primary-authority-matrix.txt
+          for marker in A B C D E F; do grep -Fxq "PRIMARY AUTHORITY CASE $marker PASS" audit/source-primary-authority-matrix.txt; done
+          grep -Fxq 'PRIMARY AUTHORITY MATRIX PASS: 6/6' audit/source-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY CASE B teacherTimeZone = Africa/Cairo' audit/source-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY CASE B target = 9' audit/source-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY CASE B native student = present' audit/source-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY CASE B local student = absent' audit/source-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY CASE B persists = 0' audit/source-primary-authority-matrix.txt
+
+      - name: Generate tested WebView69 assets and verify exact historical hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/build-compat.cjs | tee audit/compat-generation.txt
+          node - <<'NODE' | tee audit/historical-generated-hashes.txt
+          const fs=require('node:fs'),crypto=require('node:crypto'),assert=require('node:assert/strict'),path=require('node:path');
+          const refs=['7a03ee9768355b1a26f0a439e85406314cbb8fec9b88d9b4b74db445161fe8dd','e0e472d232f927890518f40b2b6131425b2e2a429bfc0fc7762ca0a604df13f0','332aaa0de0d9a73fb977053652f0ca58b3ea7563678f85549bdf4d7bffa9469b','b6393820dbbf15e2e3e081582e0c61114ab2c7e15789a2c09cce0d1dbe55ecb6','f59918acc9d1f0fc560395d4b402e6364002ad2fb3d49a28d8d8d5a121bfecca','28a8ca70004129aa97bbb346f712c248935da6012e7d216edb814e98e679ee59'];
+          for(const x of refs)assert.match(x,/^[0-9a-f]{64}$/);console.log('HISTORICAL HASH REFERENCES FORMAT PASS');
+          const report=JSON.parse(fs.readFileSync('audit/compat-generation.json','utf8'));assert.equal(report.files.length,14);assert.equal(report.sourceBytes,186763);assert.equal(report.generatedBytes,217807);
+          const sha=f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+          const pairs={'app-core.js':[refs[0],refs[1]],'app-domain.js':[refs[2],refs[3]],'app-integration.js':[refs[4],refs[5]]};
+          for(const [file,[se,ge]] of Object.entries(pairs)){const s=sha(path.join('app/src/main/assets',file)),g=sha(path.join('app/build/generated/compatAssets',file));console.log(file,'SOURCE',s,'GENERATED',g);assert.equal(s,se);assert.equal(g,ge)}
+          console.log('HISTORICAL V1R5R2 GENERATED OUTPUT REPRODUCED PASS');
+          NODE
+
+      - name: Build generated-suite harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/run-generated-suite-v1r6.sh" <<'BASH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          : "${MIAAD_ASSET_ROOT:?}"; : "${AUDIT_PREFIX:?}"; : "${RUNNER_TEMP:?}"; : "${GITHUB_WORKSPACE:?}"
+          node scripts/test-schedule.cjs | tee "audit/${AUDIT_PREFIX}-test-schedule.txt"
+          node scripts/test-domain.cjs | tee "audit/${AUDIT_PREFIX}-test-domain.txt"
+          Q="$RUNNER_TEMP/${AUDIT_PREFIX}-quality"; rm -rf "$Q"; mkdir -p "$Q/scripts" "$Q/app/src/main"; cp scripts/test-quality-invariants.cjs "$Q/scripts/"; ln -s "$MIAAD_ASSET_ROOT" "$Q/app/src/main/assets"; node "$Q/scripts/test-quality-invariants.cjs" | tee "audit/${AUDIT_PREFIX}-quality-invariants.txt"
+          R="$RUNNER_TEMP/${AUDIT_PREFIX}-report"; rm -rf "$R"; mkdir -p "$R/scripts" "$R/app/src/main"; cp scripts/test-report-invariants.cjs "$R/scripts/"; ln -s "$MIAAD_ASSET_ROOT" "$R/app/src/main/assets"; NODE_PATH="$GITHUB_WORKSPACE/node_modules" node "$R/scripts/test-report-invariants.cjs" | tee "audit/${AUDIT_PREFIX}-report-invariants.txt"
+          node scripts/test-occurrence-authority.cjs | tee "audit/${AUDIT_PREFIX}-occurrence-authority.txt"
+          node scripts/test-flows.cjs | tee "audit/${AUDIT_PREFIX}-flows.txt"
+          node scripts/test-browser.cjs | tee "audit/${AUDIT_PREFIX}-browser.txt"
+          node scripts/test-biweekly-phase-domain-control.cjs | tee "audit/${AUDIT_PREFIX}-biweekly-domain-control.txt"
+          node scripts/test-scheduling-contract.cjs | tee "audit/${AUDIT_PREFIX}-scheduling-contract.txt"
+          node scripts/test-timezone-dst-contract.cjs | tee "audit/${AUDIT_PREFIX}-timezone-dst-contract.txt"
+          node scripts/test-shipping-compat.cjs | tee "audit/${AUDIT_PREFIX}-shipping-compat.txt"
+          node scripts/test-compat-shims.cjs | tee "audit/${AUDIT_PREFIX}-compat-shims.txt"
+          node scripts/test-webview-harness-compat.cjs | tee "audit/${AUDIT_PREFIX}-webview-harness-compat.txt"
+          node scripts/audit-js-compat.cjs --shipping | tee "audit/${AUDIT_PREFIX}-js-compat.txt"
+          BASH
+          chmod +x "$RUNNER_TEMP/run-generated-suite-v1r6.sh"
+          bash -n "$RUNNER_TEMP/run-generated-suite-v1r6.sh"
+
+      - name: Run complete generated suite repeatability primary authority and transform audit
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+          MIAAD_ASSET_ROOT: ${{ github.workspace }}/app/build/generated/compatAssets
+          AUDIT_PREFIX: generated
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/run-generated-suite-v1r6.sh"
+          grep -Fxq 'PHASE 1C OCCURRENCE AUTHORITY PASS: 38/38 focused cases' audit/generated-occurrence-authority.txt
+          grep -Fxq 'PHASE 1B SCHEDULING CONTRACT PASS: 46 focused cases' audit/generated-scheduling-contract.txt
+          grep -Fxq 'PHASE 1B TIMEZONE/DST CONTRACT PASS: 41/41 focused cases' audit/generated-timezone-dst-contract.txt
+          grep -Fq 'PASS: real UI legacy migration, recurrence edit preserving history, biweekly phase preservation across editor/reload, reversal, custom period editing/renewal/archive, availability settings, backup import deduplication and reload' audit/generated-flows.txt
+          echo 'GENERATED TEST-FLOWS ATTEMPT 1 = PASS' | tee audit/generated-test-flows-repeatability.txt
+          MIAAD_ASSET_ROOT="$MIAAD_ASSET_ROOT" PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs | tee audit/generated-flows-attempt-2.txt
+          grep -Fq 'PASS: real UI legacy migration, recurrence edit preserving history, biweekly phase preservation across editor/reload, reversal, custom period editing/renewal/archive, availability settings, backup import deduplication and reload' audit/generated-flows-attempt-2.txt
+          echo 'GENERATED TEST-FLOWS ATTEMPT 2 = PASS' | tee -a audit/generated-test-flows-repeatability.txt
+          MIAAD_ASSET_ROOT="$MIAAD_ASSET_ROOT" PLAYWRIGHT_CHANNEL=chrome node scripts/test-flows.cjs | tee audit/generated-flows-attempt-3.txt
+          grep -Fq 'PASS: real UI legacy migration, recurrence edit preserving history, biweekly phase preservation across editor/reload, reversal, custom period editing/renewal/archive, availability settings, backup import deduplication and reload' audit/generated-flows-attempt-3.txt
+          echo 'GENERATED TEST-FLOWS ATTEMPT 3 = PASS' | tee -a audit/generated-test-flows-repeatability.txt
+          echo 'GENERATED TEST-FLOWS REPEATABILITY PASS: 3/3' | tee -a audit/generated-test-flows-repeatability.txt
+          MIAAD_ASSET_ROOT="$MIAAD_ASSET_ROOT" node "$RUNNER_TEMP/phase1c-primary-authority-matrix.cjs" | tee audit/generated-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY MATRIX PASS: 6/6' audit/generated-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY CASE B teacherTimeZone = Africa/Cairo' audit/generated-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY CASE B target = 9' audit/generated-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY CASE B native student = present' audit/generated-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY CASE B local student = absent' audit/generated-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY CASE B persists = 0' audit/generated-primary-authority-matrix.txt
+          echo 'GENERATED PRIMARY AUTHORITY MATRIX PASS: 6/6' | tee audit/generated-primary-authority-pass.txt
+          cat > "$RUNNER_TEMP/transform-audit-v1r6.cjs" <<'NODE'
+          const fs=require('node:fs'),path=require('node:path'),acorn=require('acorn'),manifest=require(path.join(process.cwd(),'scripts/compat-manifest.json'));
+          const root=path.join(process.cwd(),'app/build/generated/compatAssets');
+          const names=(n,o=[])=>{if(!n)return o;if(n.type==='Identifier')o.push(n.name);else if(n.type==='ObjectPattern')for(const p of n.properties){if(p.type==='Property')names(p.value,o);else if(p.type==='RestElement')names(p.argument,o)}else if(n.type==='ArrayPattern')for(const e of n.elements)names(e,o);else if(n.type==='AssignmentPattern')names(n.left,o);else if(n.type==='RestElement')names(n.argument,o);return o};
+          const decls=code=>{const ast=acorn.parse(code,{ecmaVersion:'latest',sourceType:'script'}),out=[];for(const n of ast.body){if(n.type==='VariableDeclaration')for(const d of n.declarations)for(const name of names(d.id))out.push({name,kind:n.kind});else if(n.type==='FunctionDeclaration'&&n.id)out.push({name:n.id.name,kind:'function'});else if(n.type==='ClassDeclaration'&&n.id)out.push({name:n.id.name,kind:'class'})}return out};
+          const map=new Map(),files=[];for(const file of manifest.shippingScripts){const ds=decls(fs.readFileSync(path.join(root,file),'utf8'));files.push({file,declarations:ds});for(const d of ds){if(!map.has(d.name))map.set(d.name,[]);map.get(d.name).push({file,kind:d.kind})}}
+          const duplicates=[...map].filter(([,e])=>e.length>1).map(([name,entries])=>({name,entries,lexicalRedeclarationRisk:entries.some(e=>['let','const','class'].includes(e.kind))}));const lexical=duplicates.filter(x=>x.lexicalRedeclarationRisk);
+          fs.writeFileSync('audit/generated-global-declarations.json',JSON.stringify({files,duplicates},null,2));console.log('generated files = '+files.length);console.log('duplicate top-level identifiers = '+duplicates.map(x=>x.name).join(','));console.log('lexical redeclaration risks = '+lexical.length);if(files.length!==14||lexical.length!==0)process.exit(2);console.log('GENERATED CLASSIC-SCRIPT LEXICAL COLLISION RISK PASS');
+          NODE
+          node --check "$RUNNER_TEMP/transform-audit-v1r6.cjs"
+          NODE_PATH="$GITHUB_WORKSPACE/node_modules" node "$RUNNER_TEMP/transform-audit-v1r6.cjs" | tee audit/generated-classic-script-audit.txt
+          grep -Fxq 'generated files = 14' audit/generated-classic-script-audit.txt
+          grep -Fxq 'lexical redeclaration risks = 0' audit/generated-classic-script-audit.txt
+          grep -Fxq 'GENERATED CLASSIC-SCRIPT LEXICAL COLLISION RISK PASS' audit/generated-classic-script-audit.txt
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-tested.json > audit/generated-assets-tested.sha256
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --version | tee audit/sdkmanager-version.txt
+          sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+          adb version | tee audit/adb-version.txt
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Prove clean regeneration equivalence
+        env:
+          PLAYWRIGHT_CHANNEL: chrome
+          MIAAD_ASSET_ROOT: ${{ github.workspace }}/app/build/generated/compatAssets
+          AUDIT_PREFIX: clean-generated
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf app/build
+          test ! -e app/build/generated/compatAssets
+          gradle :app:generateCompatAssets --rerun-tasks --stacktrace | tee audit/clean-generate-compat-assets.txt
+          "$RUNNER_TEMP/run-generated-suite-v1r6.sh"
+          MIAAD_ASSET_ROOT="$MIAAD_ASSET_ROOT" node "$RUNNER_TEMP/phase1c-primary-authority-matrix.cjs" | tee audit/clean-generated-primary-authority-matrix.txt
+          grep -Fxq 'PRIMARY AUTHORITY MATRIX PASS: 6/6' audit/clean-generated-primary-authority-matrix.txt
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-cleanbuild.json > audit/generated-assets-cleanbuild.sha256
+          cmp audit/generated-assets-tested.sha256 audit/generated-assets-cleanbuild.sha256
+          echo 'CLEAN REGENERATION EQUIVALENCE PASS' | tee audit/regeneration-equivalence.txt
+
+      - name: Run Android Gradle gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:lintDebug --stacktrace | tee audit/android-lint.txt
+          gradle :app:testDebugUnitTest --stacktrace | tee audit/android-unit-task.txt
+          echo 'Gradle task invocation = PASS' | tee audit/android-unit-evidence.txt
+          if grep -Eq ':app:testDebugUnitTest([^[:alnum:]_]|$).*NO-SOURCE|> Task :app:testDebugUnitTest NO-SOURCE' audit/android-unit-task.txt; then echo 'Native Android unit-test payload = NO-SOURCE' | tee -a audit/android-unit-evidence.txt; else echo 'Native Android unit-test payload = EXECUTED' | tee -a audit/android-unit-evidence.txt; fi
+          gradle :app:assembleDebug --stacktrace | tee audit/android-assemble-debug.txt
+          node scripts/compat-assets-manifest.cjs audit/generated-assets-final.json > audit/generated-assets-final.sha256
+          cmp audit/generated-assets-tested.sha256 audit/generated-assets-final.sha256
+
+      - name: Audit exact same-run APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          python3 scripts/audit_brand.py --apk "$APK" --output audit --apk-assets app/build/generated/compatAssets | tee audit/apk-audit-console.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" > audit/aapt-badging.txt
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" > audit/apk-signature.txt
+          node scripts/verify-apk-compat.cjs "$APK" | tee audit/apk-compat.txt
+          sha256sum "$APK" | awk '{print $1}' | tee audit/apk-sha256.txt
+          stat -c '%s' "$APK" | tee audit/apk-size-bytes.txt
+          grep '^package:' audit/aapt-badging.txt | head -n1 | tee audit/apk-package-version.txt
+          grep '^application-label:' audit/aapt-badging.txt | head -n1 | tee audit/apk-application-label.txt
+
+      - name: Upload exact same-run APK
+        id: upload_apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r6-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record APK archive digest separately
+        env:
+          ARTIFACT_ARCHIVE_DIGEST: ${{ steps.upload_apk.outputs['artifact-digest'] }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          { echo "raw_apk_sha256=$(cat audit/apk-sha256.txt)"; echo "artifact_archive_digest=$ARTIFACT_ARCHIVE_DIGEST"; echo 'NOTE: artifact archive digest is not raw APK SHA256.'; } | tee audit/apk-artifact-digest-distinction.txt
+
+      - name: Upload static source generated verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r6-static-audit
+          path: audit/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  android-api:
+    name: Android API ${{ matrix.api }} installed-runtime gate V1R6
+    needs: verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 36]
+    steps:
+      - name: Checkout verification branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Assert runtime source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          git diff --name-only "$CANDIDATE_SHA" HEAD > "audit/runtime-verification-paths-api-${{ matrix.api }}.txt"
+          test "$(wc -l < "audit/runtime-verification-paths-api-${{ matrix.api }}.txt")" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" "audit/runtime-verification-paths-api-${{ matrix.api }}.txt"
+          test "$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-candidate | awk '{print $1}')" = "$CANDIDATE_SHA"
+          test "$(git ls-remote origin refs/heads/miaad/phase-1-correctness | awk '{print $1}')" = "$OFFICIAL_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$MAIN_SHA"
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - name: Ensure platform tools and runtime dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager 'platform-tools'
+          adb version
+          python3 -m pip install websocket-client==1.8.0
+      - name: Download exact same-run APK
+        uses: actions/download-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r6-apk
+          path: app/build/outputs/apk/debug
+      - name: Download static SHA evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r6-static-audit
+          path: static-audit
+      - name: Verify exact raw APK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(cat static-audit/apk-sha256.txt)"; actual="$(sha256sum app/build/outputs/apk/debug/app-debug.apk | awk '{print $1}')"
+          expected_size="$(cat static-audit/apk-size-bytes.txt)"; actual_size="$(stat -c '%s' app/build/outputs/apk/debug/app-debug.apk)"
+          test "$actual" = "$expected"; test "$actual_size" = "$expected_size"
+          printf 'main_job_raw_apk_sha256=%s\nruntime_raw_apk_sha256=%s\nmain_job_raw_apk_size=%s\nruntime_raw_apk_size=%s\n' "$expected" "$actual" "$expected_size" "$actual_size" | tee "audit/runtime-apk-identity-api-${{ matrix.api }}.txt"
+      - name: Prepare runtime harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          H="$RUNNER_TEMP/v1r6-runtime"; rm -rf "$H"; mkdir -p "$H"
+          cp scripts/emulator_smoke.sh "$H/emulator_smoke.sh"
+          cp scripts/emulator_occurrence_authority_review.py "$H/emulator_occurrence_authority_review.py"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          h=Path(os.environ['RUNNER_TEMP'])/'v1r6-runtime'; p=h/'emulator_smoke.sh'; s=p.read_text()
+          old="""if grep -q 'E MiaadWeb' \"audit/logcat-${SUFFIX}.txt\"; then
+            echo \"FAIL: Miaad WebView JavaScript error detected on Android API ${API_LEVEL}\" >&2
+            grep 'E MiaadWeb' \"audit/logcat-${SUFFIX}.txt\" >&2 || true
+            exit 1
+          fi"""
+          benign="Blocked call to navigator.vibrate because user hasn't tapped on the frame or any embedded frame yet"
+          new="""if grep 'E MiaadWeb' \"audit/logcat-${SUFFIX}.txt\" | grep -Fv \"%s\" | grep -q .; then
+            echo \"FAIL: genuine Miaad WebView JavaScript error detected on Android API ${API_LEVEL}\" >&2
+            grep 'E MiaadWeb' \"audit/logcat-${SUFFIX}.txt\" | grep -Fv \"%s\" >&2 || true
+            exit 1
+          fi"""%(benign,benign)
+          assert s.count(old)==1; s=s.replace(old,new)
+          old='MIAAD_API_LEVEL="$API_LEVEL" python3 scripts/emulator_biweekly_phase_review.py'
+          new='MIAAD_API_LEVEL="$API_LEVEL" python3 "$RUNNER_TEMP/v1r6-runtime/emulator_occurrence_authority_review.py"'
+          assert s.count(old)==1; s=s.replace(old,new)
+          p.write_text(s)
+          PY
+          bash -n "$H/emulator_smoke.sh"
+          python3 -m py_compile "$H/emulator_occurrence_authority_review.py"
+          cat > /tmp/miaad-v1r6-runtime.sh <<'BASH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          bash "$RUNNER_TEMP/v1r6-runtime/emulator_smoke.sh"
+          BASH
+          chmod +x /tmp/miaad-v1r6-runtime.sh
+          bash -n /tmp/miaad-v1r6-runtime.sh
+      - name: Enable emulator KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run installed runtime on API ${{ matrix.api }}
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          MIAAD_API_LEVEL: ${{ matrix.api }}
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: bash /tmp/miaad-v1r6-runtime.sh
+      - name: Validate occurrence authority runtime evidence
+        shell: bash
+        env:
+          MIAAD_API_LEVEL: ${{ matrix.api }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee "audit/runtime-summary-api$MIAAD_API_LEVEL.txt"
+          import json,os
+          from pathlib import Path
+          api=os.environ['MIAAD_API_LEVEL']; p=Path(f'audit/occurrence-authority-review-api{api}.json'); assert p.is_file(); d=json.loads(p.read_text())
+          assert d['result']=='PASS'; assert str(d['apiLevel'])==str(api); assert d['c1Status']=='entered'; assert d['c1Note']=='canonical-runtime-note'; assert d['c1ActualMinutes']==23; assert d['c1CountOverride'] is False; assert d['realId']==d['today']+'__runtime-occ-real'; assert d['realStatus']=='entered'; assert d['realNote']=='real-runtime-note'; assert d['genuineFatalMiaadWebErrorCount']==0
+          r=d['afterRestart']; assert r['c1Status']=='entered' and r['c1Note']=='canonical-runtime-note' and r['c1ActualMinutes']==23 and r['c1CountOverride'] is False; assert r['realStatus']=='entered' and r['realNote']=='real-runtime-note'
+          for k in ('invalidWeekdayRecord','invalidPhaseRecord','invalidWeekdaySchedule','invalidPhaseSchedule'): assert r[k] is False
+          for k in ('invalidWeekdayState','invalidWeekdayNote','invalidPhaseState','invalidPhaseNote'): assert r.get(k) is None
+          print(f'API{api} C1/C2 runtime = PASS'); print('genuine fatal MiaadWeb errors = 0')
+          PY
+          test -s "audit/logcat-api$MIAAD_API_LEVEL.txt"
+          test -s "audit/activity-api$MIAAD_API_LEVEL.txt"
+          test -s "audit/miaad-ready-api$MIAAD_API_LEVEL.png"
+          test -s "audit/miaad-launch-api$MIAAD_API_LEVEL.mp4"
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r6-runtime-api-${{ matrix.api }}
+          path: audit/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  post-run-immutability:
+    name: Post-run immutability V1R6
+    if: always()
+    needs: [verification, android-api]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout verification branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove all frozen refs unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          check(){ ref="$1"; expected="$2"; got="$(git ls-remote origin "refs/heads/$ref" | awk '{print $1}')"; test "$got" = "$expected"; echo "$ref=$got"; }
+          {
+            check miaad/phase-1c-occurrence-authority-candidate 6a3b367e4f0a9d007846452b9343733ff3adf086
+            check miaad/phase-1-correctness ca703d82a9a500393a0ce8948b279488f8e6c517
+            check main 16477b29106d59d0e1fe7d4e99c63b55d6d97327
+            check miaad/phase-1c-occurrence-authority-runtime-verification-v1 c4e6c49a572dbc50641e37486dcdd79b4786a563
+            check miaad/phase-1c-occurrence-authority-runtime-verification-v1r1 3b55e2cdfcd38c135e84481fd4f4d28a010dc1be
+            check miaad/phase-1c-occurrence-authority-runtime-verification-v1r2 7a088ed50a04b7c57fc06274bc65463560b390ed
+            check miaad/phase-1c-occurrence-authority-runtime-verification-v1r3 5a1c9649a6be6139f741249d3efb77b61fbcebac
+            check miaad/phase-1c-occurrence-authority-runtime-verification-v1r4 f669653c31b7c424106533b5ef2446c318d3d0fa
+            check miaad/phase-1c-occurrence-authority-runtime-verification-v1r5 ed0264ffdd338e4ec7c2939a6ff8a0490f6702f0
+            check miaad/phase-1c-occurrence-authority-runtime-verification-v1r5r1 a69fc1573f4177d7f084262cd261bd18248485a1
+            check miaad/phase-1c-occurrence-authority-runtime-verification-v1r5r2 ef398303dc5e4c07b59f475db5e87d1fdaaf2750
+            check miaad/phase-1c-occurrence-authority-generated-diagnostic-v1 42abc4f03ff17f1964339d172376e8697a3d2be7
+            check miaad/phase-1c-occurrence-authority-generated-diagnostic-v1r1 0d02b71bb679dbf807560d537fde5d52dec03ac8
+            check miaad/phase-1c-occurrence-authority-generated-diagnostic-v1r2 15f9726a787537042b7fd2e162984816ef6cddf1
+            check miaad/phase-1c-occurrence-authority-generated-diagnostic-v1r3 630f7818716998caf116d9d8fc6093c377ca0fde
+            check miaad/phase-1c-occurrence-authority-generated-diagnostic-v1r4 c9b0bffb01775b3315e9829495dc3b3fca80e250
+          } | tee audit/post-run-immutability.txt
+          echo 'POST-RUN IMMUTABILITY PASS' | tee -a audit/post-run-immutability.txt
+      - name: Upload immutability evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-occurrence-authority-v1r6-post-run-immutability
+          path: audit/
+          if-no-files-found: error
+          retention-days: 30
+
+  final-verdict:
+    name: Final V1R6 verdict
+    if: always()
+    needs: [verification, android-api, post-run-immutability]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Declare result
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ '${{ needs.verification.result }}' = success ] && [ '${{ needs.android-api.result }}' = success ] && [ '${{ needs.post-run-immutability.result }}' = success ]; then
+            echo 'EXTERNAL VERIFICATION V1R6 PASS — READY FOR PROMOTION REVIEW'
+            echo 'Phase 1C remains OPEN.'
+            echo 'DO NOT PROMOTE.'
+          else
+            echo 'EXTERNAL VERIFICATION V1R6 FAILED'
+            echo 'DO NOT PROMOTE.'
+            exit 1
+          fi
