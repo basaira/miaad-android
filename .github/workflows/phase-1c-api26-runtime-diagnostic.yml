@@ -1,0 +1,426 @@
+name: Phase 1C API26 Installed Runtime Occurrence Authority Staged Diagnostic V1
+
+on:
+  push:
+    branches:
+      - 'miaad/phase-1c-occurrence-authority-api26-runtime-diagnostic-v1'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CANDIDATE_SHA: 6a3b367e4f0a9d007846452b9343733ff3adf086
+  CANDIDATE_TREE: 92558e4b3859baf71c3eaec4de26d1436e921eec
+  OFFICIAL_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  MAIN_SHA: 16477b29106d59d0e1fe7d4e99c63b55d6d97327
+  V1R6R1_SHA: 41dcbc63b9ef4e593a4c86007f08a814d8a974b9
+  HISTORICAL_RUN_ID: '36883132911'
+  HISTORICAL_ARTIFACT_ID: '11173705606'
+  HISTORICAL_ARTIFACT_NAME: miaad-phase-1c-occurrence-authority-v1r6r1-apk
+  HISTORICAL_ARTIFACT_DIGEST: sha256:11399c68aa6712e5e6d8c3fd16e26b5f463f2c021993eeb8c831f6f4a1c4940c
+  RAW_APK_SHA256: 98a241d64483dc6cf656100da575e17ca6a756769d5ee20213aa695c4b5e6015
+  RAW_APK_SIZE: '12821115'
+  WORKFLOW_PATH: .github/workflows/phase-1c-api26-runtime-diagnostic.yml
+
+jobs:
+  preflight:
+    name: Historical identity and APK preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove branch topology and frozen refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          test "$(git diff --name-only "$CANDIDATE_SHA" HEAD | wc -l)" -eq 1
+          git diff --name-only "$CANDIDATE_SHA" HEAD | grep -Fxq "$WORKFLOW_PATH"
+          check(){ ref="$1"; expected="$2"; got="$(git ls-remote origin "refs/heads/$ref" | awk '{print $1}')"; test "$got" = "$expected"; echo "$ref=$got"; }
+          check miaad/phase-1c-occurrence-authority-candidate "$CANDIDATE_SHA"
+          check miaad/phase-1-correctness "$OFFICIAL_SHA"
+          check main "$MAIN_SHA"
+          check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r1 "$V1R6R1_SHA"
+          echo 'DIAGNOSTIC WORKFLOW-ONLY TOPOLOGY PASS'
+
+      - name: Verify historical artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$HISTORICAL_ARTIFACT_ID" > artifact-meta.json
+          test "$(jq -r .name artifact-meta.json)" = "$HISTORICAL_ARTIFACT_NAME"
+          test "$(jq -r .digest artifact-meta.json)" = "$HISTORICAL_ARTIFACT_DIGEST"
+          jq '{id,name,digest,size_in_bytes}' artifact-meta.json
+          echo 'HISTORICAL ARTIFACT METADATA PASS'
+
+      - name: Download exact historical V1R6R1 APK
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.HISTORICAL_ARTIFACT_NAME }}
+          path: historical-apk
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.HISTORICAL_RUN_ID }}
+
+      - name: Verify raw APK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f historical-apk/app-debug.apk
+          actual_sha="$(sha256sum historical-apk/app-debug.apk | awk '{print $1}')"
+          actual_size="$(stat -c '%s' historical-apk/app-debug.apk)"
+          echo "raw_apk_sha256=$actual_sha"
+          echo "raw_apk_size=$actual_size"
+          test "$actual_sha" = "$RAW_APK_SHA256"
+          test "$actual_size" = "$RAW_APK_SIZE"
+          echo 'HISTORICAL RAW APK IDENTITY PASS'
+
+  api26-attempt:
+    name: API26 staged diagnostic attempt ${{ matrix.attempt }}
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1, 2]
+    env:
+      MIAAD_API_LEVEL: '26'
+      MIAAD_ATTEMPT: ${{ matrix.attempt }}
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert workflow-only source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          git diff --name-only "$CANDIDATE_SHA" HEAD > audit/diagnostic-paths.txt
+          test "$(wc -l < audit/diagnostic-paths.txt)" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" audit/diagnostic-paths.txt
+
+      - name: Install runtime diagnostic dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install websocket-client==1.8.0
+
+      - name: Download exact historical V1R6R1 APK
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.HISTORICAL_ARTIFACT_NAME }}
+          path: historical-apk
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.HISTORICAL_RUN_ID }}
+
+      - name: Reverify exact APK before emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(sha256sum historical-apk/app-debug.apk | awk '{print $1}')"
+          actual_size="$(stat -c '%s' historical-apk/app-debug.apk)"
+          printf 'artifact_id=%s\nartifact_name=%s\nartifact_zip_digest=%s\nraw_apk_sha256=%s\nraw_apk_size=%s\npackage=%s\nversionName=%s\nversionCode=%s\n' "$HISTORICAL_ARTIFACT_ID" "$HISTORICAL_ARTIFACT_NAME" "$HISTORICAL_ARTIFACT_DIGEST" "$actual_sha" "$actual_size" 'com.miaad.app' '1.2.0' '5' | tee audit/apk-identity.txt
+          test "$actual_sha" = "$RAW_APK_SHA256"
+          test "$actual_size" = "$RAW_APK_SIZE"
+
+      - name: Build temporary staged probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat <<'B64' | tr -d '\n' | base64 -d | gzip -dc > "$RUNNER_TEMP/api26_occurrence_staged_diagnostic.py"
+          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
+          B64
+          python3 - <<'PY'
+          import re, os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"api26_occurrence_staged_diagnostic.py"
+          s=p.read_text(encoding="utf-8")
+          original=s
+          s=re.sub(r"document\.querySelector\(([^\n;]+?)\)\?\.dataset\.state",
+                   r"(function(){var __b=document.querySelector(\1);return __b?__b.dataset.state:null})()",s)
+          s=re.sub(r"document\.getElementById\(([^\n;]+?)\)\?\.value",
+                   r"(function(){var __e=document.getElementById(\1);return __e?__e.value:null})()",s)
+          replacements={
+            "!!domain?.data?.students?.['occ-authority-runtime']":"!!(domain&&domain.data&&domain.data.students&&domain.data.students['occ-authority-runtime'])",
+            "!!domain?.data?.schedules?.['runtime-occ-c1']":"!!(domain&&domain.data&&domain.data.schedules&&domain.data.schedules['runtime-occ-c1'])",
+            "document.querySelector('#sessionStatePicker button.active')?.dataset?.state||null":"(function(){var __b=document.querySelector('#sessionStatePicker button.active');return (__b&&__b.dataset)?__b.dataset.state:null})()",
+            "(function(){var __e=document.getElementById('fSessionNote');return __e?__e.value:null})()??null":"(function(){var __e=document.getElementById('fSessionNote');return __e?__e.value:null})()"
+          }
+          for a,b in replacements.items():
+              s=s.replace(a,b)
+          schedule_old_a="r=d.c1id&&domain.data.records[d.c1id],s=domain.data.schedules['runtime-occ-c1']"
+          schedule_new_a="r=d.c1id&&domain.data.records[d.c1id],vs=domain.data.schedules['runtime-occ-c1']||[],s=vs.length?vs[vs.length-1].lesson:null"
+          schedule_old_b="r=domain.data.records[d.c1id],s=domain.data.schedules['runtime-occ-c1']"
+          schedule_new_b="r=domain.data.records[d.c1id],vs=domain.data.schedules['runtime-occ-c1']||[],s=vs.length?vs[vs.length-1].lesson:null"
+          if s.count(schedule_old_a)!=1:
+              raise SystemExit(f"Expected one read-only C1-D schedule readback, found {s.count(schedule_old_a)}")
+          if s.count(schedule_old_b)!=1:
+              raise SystemExit(f"Expected one mutating C1-D schedule readback, found {s.count(schedule_old_b)}")
+          s=s.replace(schedule_old_a,schedule_new_a)
+          s=s.replace(schedule_old_b,schedule_new_b)
+          evidence_old="reminder:s&&s.reminder,version:domain.data.version"
+          evidence_new="reminder:s&&s.reminder,version:domain.data.version,scheduleVersionCount:vs.length"
+          if s.count(evidence_old)!=2:
+              raise SystemExit(f"Expected two C1-D evidence objects, found {s.count(evidence_old)}")
+          s=s.replace(evidence_old,evidence_new)
+          s=re.sub(r"sessionState\[([^\]]+)\]\?\?null",
+                   r"(sessionState[\1]===undefined?null:sessionState[\1])",s)
+          s=re.sub(r"sessionNotes\[([^\]]+)\]\?\?null",
+                   r"(sessionNotes[\1]===undefined?null:sessionNotes[\1])",s)
+          restart_old='v,ws,ok=run_stage(ws,"RESTART-R0",READY_EXPR,validator=False)'
+          restart_new='try:\n            wait_runtime_ready(ws,"RESTART-R0",timeout_total=60)\n            v=True; ok=True\n        except StageTimeout:\n            try: ws.close()\n            except Exception: pass\n            alive=process_pid() is not None\n            capture_logcat("timeout-RESTART-R0")\n            if not alive:\n                print("STAGE TIMEOUT — ACTION NOT COMPLETED")\n                return False,{"stage":"RESTART-R0","recovery":"ACTION NOT COMPLETED"}\n            try:\n                ws=connect(45)\n                v=evaluate_stage(ws,"RESTART-R0-RECOVERY",READY_EXPR,timeout=15)\n                if v is True:\n                    print("STAGE TIMEOUT — ACTION COMPLETED / RESPONSE LOST")\n                    ok=True\n                else:\n                    print("STAGE TIMEOUT — ACTION PARTIALLY COMPLETED")\n                    return False,{"stage":"RESTART-R0","recovery":"ACTION PARTIALLY COMPLETED","value":v}\n            except Exception as recovery_exc:\n                print("STAGE TIMEOUT — RUNTIME UNRESPONSIVE")\n                return False,{"stage":"RESTART-R0","recovery":"RUNTIME UNRESPONSIVE","exception":repr(recovery_exc)}'
+          if s.count(restart_old)!=1:
+              raise SystemExit(f"Expected one RESTART-R0 single-evaluate call, found {s.count(restart_old)}")
+          s=s.replace(restart_old,restart_new)
+          if "?." in s:
+              print("UNSUPPORTED OPTIONAL CHAINING LOCATIONS:")
+              for no,line in enumerate(s.splitlines(),1):
+                  if "?." in line:
+                      print(f"{no}: {line}")
+              raise SystemExit("Unsupported optional chaining remains in staged API26 probe")
+          if "??" in s:
+              print("UNSUPPORTED NULLISH COALESCING LOCATIONS:")
+              for no,line in enumerate(s.splitlines(),1):
+                  if "??" in line:
+                      print(f"{no}: {line}")
+              raise SystemExit("Unsupported nullish coalescing remains in staged API26 probe")
+          if s==original:
+              raise SystemExit("Expected WebView69 staged-probe compatibility rewrite was not applied")
+          p.write_text(s,encoding="utf-8")
+          print("STAGED PROBE WEBVIEW69 SYNTAX COMPATIBILITY REWRITE PASS")
+          PY
+          python3 -m py_compile "$RUNNER_TEMP/api26_occurrence_staged_diagnostic.py"
+          grep -Fq 'ACTION COMPLETED / RESPONSE LOST' "$RUNNER_TEMP/api26_occurrence_staged_diagnostic.py"
+          grep -Fq 'ACTION PARTIALLY COMPLETED' "$RUNNER_TEMP/api26_occurrence_staged_diagnostic.py"
+          grep -Fq 'ACTION NOT COMPLETED' "$RUNNER_TEMP/api26_occurrence_staged_diagnostic.py"
+          grep -Fq 'RUNTIME UNRESPONSIVE' "$RUNNER_TEMP/api26_occurrence_staged_diagnostic.py"
+
+      - name: Prepare API26 runtime script
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/miaad-api26-staged-diagnostic.sh <<'BASH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p audit
+          APK="$GITHUB_WORKSPACE/historical-apk/app-debug.apk"
+          ATTEMPT="$MIAAD_ATTEMPT"
+
+          {
+            echo "attempt=$ATTEMPT"
+            adb version || true
+            emulator -version || true
+            echo "sdk=$(adb shell getprop ro.build.version.sdk | tr -d $'\r')"
+            echo "fingerprint=$(adb shell getprop ro.build.fingerprint | tr -d $'\r')"
+            echo '--- webviewupdate ---'
+            adb shell dumpsys webviewupdate || true
+            echo '--- current webview package ---'
+            adb shell cmd webviewupdate getCurrentWebViewPackage || true
+            echo '--- webview packages ---'
+            adb shell pm list packages | grep -Ei 'webview|chrome' || true
+            adb shell dumpsys package com.google.android.webview | grep -E 'versionName=|versionCode=' | head -n 8 || true
+            adb shell dumpsys package com.android.chrome | grep -E 'versionName=|versionCode=' | head -n 8 || true
+          } | tee audit/api26-environment.txt
+
+          actual_sha="$(sha256sum "$APK" | awk '{print $1}')"
+          actual_size="$(stat -c '%s' "$APK")"
+          test "$actual_sha" = "$RAW_APK_SHA256"
+          test "$actual_size" = "$RAW_APK_SIZE"
+          adb install -r "$APK" | tee audit/apk-install.txt
+          grep -Fxq 'Success' audit/apk-install.txt
+          echo 'APK install = Success'
+
+          adb root
+          adb wait-for-device
+          test "$(adb shell id -u | tr -d $'\r')" = '0'
+          adb shell svc wifi disable
+          adb shell svc data disable
+          if ! adb logcat -c; then
+            echo 'WARN: logcat clear unavailable on API26; fresh-emulator log preserved' | tee audit/logcat-clear-warning.txt
+            adb logcat -d > audit/logcat-prelaunch-api26.txt || true
+          fi
+          adb shell am force-stop com.miaad.app
+          adb shell am start -W -n com.miaad.app/.MainActivity | tee audit/am-start-api26.txt
+          ready=false
+          for n in $(seq 1 35); do
+            if adb logcat -d -s MiaadStartup:I '*:S' | grep -q 'content-ready'; then ready=true; break; fi
+            sleep 2
+          done
+          test "$ready" = true
+          adb exec-out screencap -p > "audit/miaad-first-frame-attempt-${ATTEMPT}.png" || true
+          adb logcat -d > audit/logcat-first-frame-api26.txt
+          echo 'Offline Android API 26 first-frame handoff: PASS'
+
+          MIAAD_API_LEVEL=26 python3 scripts/emulator_acceptance.py | tee audit/baseline-acceptance.txt
+          grep -Fxq 'Native installed-APK UI + data acceptance on API 26: PASS' audit/baseline-acceptance.txt
+          adb logcat -d > audit/logcat-before-staged-probe-api26.txt
+
+          MIAAD_API_LEVEL=26 MIAAD_ATTEMPT="$ATTEMPT" python3 "$RUNNER_TEMP/api26_occurrence_staged_diagnostic.py" | tee audit/staged-diagnostic-console.txt
+          test -s audit/api26-cdp-stage-results.json
+          test -s audit/api26-attempt-result.json
+          BASH
+          chmod +x /tmp/miaad-api26-staged-diagnostic.sh
+          bash -n /tmp/miaad-api26-staged-diagnostic.sh
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - name: Ensure platform tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager 'platform-tools'
+          adb version
+
+      - name: Enable emulator KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run fresh API26 staged diagnostic attempt ${{ matrix.attempt }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 26
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: bash /tmp/miaad-api26-staged-diagnostic.sh
+
+      - name: Summarize attempt
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -s audit/api26-attempt-result.json ]; then
+            jq . audit/api26-attempt-result.json | tee audit/attempt-summary.txt
+          else
+            printf '{"attempt":%s,"finalResult":"INCOMPLETE","reason":"staged result missing"}\n' "$MIAAD_ATTEMPT" | tee audit/api26-attempt-result.json audit/attempt-summary.txt
+          fi
+          if [ -s audit/api26-cdp-stage-results.json ]; then jq '.[] | {stage,requestId,durationMs,responseReceived,webSocketTimeout,nonmatchingMessageCount}' audit/api26-cdp-stage-results.json | tee audit/stage-timings-summary.txt; fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          rp=Path('audit/api26-attempt-result.json')
+          tp=Path('audit/api26-cdp-stage-results.json')
+          if rp.is_file() and tp.is_file():
+              r=json.loads(rp.read_text())
+              telemetry=json.loads(tp.read_text())
+              timed=[x for x in telemetry if x.get('webSocketTimeout')]
+              if timed:
+                  r['firstTimeoutStage']=r.get('firstTimeoutStage') or timed[0].get('stage')
+                  r['timeoutTelemetry']=timed
+                  if r.get('finalResult')=='PASS':
+                      r['finalResult']='PASS_WITH_TRANSPORT_TIMEOUT'
+                  rp.write_text(json.dumps(r,indent=2))
+                  print('TIMEOUT EVIDENCE NORMALIZED INTO ATTEMPT RESULT')
+                  print(json.dumps({'finalResult':r.get('finalResult'),'firstTimeoutStage':r.get('firstTimeoutStage'),'timeoutCount':len(timed)},indent=2))
+          PY
+
+      - name: Upload attempt evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-api26-runtime-diagnostic-v1-attempt-${{ matrix.attempt }}
+          path: audit/
+          if-no-files-found: error
+          retention-days: 30
+
+  classify:
+    name: Classify staged API26 diagnostic
+    if: always()
+    needs: [preflight, api26-attempt]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download both attempt artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: miaad-phase-1c-api26-runtime-diagnostic-v1-attempt-*
+          path: attempt-artifacts
+          merge-multiple: false
+
+      - name: Classify from evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,glob
+          from pathlib import Path
+          paths=sorted(glob.glob('attempt-artifacts/**/api26-attempt-result.json',recursive=True))
+          results=[json.loads(Path(p).read_text()) for p in paths]
+          results.sort(key=lambda x:x.get('attempt',0))
+          print('attempt_results='+json.dumps(results,indent=2))
+          classification='INCONCLUSIVE — EVIDENCE REQUIRED'
+          opening='PHASE 1C API26 STAGED RUNTIME DIAGNOSTIC INCOMPLETE — NO CANDIDATE MUTATION'
+          if len(results)==2:
+              finals=[r.get('finalResult') for r in results]
+              semantic=[r for r in results if r.get('finalResult') in ('SEMANTIC_FAILURE','LOGCAT_PRODUCT_FAILURE')]
+              if semantic:
+                  classification='Production Bug'
+                  opening='PHASE 1C API26 RUNTIME PRODUCT ISSUE LOCATED — NO CANDIDATE MUTATION'
+              elif finals==['PASS','PASS']:
+                  classification='TEST / RUNTIME VERIFICATION HARNESS — monolithic Runtime.evaluate / DevTools response-time fragility on API26'
+                  opening='PHASE 1C API26 STAGED RUNTIME DIAGNOSTIC PASS — MONOLITHIC PROBE FAILURE NOT REPRODUCED — NO CANDIDATE MUTATION'
+              elif all(x in ('PASS','PASS_WITH_TRANSPORT_TIMEOUT') for x in finals) and any(x=='PASS_WITH_TRANSPORT_TIMEOUT' for x in finals):
+                  classification='ANDROID RUNTIME / DEVTOOLS TRANSPORT INFRASTRUCTURE'
+                  opening='PHASE 1C API26 DEVTOOLS TRANSPORT FAILURE CONFIRMED — NO CANDIDATE MUTATION'
+              else:
+                  stalls=[r for r in results if r.get('finalResult') in ('STAGE_STALL','RESTART_FAILURE')]
+                  if len(stalls)==2 and stalls[0].get('firstFailureStage') and stalls[0].get('firstFailureStage')==stalls[1].get('firstFailureStage'):
+                      classification='API26-SPECIFIC RUNTIME BEHAVIOR — PRODUCT INVESTIGATION REQUIRED'
+                      opening='PHASE 1C API26 RUNTIME PRODUCT ISSUE LOCATED — NO CANDIDATE MUTATION'
+          out={'opening':opening,'classification':classification,'attempts':results}
+          Path('final-classification.json').write_text(json.dumps(out,indent=2))
+          print(opening)
+          print('FINAL ROOT-CAUSE CLASS = '+classification)
+          for r in results:
+              print(f"ATTEMPT {r.get('attempt')} result={r.get('finalResult')} firstTimeout={r.get('firstTimeoutStage')} firstFailure={r.get('firstFailureStage')} restart={(r.get('restart') or {}).get('pass')}")
+          PY
+
+  post-run-immutability:
+    name: Post-run immutability diagnostic V1
+    if: always()
+    needs: [api26-attempt]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove frozen refs unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          check(){ ref="$1"; expected="$2"; got="$(git ls-remote origin "refs/heads/$ref" | awk '{print $1}')"; test "$got" = "$expected"; echo "$ref=$got"; }
+          check miaad/phase-1c-occurrence-authority-candidate "$CANDIDATE_SHA"
+          check miaad/phase-1-correctness "$OFFICIAL_SHA"
+          check main "$MAIN_SHA"
+          check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r1 "$V1R6R1_SHA"
+          echo 'POST-RUN IMMUTABILITY PASS'
