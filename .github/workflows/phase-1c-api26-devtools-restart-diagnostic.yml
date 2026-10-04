@@ -1,0 +1,415 @@
+name: Phase 1C API26 Post-Restart DevTools CDP Transport Diagnostic V2
+on:
+  push:
+    branches:
+      - 'miaad/phase-1c-occurrence-authority-api26-devtools-restart-diagnostic-v2'
+permissions:
+  contents: read
+  actions: read
+env:
+  CANDIDATE_SHA: 6a3b367e4f0a9d007846452b9343733ff3adf086
+  CANDIDATE_TREE: 92558e4b3859baf71c3eaec4de26d1436e921eec
+  OFFICIAL_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  MAIN_SHA: 16477b29106d59d0e1fe7d4e99c63b55d6d97327
+  V1R6R1_SHA: 41dcbc63b9ef4e593a4c86007f08a814d8a974b9
+  HISTORICAL_DIAG_V1_SHA: 212e09a5224cad98abdbce2aaacf93a3533a01ce
+  HISTORICAL_RUN_ID: '36883132911'
+  HISTORICAL_ARTIFACT_ID: '11173705606'
+  HISTORICAL_ARTIFACT_NAME: miaad-phase-1c-occurrence-authority-v1r6r1-apk
+  HISTORICAL_ARTIFACT_DIGEST: sha256:11399c68aa6712e5e6d8c3fd16e26b5f463f2c021993eeb8c831f6f4a1c4940c
+  RAW_APK_SHA256: 98a241d64483dc6cf656100da575e17ca6a756769d5ee20213aa695c4b5e6015
+  RAW_APK_SIZE: '12821115'
+  WORKFLOW_PATH: .github/workflows/phase-1c-api26-devtools-restart-diagnostic.yml
+jobs:
+  preflight:
+    name: Frozen identity and historical APK preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove workflow-only topology and frozen refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          test "$(git diff --name-only "$CANDIDATE_SHA" HEAD | wc -l)" -eq 1
+          git diff --name-only "$CANDIDATE_SHA" HEAD | grep -Fxq "$WORKFLOW_PATH"
+          check(){ ref="$1"; expected="$2"; got="$(git ls-remote origin "refs/heads/$ref" | awk '{print $1}')"; test "$got" = "$expected"; }
+          check miaad/phase-1c-occurrence-authority-candidate "$CANDIDATE_SHA"
+          check miaad/phase-1-correctness "$OFFICIAL_SHA"
+          check main "$MAIN_SHA"
+          check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r1 "$V1R6R1_SHA"
+          check miaad/phase-1c-occurrence-authority-api26-runtime-diagnostic-v1 "$HISTORICAL_DIAG_V1_SHA"
+          echo 'V2 FROZEN REF PREFLIGHT PASS'
+      - name: Verify historical artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$HISTORICAL_ARTIFACT_ID" > artifact-meta.json
+          test "$(jq -r .name artifact-meta.json)" = "$HISTORICAL_ARTIFACT_NAME"
+          test "$(jq -r .digest artifact-meta.json)" = "$HISTORICAL_ARTIFACT_DIGEST"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.HISTORICAL_ARTIFACT_NAME }}
+          path: historical-apk
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.HISTORICAL_RUN_ID }}
+      - name: Verify raw APK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum historical-apk/app-debug.apk | awk '{print $1}')" = "$RAW_APK_SHA256"
+          test "$(stat -c '%s' historical-apk/app-debug.apk)" = "$RAW_APK_SIZE"
+          echo 'HISTORICAL RAW APK IDENTITY PASS'
+
+  api26-attempt:
+    name: API26 DevTools restart diagnostic attempt ${{ matrix.attempt }}
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1, 2, 3]
+    env:
+      MIAAD_ATTEMPT: ${{ matrix.attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Assert workflow-only identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          git diff --name-only "$CANDIDATE_SHA" HEAD > audit/diagnostic-paths.txt
+          test "$(wc -l < audit/diagnostic-paths.txt)" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" audit/diagnostic-paths.txt
+      - name: Install websocket client
+        run: python3 -m pip install websocket-client==1.8.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.HISTORICAL_ARTIFACT_NAME }}
+          path: historical-apk
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.HISTORICAL_RUN_ID }}
+      - name: Reverify exact APK before emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(sha256sum historical-apk/app-debug.apk | awk '{print $1}')"; size="$(stat -c '%s' historical-apk/app-debug.apk)"
+          printf 'raw_apk_sha256=%s\nraw_apk_size=%s\npackage=com.miaad.app\nversionName=1.2.0\nversionCode=5\n' "$sha" "$size" | tee audit/apk-identity.txt
+          test "$sha" = "$RAW_APK_SHA256"; test "$size" = "$RAW_APK_SIZE"
+      - name: Build one-shot pre-restart semantic setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/emulator_occurrence_authority_review.py "$RUNNER_TEMP/api26_occurrence_one_shot_setup.py"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'api26_occurrence_one_shot_setup.py'
+          s=p.read_text(encoding='utf-8')
+          marker='adb("shell","am","force-stop",PACKAGE)'
+          if s.count(marker)!=1:
+              raise SystemExit(f'Expected exactly one force-stop marker, found {s.count(marker)}')
+          s=s.replace(marker,'print("V2 PRE-RESTART STATE COMPLETE"); raise SystemExit(0)',1)
+          if 'canonical-runtime-note' not in s or 'real-runtime-note' not in s:
+              raise SystemExit('Candidate one-shot semantic setup identity not found')
+          p.write_text(s,encoding='utf-8')
+          PY
+          python3 -m py_compile "$RUNNER_TEMP/api26_occurrence_one_shot_setup.py"
+          grep -Fq 'V2 PRE-RESTART STATE COMPLETE' "$RUNNER_TEMP/api26_occurrence_one_shot_setup.py"
+          grep -Fq 'canonical-runtime-note' "$RUNNER_TEMP/api26_occurrence_one_shot_setup.py"
+          grep -Fq 'real-runtime-note' "$RUNNER_TEMP/api26_occurrence_one_shot_setup.py"
+      - name: Build V2 post-restart DevTools probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' 'IyEvdXNyL2Jpbi9lbnYgcHl0aG9uMwppbXBvcnQganNvbixvcyxyZSxzdWJwcm9jZXNzLHRpbWUsdXJsbGliLnJlcXVlc3QKZnJvbSBkYXRldGltZSBpbXBvcnQgZGF0ZXRpbWUsdGltZXpvbmUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmZyb20gdXJsbGliLnBhcnNlIGltcG9ydCB1cmxwYXJzZQppbXBvcnQgd2Vic29ja2V0CkE9UGF0aCgiYXVkaXQiKTtBLm1rZGlyKGV4aXN0X29rPVRydWUpO049aW50KG9zLmVudmlyb25bIk1JQUFEX0FUVEVNUFQiXSk7QURCPW9zLmVudmlyb25bIlJFQUxfQURCIl07UEtHPSJjb20ubWlhYWQuYXBwIjtBQ1Q9ImNvbS5taWFhZC5hcHAvLk1haW5BY3Rpdml0eSI7dGlkPTA7dGVsZT1bXTtkaXNjPVtdO2Z3PVtdO3RvX2NvdW50PTAKZGVmIG5vdygpOnJldHVybiBkYXRldGltZS5ub3codGltZXpvbmUudXRjKS5pc29mb3JtYXQoKS5yZXBsYWNlKCIrMDA6MDAiLCJaIikKZGVmIHdqKG4sbyk6KEEvbikud3JpdGVfdGV4dChqc29uLmR1bXBzKG8saW5kZW50PTIsZW5zdXJlX2FzY2lpPUZhbHNlKSxlbmNvZGluZz0idXRmLTgiKQpkZWYgcnVuKGMsY2hrPUZhbHNlLHQ9MzApOgogcD1zdWJwcm9jZXNzLnJ1bihjLHRleHQ9VHJ1ZSxjYXB0dXJlX291dHB1dD1UcnVlLHRpbWVvdXQ9dCkKIGlmIGNoayBhbmQgcC5yZXR1cm5jb2RlOnJhaXNlIFJ1bnRpbWVFcnJvcigiY21kIGZhaWxlZDogIisiICIuam9pbihjKSsiXG4iK3Auc3Rkb3V0KyJcbiIrcC5zdGRlcnIpCiByZXR1cm4gcApkZWYgYWRiKCp4LGNoaz1GYWxzZSx0PTMwKTpyZXR1cm4gcnVuKFtBREIsKnhdLGNoayx0KQpkZWYgcGlkKCk6CiBzPShhZGIoInNoZWxsIiwicGlkb2YiLFBLRyx0PTEwKS5zdGRvdXQgb3IgIiIpLnN0cmlwKCkucmVwbGFjZSgiXHIiLCIiKTtyZXR1cm4gcy5zcGxpdCgpWzBdIGlmIHMgZWxzZSBOb25lCmRlZiBmb3J3YXJkcygpOnJldHVybiAoYWRiKCJmb3J3YXJkIiwiLS1saXN0Iikuc3Rkb3V0IG9yICIiKS5zcGxpdGxpbmVzKCkKZGVmIHB1bml4KCk6cmV0dXJuIFt4IGZvciB4IGluIChhZGIoInNoZWxsIiwiY2F0IiwiL3Byb2MvbmV0L3VuaXgiLHQ9MTUpLnN0ZG91dCBvciAiIikuc3BsaXRsaW5lcygpIGlmICJ3ZWJ2aWV3X2RldnRvb2xzX3JlbW90ZSIgaW4geF0KZGVmIHBzKCk6cmV0dXJuIFt4IGZvciB4IGluIChhZGIoInNoZWxsIiwicHMiLCItQSIsdD0xNSkuc3Rkb3V0IG9yICIiKS5zcGxpdGxpbmVzKCkgaWYgYW55KGsgaW4geC5sb3dlcigpIGZvciBrIGluICgiY29tLm1pYWFkLmFwcCIsIndlYnZpZXciLCJjaHJvbWUiLCJzYW5kYm94ZWRfcHJvY2VzcyIpKV0KZGVmIHNjcmVlbihuKToKIHA9c3VicHJvY2Vzcy5ydW4oW0FEQiwiZXhlYy1vdXQiLCJzY3JlZW5jYXAiLCItcCJdLGNhcHR1cmVfb3V0cHV0PVRydWUsdGltZW91dD0yMCkKIGlmIHAucmV0dXJuY29kZT09MDooQS9uKS53cml0ZV9ieXRlcyhwLnN0ZG91dCkKZGVmIHVpKG4pOgogYWRiKCJzaGVsbCIsInVpYXV0b21hdG9yIiwiZHVtcCIsIi9zZGNhcmQvd2luZG93LnhtbCIsdD0yNSk7cD1hZGIoImV4ZWMtb3V0IiwiY2F0IiwiL3NkY2FyZC93aW5kb3cueG1sIix0PTE1KQogaWYgcC5yZXR1cm5jb2RlPT0wOihBL24pLndyaXRlX3RleHQocC5zdGRvdXQgb3IgIiIsZW5jb2Rpbmc9InV0Zi04IikKZGVmIGxvZ2NhdChuKToKIHM9YWRiKCJsb2djYXQiLCItdiIsInRocmVhZHRpbWUiLCItZCIsdD0zMCkuc3Rkb3V0IG9yICIiOyhBL24pLndyaXRlX3RleHQocyxlbmNvZGluZz0idXRmLTgiKTtyZXR1cm4gcwpkZWYgbGNjbGFzcyhzKToKIEw9cy5zcGxpdGxpbmVzKCk7Zj1beCBmb3IgeCBpbiBMIGlmICJGQVRBTCBFWENFUFRJT04iIGluIHhdO2FyPVt4IGZvciB4IGluIEwgaWYgIkFuZHJvaWRSdW50aW1lIiBpbiB4IGFuZCAoIiBFICIgaW4geCBvciAiIEYgIiBpbiB4IG9yICJGQVRBTCIgaW4geCldO2FuPVt4IGZvciB4IGluIEwgaWYgcmUuc2VhcmNoKHIiXGJBTlJcYiIseCxyZS5JKV07bXc9W3ggZm9yIHggaW4gTCBpZiByZS5zZWFyY2gociJcYkVccytNaWFhZFdlYlxifE1pYWFkV2ViOi4qKD86ZXJyb3J8ZXhjZXB0aW9uKSIseCxyZS5JKSBhbmQgIm5hdmlnYXRvci52aWJyYXRlIiBub3QgaW4geF07dj1beCBmb3IgeCBpbiBMIGlmICJuYXZpZ2F0b3IudmlicmF0ZSIgaW4geF07c3Q9W3ggZm9yIHggaW4gTCBpZiAiTWlhYWRTdGFydHVwIiBpbiB4XQogcmV0dXJuIHsiZmF0YWxFeGNlcHRpb25Db3VudCI6bGVuKGYpLCJhbmRyb2lkUnVudGltZUZhdGFsQ291bnQiOmxlbihhciksImFuckNvdW50IjpsZW4oYW4pLCJnZW51aW5lTWlhYWRXZWJFcnJvckNvdW50IjpsZW4obXcpLCJiZW5pZ25WaWJyYXRpb25XYXJuaW5nQ291bnQiOmxlbih2KSwic3RhcnR1cExpbmVzIjpzdFstNDA6XSwiZmF0YWxMaW5lcyI6ZlstMjA6XSwiYW5kcm9pZFJ1bnRpbWVMaW5lcyI6YXJbLTIwOl0sImFuckxpbmVzIjphblstMjA6XSwibWlhYWRXZWJMaW5lcyI6bXdbLTIwOl19CmRlZiBoaihwb3J0LHBhdGgsdD00KToKIHU9ZiJodHRwOi8vMTI3LjAuMC4xOntwb3J0fXtwYXRofSI7eD10aW1lLm1vbm90b25pYygpO3N0PW5vdygpCiB0cnk6CiAgd2l0aCB1cmxsaWIucmVxdWVzdC51cmxvcGVuKHUsdGltZW91dD10KSBhcyByOmI9ci5yZWFkKCk7Y29kZT1nZXRhdHRyKHIsInN0YXR1cyIsMjAwKQogIHJldHVybiB7Im9rIjpUcnVlLCJ1cmwiOnUsInN0YXR1cyI6Y29kZSwibGF0ZW5jeU1zIjpyb3VuZCgodGltZS5tb25vdG9uaWMoKS14KSoxMDAwLDEpLCJzdGFydCI6c3QsImVuZCI6bm93KCksImRhdGEiOmpzb24ubG9hZHMoYi5kZWNvZGUoKSl9CiBleGNlcHQgRXhjZXB0aW9uIGFzIGU6cmV0dXJuIHsib2siOkZhbHNlLCJ1cmwiOnUsImxhdGVuY3lNcyI6cm91bmQoKHRpbWUubW9ub3RvbmljKCkteCkqMTAwMCwxKSwic3RhcnQiOnN0LCJlbmQiOm5vdygpLCJlcnJvciI6cmVwcihlKX0KZGVmIGZ3ZChwKToKIHJlbW90ZT1mImxvY2FsYWJzdHJhY3Q6d2Vidmlld19kZXZ0b29sc19yZW1vdGVfe3B9IjtxPWFkYigiZm9yd2FyZCIsInRjcDowIixyZW1vdGUsY2hrPVRydWUsdD0xNSk7bT1yZS5zZWFyY2gociIoXGQrKSIsKHEuc3Rkb3V0IG9yICIiKS5zdHJpcCgpKQogaWYgbm90IG06cmFpc2UgUnVudGltZUVycm9yKCJubyBmb3J3YXJkIHBvcnQiKQogcG9ydD1pbnQobS5ncm91cCgxKSk7ZncuYXBwZW5kKHsiYWN0aW9uIjoiY3JlYXRlIiwidGltZXN0YW1wIjpub3coKSwibG9jYWxQb3J0Ijpwb3J0LCJyZW1vdGUiOnJlbW90ZSwicGlkIjpwfSk7cmV0dXJuIHBvcnQscmVtb3RlCmRlZiB1bmZ3ZChwb3J0KTphZGIoImZvcndhcmQiLCItLXJlbW92ZSIsZiJ0Y3A6e3BvcnR9Iix0PTEwKTtmdy5hcHBlbmQoeyJhY3Rpb24iOiJyZW1vdmUiLCJ0aW1lc3RhbXAiOm5vdygpLCJsb2NhbFBvcnQiOnBvcnR9KQpkZWYgdGFyZ2V0KGl0ZW1zKToKIFA9W3ggZm9yIHggaW4gKGl0ZW1zIGlmIGlzaW5zdGFuY2UoaXRlbXMsbGlzdCkgZWxzZSBbXSkgaWYgeC5nZXQoInR5cGUiKT09InBhZ2UiIGFuZCB4LmdldCgid2ViU29ja2V0RGVidWdnZXJVcmwiKV07UT1beCBmb3IgeCBpbiBQIGlmICJhbmRyb2lkX2Fzc2V0IiBpbiBzdHIoeC5nZXQoInVybCIsIiIpKV0KIHJldHVybiAoUSBvciBbeCBmb3IgeCBpbiBQIGlmICJtaWFhZCIgaW4gKHN0cih4LmdldCgidXJsIiwiIikpKyIgIitzdHIoeC5nZXQoInRpdGxlIiwiIikpKS5sb3dlcigpXSBvciBbTm9uZV0pWzBdCmRlZiBzdGFibGUocG9ydCxzZWMpOgogZW5kPXRpbWUubW9ub3RvbmljKCkrc2VjO3ByZXY9Tm9uZTtwb2xsPVtdCiB3aGlsZSB0aW1lLm1vbm90b25pYygpPGVuZDoKICBqPWhqKHBvcnQsIi9qc29uL2xpc3QiLDMpO3Q9dGFyZ2V0KGouZ2V0KCJkYXRhIikpIGlmIGouZ2V0KCJvayIpIGVsc2UgTm9uZTtyb3c9eyJ0aW1lc3RhbXAiOm5vdygpLCJodHRwIjp7azp2IGZvciBrLHYgaW4gai5pdGVtcygpIGlmIGshPSJkYXRhIn0sInRhcmdldCI6KHtrOnQuZ2V0KGspIGZvciBrIGluICgiaWQiLCJ0eXBlIiwidXJsIiwidGl0bGUiLCJ3ZWJTb2NrZXREZWJ1Z2dlclVybCIpfSBpZiB0IGVsc2UgTm9uZSl9O3BvbGwuYXBwZW5kKHJvdyk7Y3VyPXQuZ2V0KCJpZCIpIGlmIHQgZWxzZSBOb25lCiAgaWYgY3VyIGFuZCBjdXI9PXByZXY6cmV0dXJuIHQscG9sbAogIHByZXY9Y3VyO3RpbWUuc2xlZXAoLjgpCiByZXR1cm4gTm9uZSxwb2xsCmRlZiBjb25uKHQscG9ydCk6CiBwPXVybHBhcnNlKHRbIndlYlNvY2tldERlYnVnZ2VyVXJsIl0pO3U9ZiJ3czovLzEyNy4wLjAuMTp7cG9ydH17cC5wYXRofSIrKCgiPyIrcC5xdWVyeSkgaWYgcC5xdWVyeSBlbHNlICIiKTtyZXR1cm4gd2Vic29ja2V0LmNyZWF0ZV9jb25uZWN0aW9uKHUsdGltZW91dD01KQpkZWYgY2RwKHdzLG0scGFyYW1zPU5vbmUsdGltZW91dD01LHN0YWdlPU5vbmUpOgogZ2xvYmFsIHRpZCx0b19jb3VudAogdGlkKz0xO3JpZD10aWQ7eD10aW1lLm1vbm90b25pYygpO3Jvdz17InN0YWdlIjpzdGFnZSBvciBtLCJtZXRob2QiOm0sInJlcXVlc3RJZCI6cmlkLCJ3YWxsQ2xvY2tTdGFydCI6bm93KCksInJlc3BvbnNlUmVjZWl2ZWQiOkZhbHNlLCJ0aW1lb3V0IjpGYWxzZSwibm9ubWF0Y2hpbmdNZXNzYWdlQ291bnQiOjB9CiB0cnk6CiAgd3Muc2V0dGltZW91dCh0aW1lb3V0KTt3cy5zZW5kKGpzb24uZHVtcHMoeyJpZCI6cmlkLCJtZXRob2QiOm0sInBhcmFtcyI6cGFyYW1zIG9yIHt9fSkpO25vbj0wCiAgd2hpbGUgVHJ1ZToKICAgej1qc29uLmxvYWRzKHdzLnJlY3YoKSkKICAgaWYgei5nZXQoImlkIik9PXJpZDpyb3cudXBkYXRlKHsicmVzcG9uc2VSZWNlaXZlZCI6VHJ1ZSwid2FsbENsb2NrRW5kIjpub3coKSwiZHVyYXRpb25NcyI6cm91bmQoKHRpbWUubW9ub3RvbmljKCkteCkqMTAwMCwxKSwicmVzcG9uc2UiOnosIm5vbm1hdGNoaW5nTWVzc2FnZUNvdW50Ijpub259KTt0ZWxlLmFwcGVuZChyb3cpO3JldHVybiB6LHJvdwogICBub24rPTEKIGV4Y2VwdCB3ZWJzb2NrZXQuV2ViU29ja2V0VGltZW91dEV4Y2VwdGlvbiBhcyBlOgogIHRvX2NvdW50Kz0xO3Jvdy51cGRhdGUoeyJ0aW1lb3V0IjpUcnVlLCJ3YWxsQ2xvY2tFbmQiOm5vdygpLCJkdXJhdGlvbk1zIjpyb3VuZCgodGltZS5tb25vdG9uaWMoKS14KSoxMDAwLDEpLCJleGNlcHRpb24iOnJlcHIoZSl9KTt0ZWxlLmFwcGVuZChyb3cpO3JldHVybiBOb25lLHJvdwogZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOnJvdy51cGRhdGUoeyJ3YWxsQ2xvY2tFbmQiOm5vdygpLCJkdXJhdGlvbk1zIjpyb3VuZCgodGltZS5tb25vdG9uaWMoKS14KSoxMDAwLDEpLCJleGNlcHRpb24iOnJlcHIoZSl9KTt0ZWxlLmFwcGVuZChyb3cpO3JldHVybiBOb25lLHJvdwpkZWYgZXYod3MsZSxzdGFnZSk6CiBtLHI9Y2RwKHdzLCJSdW50aW1lLmV2YWx1YXRlIix7ImV4cHJlc3Npb24iOmUsInJldHVybkJ5VmFsdWUiOlRydWUsImF3YWl0UHJvbWlzZSI6RmFsc2V9LDUsc3RhZ2UpCiBpZiBub3QgbTpyZXR1cm4gTm9uZSxyCiBycj1tLmdldCgicmVzdWx0Iikgb3Ige30KIGlmIG0uZ2V0KCJlcnJvciIpIG9yIHJyLmdldCgiZXhjZXB0aW9uRGV0YWlscyIpOnJbImV2YWx1YXRpb25GYWlsdXJlIl09bS5nZXQoImVycm9yIikgb3IgcnIuZ2V0KCJleGNlcHRpb25EZXRhaWxzIik7cmV0dXJuIE5vbmUscgogcmV0dXJuIChyci5nZXQoInJlc3VsdCIpIG9yIHt9KS5nZXQoInZhbHVlIikscgpkZWYgZXZpZGVuY2UodGFnLHBvcnQ9Tm9uZSk6CiBvPXsidGltZXN0YW1wIjpub3coKSwicGlkIjpwaWQoKSwiZm9yd2FyZHMiOmZvcndhcmRzKCksInByb2NOZXRVbml4IjpwdW5peCgpLCJwcm9jZXNzVGFibGUiOnBzKCl9CiBpZiBwb3J0Om9bImpzb25WZXJzaW9uIl09aGoocG9ydCwiL2pzb24vdmVyc2lvbiIsMyk7b1sianNvbkxpc3QiXT1oaihwb3J0LCIvanNvbi9saXN0IiwzKQogd2oodGFnKyItc3RhdGUuanNvbiIsbyk7c2NyZWVuKHRhZysiLXNjcmVlbi5wbmciKTt1aSh0YWcrIi11aS54bWwiKTtsb2djYXQodGFnKyItbG9nY2F0LnR4dCIpCmRlZiBzdGFydHVwKHNlYz03MCk6CiBlbmQ9dGltZS5tb25vdG9uaWMoKStzZWM7c2Vlbj17fQogd2hpbGUgdGltZS5tb25vdG9uaWMoKTxlbmQ6CiAgZm9yIGxpbmUgaW4gKGFkYigibG9nY2F0IiwiLXYiLCJlcG9jaCIsIi1kIiwiLXMiLCJNaWFhZFN0YXJ0dXA6SSIsIio6UyIsdD0yMCkuc3Rkb3V0IG9yICIiKS5zcGxpdGxpbmVzKCk6CiAgIGZvciBrIGluICgicGFnZS1maW5pc2hlZCIsImZpcnN0LWZyYW1lLXJlYWR5IiwiY29udGVudC1yZWFkeSIpOgogICAgaWYgayBpbiBsaW5lIGFuZCBrIG5vdCBpbiBzZWVuOnNlZW5ba109eyJvYnNlcnZlZEF0Ijpub3coKSwibGluZSI6bGluZX0KICBpZiBsZW4oc2Vlbik9PTM6cmV0dXJuIHNlZW4KICB0aW1lLnNsZWVwKDEpCiByZXR1cm4gc2VlbgpkZWYgcHJlaWQoKToKIHA9cGlkKCk7bz17InRpbWVzdGFtcCI6bm93KCksImFwcFBpZCI6cCwiYWRiRm9yd2FyZHMiOmZvcndhcmRzKCksInByb2NOZXRVbml4IjpwdW5peCgpfTtwb3J0PU5vbmUKIHRyeToKICBpZiBwOgogICBwb3J0LHJlbW90ZT1md2QocCk7dj1oaihwb3J0LCIvanNvbi92ZXJzaW9uIik7bD1oaihwb3J0LCIvanNvbi9saXN0Iik7dD10YXJnZXQobC5nZXQoImRhdGEiKSkgaWYgbC5nZXQoIm9rIikgZWxzZSBOb25lO28udXBkYXRlKHsiZm9yd2FyZCI6eyJsb2NhbFBvcnQiOnBvcnQsInJlbW90ZSI6cmVtb3RlfSwianNvblZlcnNpb24iOnYsImpzb25MaXN0IjpsLCJzZWxlY3RlZFRhcmdldCI6KHtrOnQuZ2V0KGspIGZvciBrIGluICgiaWQiLCJ0eXBlIiwidXJsIiwidGl0bGUiLCJ3ZWJTb2NrZXREZWJ1Z2dlclVybCIpfSBpZiB0IGVsc2UgTm9uZSl9KQogZmluYWxseToKICBpZiBwb3J0OnVuZndkKHBvcnQpCiB3aigicHJlLXJlc3RhcnQtZGV2dG9vbHMtaWRlbnRpdHkuanNvbiIsbyk7cmV0dXJuIG8KZGVmIHNlbW9rKHByZSxzKToKIGMxPXByZVsicHJlUmVzdGFydFN0YWdlcyJdWyJDMS1BIl1bInByb2plY3Rpb25JZCJdO2MyPXByZVsicHJlUmVzdGFydFN0YWdlcyJdWyJDMi1BIl1bInJlY29yZElkIl07YT1zLmdldCgiYzEiKTtiPXMuZ2V0KCJjMiIpO2s9cy5nZXQoInJ1bnRpbWVLZXlzIikgb3Ige30KIG9rPWlzaW5zdGFuY2UoYSxkaWN0KSBhbmQgYS5nZXQoInN0YXR1cyIpPT0iZW50ZXJlZCIgYW5kIGEuZ2V0KCJub3RlIik9PSJjYW5vbmljYWwtcnVudGltZS1ub3RlIiBhbmQgYS5nZXQoImFjdHVhbE1pbnV0ZXMiKT09MjMgYW5kIGEuZ2V0KCJjb3VudE92ZXJyaWRlIikgaXMgRmFsc2UgYW5kIGlzaW5zdGFuY2UoYixkaWN0KSBhbmQgYi5nZXQoInN0YXR1cyIpPT0iZW50ZXJlZCIgYW5kIGIuZ2V0KCJub3RlIik9PSJyZWFsLXJ1bnRpbWUtbm90ZSIKIHJlYz1zb3J0ZWQoay5nZXQoInJlY29yZHMiKSBvciBbXSk7c2NoPXNvcnRlZChrLmdldCgic2NoZWR1bGVzIikgb3IgW10pO3NzPWsuZ2V0KCJzZXNzaW9uU3RhdGUiKSBvciBbXTtzbj1rLmdldCgic2Vzc2lvbk5vdGVzIikgb3IgW10KIHJldHVybiBvayBhbmQgcmVjPT1zb3J0ZWQoW2MxLGMyXSkgYW5kIHNjaD09WyJydW50aW1lLW9jYy1jMSIsInJ1bnRpbWUtb2NjLXJlYWwiXSBhbmQgYWxsKHggaW4gKGMxLGMyKSBmb3IgeCBpbiBzcytzbikseyJjMWlkIjpjMSwiYzJpZCI6YzIsInJlY29yZHMiOnJlYywic2NoZWR1bGVzIjpzY2gsInNlc3Npb25TdGF0ZSI6c3MsInNlc3Npb25Ob3RlcyI6c259CmRlZiBtYWluKCk6CiBwcmU9anNvbi5sb2FkcygoQS8icHJlLXJlc3RhcnQtc2VtYW50aWMuanNvbiIpLnJlYWRfdGV4dCgpKTtvPXsiYXR0ZW1wdCI6Tiwic3RhcnRlZEF0Ijpub3coKSwicHJlUmVzdGFydFNlbWFudGljIjpwcmUsInNhbXBsZXMiOltdfTtwcj1wcmVpZCgpO29sZD1wci5nZXQoImFwcFBpZCIpO29bIm9sZFBpZCJdPW9sZAogaWYgbm90IG9sZDpvLnVwZGF0ZSh7ImNhc2UiOiJHIiwiY2xhc3NpZmljYXRpb24iOiJQcm9kdWN0aW9uIC8gQW5kcm9pZCBSdW50aW1lIEJ1ZyIsImZpcnN0RmFpbGluZ0xheWVyIjoicHJlLXJlc3RhcnQgcHJvY2VzcyJ9KTt3aigiYXBpMjYtdjItYXR0ZW1wdC1yZXN1bHQuanNvbiIsbyk7cmV0dXJuCiBhZGIoInNoZWxsIiwiYW0iLCJmb3JjZS1zdG9wIixQS0csY2hrPVRydWUsdD0yMCk7ZW5kPXRpbWUubW9ub3RvbmljKCkrMTUKIHdoaWxlIHRpbWUubW9ub3RvbmljKCk8ZW5kIGFuZCBwaWQoKTp0aW1lLnNsZWVwKC4yNSkKIG9bIm9sZFByb2Nlc3NEaXNhcHBlYXJlZCJdPW5vdCBib29sKHBpZCgpKTthZGIoImZvcndhcmQiLCItLXJlbW92ZS1hbGwiLHQ9MTApO2FkYigibG9nY2F0IiwiLWMiLHQ9MTUpO3E9YWRiKCJzaGVsbCIsImFtIiwic3RhcnQiLCItVyIsIi1uIixBQ1QsY2hrPVRydWUsdD0zMCk7KEEvImFtLXN0YXJ0LXBvc3QtcmVzdGFydC50eHQiKS53cml0ZV90ZXh0KHEuc3Rkb3V0IG9yICIiKQogc3Q9c3RhcnR1cCgpO29bInN0YXJ0dXBTaWduYWxzIl09c3Q7d2ooInBvc3QtcmVzdGFydC1zdGFydHVwLXNpZ25hbHMuanNvbiIsc3QpO3NjcmVlbigicG9zdC1yZXN0YXJ0LWJlZm9yZS1kZXZ0b29scy5wbmciKTt1aSgicG9zdC1yZXN0YXJ0LWJlZm9yZS1kZXZ0b29scy11aS54bWwiKTtiYXNlPWxvZ2NhdCgicG9zdC1yZXN0YXJ0LWJlZm9yZS1kZXZ0b29scy1sb2djYXQudHh0Iik7bmV3PXBpZCgpO29bIm5ld1BpZCJdPW5ldztvWyJwaWRTYW1lQXNPbGQiXT0obmV3PT1vbGQgaWYgbmV3IGVsc2UgTm9uZSk7d2ooInBvc3QtcmVzdGFydC1wcm9jZXNzLWlkZW50aXR5Lmpzb24iLHsib2xkUGlkIjpvbGQsIm5ld1BpZCI6bmV3LCJwaWRTYW1lQXNPbGQiOm9bInBpZFNhbWVBc09sZCJdLCJwcm9jZXNzVGFibGUiOnBzKCksInByb2NOZXRVbml4IjpwdW5peCgpLCJhZGJGb3J3YXJkcyI6Zm9yd2FyZHMoKX0pCiBpZiBsZW4oc3QpPDMgb3Igbm90IG5ldzoKICBsYz1sY2NsYXNzKGJhc2UpO2JhZD1hbnkobGNba10gZm9yIGsgaW4gKCJmYXRhbEV4Y2VwdGlvbkNvdW50IiwiYW5kcm9pZFJ1bnRpbWVGYXRhbENvdW50IiwiYW5yQ291bnQiLCJnZW51aW5lTWlhYWRXZWJFcnJvckNvdW50IikpO29bImxvZ2NhdENsYXNzaWZpY2F0aW9uIl09bGM7by51cGRhdGUoeyJjYXNlIjoiRyIgaWYgYmFkIGVsc2UgTm9uZSwiY2xhc3NpZmljYXRpb24iOiJQcm9kdWN0aW9uIC8gQW5kcm9pZCBSdW50aW1lIEJ1ZyIgaWYgYmFkIGVsc2UgIklOQ09OQ0xVU0lWRSDigJQgRVZJREVOQ0UgUkVRVUlSRUQiLCJmaXJzdEZhaWxpbmdMYXllciI6InN0YXJ0dXAvcHJvY2VzcyJ9KTt3aigiYXBpMjYtdjItYXR0ZW1wdC1yZXN1bHQuanNvbiIsbyk7cmV0dXJuCiBkZWFkbGluZT10aW1lLm1vbm90b25pYygpKzYwO2Rpc2Nvaz1zdGFibGVvaz1GYWxzZTtwYWdlVE89cnVuVE89YXBwRmFpbD0wO2lkcz1bXTtzZWxlY3RlZD1Ob25lO249MAogd2hpbGUgdGltZS5tb25vdG9uaWMoKTxkZWFkbGluZToKICBuKz0xO3M9eyJzYW1wbGUiOm4sInRpbWVzdGFtcCI6bm93KCksImFmdGVyUHJpb3JUaW1lb3V0Ijp0b19jb3VudD4wfTtwb3J0PU5vbmU7d3M9Tm9uZQogIHRyeToKICAgcD1waWQoKTtzWyJwaWQiXT1wCiAgIGlmIG5vdCBwOnNbImZhaWx1cmUiXT0icHJvY2Vzcy1kZWFkIjtvWyJzYW1wbGVzIl0uYXBwZW5kKHMpO2JyZWFrCiAgIHBvcnQscmVtb3RlPWZ3ZChwKTtzWyJmb3J3YXJkIl09eyJsb2NhbFBvcnQiOnBvcnQsInJlbW90ZSI6cmVtb3RlfTt2PWhqKHBvcnQsIi9qc29uL3ZlcnNpb24iKTtsPWhqKHBvcnQsIi9qc29uL2xpc3QiKTtkaXNjLmFwcGVuZCh7InNhbXBsZSI6biwidmVyc2lvbiI6diwibGlzdCI6bH0pO3NbImpzb25WZXJzaW9uIl09e2s6di5nZXQoaykgZm9yIGsgaW4gKCJvayIsImxhdGVuY3lNcyIsImVycm9yIil9O3NbImpzb25MaXN0Il09e2s6bC5nZXQoaykgZm9yIGsgaW4gKCJvayIsImxhdGVuY3lNcyIsImVycm9yIil9CiAgIGlmIG5vdCh2LmdldCgib2siKSBhbmQgbC5nZXQoIm9rIikpOnNbImZhaWx1cmUiXT0iZGlzY292ZXJ5IjtvWyJzYW1wbGVzIl0uYXBwZW5kKHMpO2V2aWRlbmNlKGYic2FtcGxlLXtufS1kaXNjb3ZlcnkiLHBvcnQpO2NvbnRpbnVlCiAgIGRpc2Nvaz1UcnVlOyhBLyJwb3N0LXJlc3RhcnQtanNvbi12ZXJzaW9uLmpzb24iKS53cml0ZV90ZXh0KGpzb24uZHVtcHModi5nZXQoImRhdGEiKSxpbmRlbnQ9MikpOyhBLyJwb3N0LXJlc3RhcnQtanNvbi1saXN0Lmpzb24iKS53cml0ZV90ZXh0KGpzb24uZHVtcHMobC5nZXQoImRhdGEiKSxpbmRlbnQ9MikpCiAgIHQscG9sbHM9c3RhYmxlKHBvcnQsbWluKDEyLG1heCgyLGRlYWRsaW5lLXRpbWUubW9ub3RvbmljKCkpKSk7c1sidGFyZ2V0UG9sbHMiXT1wb2xscwogICBmb3IgeiBpbiBwb2xsczoKICAgIGlmIHouZ2V0KCJ0YXJnZXQiKSBhbmQgelsidGFyZ2V0Il0uZ2V0KCJpZCIpOmlkcy5hcHBlbmQoelsidGFyZ2V0Il1bImlkIl0pCiAgIGlmIG5vdCB0OnNbImZhaWx1cmUiXT0idGFyZ2V0LXVuc3RhYmxlIjtvWyJzYW1wbGVzIl0uYXBwZW5kKHMpO2V2aWRlbmNlKGYic2FtcGxlLXtufS10YXJnZXQiLHBvcnQpO2NvbnRpbnVlCiAgIHN0YWJsZW9rPVRydWU7c2VsZWN0ZWQ9e2s6dC5nZXQoaykgZm9yIGsgaW4gKCJpZCIsInR5cGUiLCJ1cmwiLCJ0aXRsZSIsIndlYlNvY2tldERlYnVnZ2VyVXJsIil9O3NbInNlbGVjdGVkVGFyZ2V0Il09c2VsZWN0ZWQ7d3M9Y29ubih0LHBvcnQpCiAgIG0scj1jZHAod3MsIlBhZ2UuZ2V0RnJhbWVUcmVlIix7fSw1LCJQYWdlLmdldEZyYW1lVHJlZSIpCiAgIGlmIG5vdCBtIG9yIHIuZ2V0KCJ0aW1lb3V0Iikgb3IgbS5nZXQoImVycm9yIik6cGFnZVRPKz0xO3NbImZhaWx1cmUiXT0iUGFnZS5nZXRGcmFtZVRyZWUiO29bInNhbXBsZXMiXS5hcHBlbmQocyk7ZXZpZGVuY2UoZiJzYW1wbGUte259LXBhZ2UiLHBvcnQpO2NvbnRpbnVlCiAgIG0scj1jZHAod3MsIlJ1bnRpbWUuZW5hYmxlIix7fSw1LCJSdW50aW1lLmVuYWJsZSIpCiAgIGlmIG5vdCBtIG9yIHIuZ2V0KCJ0aW1lb3V0Iikgb3IgbS5nZXQoImVycm9yIik6cnVuVE8rPTE7c1siZmFpbHVyZSJdPSJSdW50aW1lLmVuYWJsZSI7b1sic2FtcGxlcyJdLmFwcGVuZChzKTtldmlkZW5jZShmInNhbXBsZS17bn0tcnVudGltZS1lbmFibGUiLHBvcnQpO2NvbnRpbnVlCiAgIG9uZSxyPWV2KHdzLCIxKzEiLCJSdW50aW1lLmV2YWx1YXRlOjErMSIpCiAgIGlmIHIuZ2V0KCJ0aW1lb3V0Iikgb3Igb25lIT0yOnJ1blRPKz0xO3NbImZhaWx1cmUiXT0iUnVudGltZS5ldmFsdWF0ZToxKzEiO29bInNhbXBsZXMiXS5hcHBlbmQocyk7ZXZpZGVuY2UoZiJzYW1wbGUte259LXRyaXZpYWwiLHBvcnQpO2NvbnRpbnVlCiAgIGJhZD1GYWxzZTt2YWxzPXt9CiAgIGZvciBubSxleCBpbiBbKCJkb2N1bWVudC5yZWFkeVN0YXRlIiwiZG9jdW1lbnQucmVhZHlTdGF0ZSIpLCgibG9jYXRpb24uaHJlZiIsImxvY2F0aW9uLmhyZWYiKSwoInR5cGVvZiBkb21haW4iLCJ0eXBlb2YgZG9tYWluIildOgogICAgeixyPWV2KHdzLGV4LCJSdW50aW1lLmV2YWx1YXRlOiIrbm0pO3ZhbHNbbm1dPXoKICAgIGlmIHIuZ2V0KCJ0aW1lb3V0Iik6cnVuVE8rPTE7c1siZmFpbHVyZSJdPSJSdW50aW1lLmV2YWx1YXRlOiIrbm07b1sic2FtcGxlcyJdLmFwcGVuZChzKTtldmlkZW5jZShmInNhbXBsZS17bn0tdHJpdmlhbC1yZWFkIixwb3J0KTtiYWQ9VHJ1ZTticmVhawogICBpZiBiYWQ6Y29udGludWUKICAgc1sidHJpdmlhbEpzIl09dmFsczthdj17fQogICBmb3Igbm0sZXggaW4gWygib3BlblNoZWV0V2l0aENvbnRleHQiLCJ0eXBlb2Ygb3BlblNoZWV0V2l0aENvbnRleHQiKSwoInJlZnJlc2hMZWdhY3lPY2N1cnJlbmNlTWlycm9ycyIsInR5cGVvZiByZWZyZXNoTGVnYWN5T2NjdXJyZW5jZU1pcnJvcnMiKSwoIkFuZHJvaWRCcmlkZ2UiLCJ0eXBlb2YgQW5kcm9pZEJyaWRnZSIpLCgiZG9tYWluVmVyc2lvbiIsImRvbWFpbiAmJiBkb21haW4uZGF0YSAmJiBkb21haW4uZGF0YS52ZXJzaW9uIildOgogICAgeixyPWV2KHdzLGV4LCJBcHBSZWFkaW5lc3M6IitubSk7YXZbbm1dPXoKICAgIGlmIHIuZ2V0KCJ0aW1lb3V0Iikgb3IgeiBpcyBOb25lOmFwcEZhaWwrPTE7c1siZmFpbHVyZSJdPSJBcHBSZWFkaW5lc3M6IitubTtvWyJzYW1wbGVzIl0uYXBwZW5kKHMpO2V2aWRlbmNlKGYic2FtcGxlLXtufS1hcHAiLHBvcnQpO2JhZD1UcnVlO2JyZWFrCiAgIGlmIGJhZDpjb250aW51ZQogICBjMT1wcmVbInByZVJlc3RhcnRTdGFnZXMiXVsiQzEtQSJdWyJwcm9qZWN0aW9uSWQiXTtjMj1wcmVbInByZVJlc3RhcnRTdGFnZXMiXVsiQzItQSJdWyJyZWNvcmRJZCJdO2UxPWYiKGZ1bmN0aW9uKCl7e3ZhciByPWRvbWFpbi5kYXRhLnJlY29yZHNbe2pzb24uZHVtcHMoYzEpfV07cmV0dXJuIHI/e3tzdGF0dXM6ci5zdGF0dXMsbm90ZTpyLm5vdGUsYWN0dWFsTWludXRlczpyLmFjdHVhbE1pbnV0ZXMsY291bnRPdmVycmlkZTpyLmNvdW50T3ZlcnJpZGV9fTpudWxsfX0pKCkiO2UyPWYiKGZ1bmN0aW9uKCl7e3ZhciByPWRvbWFpbi5kYXRhLnJlY29yZHNbe2pzb24uZHVtcHMoYzIpfV07cmV0dXJuIHI/e3tzdGF0dXM6ci5zdGF0dXMsbm90ZTpyLm5vdGV9fTpudWxsfX0pKCkiO2VrPSIoZnVuY3Rpb24oKXtyZXR1cm4ge3JlY29yZHM6T2JqZWN0LmtleXMoZG9tYWluLmRhdGEucmVjb3Jkc3x8e30pLmZpbHRlcihmdW5jdGlvbihrKXtyZXR1cm4gay5pbmRleE9mKCdfX3J1bnRpbWUtb2NjLScpPj0wfSkuc29ydCgpLHNjaGVkdWxlczpPYmplY3Qua2V5cyhkb21haW4uZGF0YS5zY2hlZHVsZXN8fHt9KS5maWx0ZXIoZnVuY3Rpb24oayl7cmV0dXJuIGsuaW5kZXhPZigncnVudGltZS1vY2MtJyk9PT0wfSkuc29ydCgpLHNlc3Npb25TdGF0ZTpPYmplY3Qua2V5cyhzZXNzaW9uU3RhdGV8fHt9KS5maWx0ZXIoZnVuY3Rpb24oayl7cmV0dXJuIGsuaW5kZXhPZigncnVudGltZS1vY2MnKT49MH0pLnNvcnQoKSxzZXNzaW9uTm90ZXM6T2JqZWN0LmtleXMoc2Vzc2lvbk5vdGVzfHx7fSkuZmlsdGVyKGZ1bmN0aW9uKGspe3JldHVybiBrLmluZGV4T2YoJ3J1bnRpbWUtb2NjJyk+PTB9KS5zb3J0KCl9fSkoKSIKICAgYzF2LHI9ZXYod3MsZTEsIlJlYWRPbmx5OkMxIikKICAgaWYgci5nZXQoInRpbWVvdXQiKTpydW5UTys9MTtzWyJmYWlsdXJlIl09IlJlYWRPbmx5OkMxIjtvWyJzYW1wbGVzIl0uYXBwZW5kKHMpO2V2aWRlbmNlKGYic2FtcGxlLXtufS1jMSIscG9ydCk7Y29udGludWUKICAgYzJ2LHI9ZXYod3MsZTIsIlJlYWRPbmx5OkMyLVJFQUwiKQogICBpZiByLmdldCgidGltZW91dCIpOnJ1blRPKz0xO3NbImZhaWx1cmUiXT0iUmVhZE9ubHk6QzIiO29bInNhbXBsZXMiXS5hcHBlbmQocyk7ZXZpZGVuY2UoZiJzYW1wbGUte259LWMyIixwb3J0KTtjb250aW51ZQogICBrdixyPWV2KHdzLGVrLCJSZWFkT25seTpJTlZBTElELVdFRUtEQVkiKQogICBpZiByLmdldCgidGltZW91dCIpOnJ1blRPKz0xO3NbImZhaWx1cmUiXT0iUmVhZE9ubHk6SU5WQUxJRC1XRUVLREFZIjtvWyJzYW1wbGVzIl0uYXBwZW5kKHMpO2V2aWRlbmNlKGYic2FtcGxlLXtufS1pbnZhbGlkLXdlZWtkYXkiLHBvcnQpO2NvbnRpbnVlCiAgIGt2MixyPWV2KHdzLGVrLCJSZWFkT25seTpJTlZBTElELVBIQVNFIikKICAgaWYgci5nZXQoInRpbWVvdXQiKTpydW5UTys9MTtzWyJmYWlsdXJlIl09IlJlYWRPbmx5OklOVkFMSUQtUEhBU0UiO29bInNhbXBsZXMiXS5hcHBlbmQocyk7ZXZpZGVuY2UoZiJzYW1wbGUte259LWludmFsaWQtcGhhc2UiLHBvcnQpO2NvbnRpbnVlCiAgIHNlbT17ImMxIjpjMXYsImMyIjpjMnYsInJ1bnRpbWVLZXlzIjprdiwiaW52YWxpZFdlZWtkYXlSZWFkIjprdiwiaW52YWxpZFBoYXNlUmVhZCI6a3YyfTtvayxtZXRhPXNlbW9rKHByZSxzZW0pO3NlbVsicGFzcyJdPW9rO3NlbVsidmFsaWRhdGlvbiJdPW1ldGE7c1sic2VtYW50aWMiXT1zZW07b1sic2FtcGxlcyJdLmFwcGVuZChzKTtvWyJzZW1hbnRpY1N0YXRlIl09c2VtO3dqKCJwb3N0LXJlc3RhcnQtcGhhc2UxYy1zdGF0ZS5qc29uIixzZW0pCiAgIGlmIG9rOm8udXBkYXRlKHsiY2FzZSI6IkUiIGlmIHRvX2NvdW50IGVsc2UgIkZVTExfUEFTUyIsImNsYXNzaWZpY2F0aW9uIjoiUE9TVC1SRVNUQVJUIERFVlRPT0xTIFJFQURJTkVTUyAvIFRSQU5TUE9SVCBGTEFLRSIgaWYgdG9fY291bnQgZWxzZSAiRlVMTCBQQVNTIn0pCiAgIGVsc2U6by51cGRhdGUoeyJjYXNlIjoiRiIsImNsYXNzaWZpY2F0aW9uIjoiUHJvZHVjdGlvbiBCdWciLCJmaXJzdEZhaWxpbmdMYXllciI6InJlYWQtb25seSBQaGFzZSAxQyBzdGF0ZSJ9KQogICBicmVhawogIGV4Y2VwdCBFeGNlcHRpb24gYXMgZTpzWyJleGNlcHRpb24iXT1yZXByKGUpO29bInNhbXBsZXMiXS5hcHBlbmQocyk7ZXZpZGVuY2UoZiJzYW1wbGUte259LWV4Y2VwdGlvbiIscG9ydCkKICBmaW5hbGx5OgogICB0cnk6CiAgICBpZiB3czp3cy5jbG9zZSgpCiAgIGV4Y2VwdDpwYXNzCiAgIHRyeToKICAgIGlmIHBvcnQ6dW5md2QocG9ydCkKICAgZXhjZXB0OnBhc3MKICB0aW1lLnNsZWVwKC41KQogd2ooInBvc3QtcmVzdGFydC1kaXNjb3Zlcnktc2FtcGxlcy5qc29uIixkaXNjKTt3aigidGFyZ2V0LXN0YWJpbGl0eS1ldmlkZW5jZS5qc29uIix7InRhcmdldElkcyI6aWRzLCJ1bmlxdWVUYXJnZXRJZHMiOnNvcnRlZChzZXQoaWRzKSl9KTt3aigiY2RwLWNvbW1hbmQtdGVsZW1ldHJ5Lmpzb24iLHRlbGUpO3dqKCJhZGItZm9yd2FyZC1ldmVudHMuanNvbiIsZncpO3dqKCJzZWNvbmQtc29ja2V0LWV2aWRlbmNlLmpzb24iLHsidGltZW91dHNPYnNlcnZlZCI6dG9fY291bnQ+MCwic2FtcGxlc0FmdGVyUHJpb3JUaW1lb3V0IjpbeCBmb3IgeCBpbiBvWyJzYW1wbGVzIl0gaWYgeC5nZXQoImFmdGVyUHJpb3JUaW1lb3V0IildfSk7by51cGRhdGUoeyJ0cnVlUmVhZGluZXNzV2luZG93U2Vjb25kcyI6NjAsInNlbGVjdGVkVGFyZ2V0IjpzZWxlY3RlZCwiZGlzY292ZXJ5U3VjY2Vzc09ic2VydmVkIjpkaXNjb2ssInN0YWJsZVRhcmdldE9ic2VydmVkIjpzdGFibGVvaywidW5pcXVlVGFyZ2V0SWRzIjpzb3J0ZWQoc2V0KGlkcykpLCJwYWdlR2V0RnJhbWVUcmVlVGltZW91dHMiOnBhZ2VUTywicnVudGltZURvbWFpbk9yRXZhbFRpbWVvdXRzIjpydW5UTywiYXBwbGljYXRpb25SZWFkaW5lc3NGYWlsdXJlcyI6YXBwRmFpbH0pCiBmaW49bG9nY2F0KCJmaW5hbC1sb2djYXQudHh0Iik7bGM9bGNjbGFzcyhmaW4pO29bImxvZ2NhdENsYXNzaWZpY2F0aW9uIl09bGM7YWxpdmU9Ym9vbChwaWQoKSk7b1siYXBwUHJvY2Vzc0FsaXZlQXRFbmQiXT1hbGl2ZQogaWYgbm90IG8uZ2V0KCJjbGFzc2lmaWNhdGlvbiIpOgogIGZhdGFsPWFueShsY1trXSBmb3IgayBpbiAoImZhdGFsRXhjZXB0aW9uQ291bnQiLCJhbmRyb2lkUnVudGltZUZhdGFsQ291bnQiLCJhbnJDb3VudCIsImdlbnVpbmVNaWFhZFdlYkVycm9yQ291bnQiKSkKICBpZiBmYXRhbCBvciBub3QgYWxpdmU6by51cGRhdGUoeyJjYXNlIjoiRyIsImNsYXNzaWZpY2F0aW9uIjoiUHJvZHVjdGlvbiAvIEFuZHJvaWQgUnVudGltZSBCdWciLCJmaXJzdEZhaWxpbmdMYXllciI6ImFwcGxpY2F0aW9uL3J1bnRpbWUgZmF0YWwifSkKICBlbGlmIG5vdCBkaXNjb2s6by51cGRhdGUoeyJjYXNlIjoiQSIsImNsYXNzaWZpY2F0aW9uIjoiQURCIEZPUldBUkQgLyBERVZUT09MUyBESVNDT1ZFUlkgSU5GUkFTVFJVQ1RVUkUiLCJmaXJzdEZhaWxpbmdMYXllciI6ImRpc2NvdmVyeSJ9KQogIGVsaWYgbm90IHN0YWJsZW9rIGFuZCBsZW4oc2V0KGlkcykpPjE6by51cGRhdGUoeyJjYXNlIjoiVEFSR0VUX0NIVVJOIiwiY2xhc3NpZmljYXRpb24iOiJERVZUT09MUyBUQVJHRVQgQ0hVUk4gLyBTVEFSVFVQIElORlJBU1RSVUNUVVJFIiwiZmlyc3RGYWlsaW5nTGF5ZXIiOiJ0YXJnZXQgc3RhYmlsaXR5In0pCiAgZWxpZiBwYWdlVE86by51cGRhdGUoeyJjYXNlIjoiQiIsImNsYXNzaWZpY2F0aW9uIjoiREVWVE9PTFMgVEFSR0VUIC8gQ0RQIENPTU1BTkQtQ0hBTk5FTCBTVEFMTCIsImZpcnN0RmFpbGluZ0xheWVyIjoiUGFnZS5nZXRGcmFtZVRyZWUifSkKICBlbGlmIHJ1blRPOm8udXBkYXRlKHsiY2FzZSI6IkMiLCJjbGFzc2lmaWNhdGlvbiI6IkFQSTI2IFdFQlZJRVcgUlVOVElNRS1ET01BSU4gLyBERVZUT09MUyBFWEVDVVRJT04gU1RBTEwiLCJmaXJzdEZhaWxpbmdMYXllciI6IlJ1bnRpbWUuZW5hYmxlIC8gUnVudGltZS5ldmFsdWF0ZSJ9KQogIGVsaWYgYXBwRmFpbDpvLnVwZGF0ZSh7ImNhc2UiOiJEIiwiY2xhc3NpZmljYXRpb24iOiJBUFBMSUNBVElPTiBKUyBSRUFESU5FU1MgSVNTVUUiLCJmaXJzdEZhaWxpbmdMYXllciI6ImFwcGxpY2F0aW9uIHJlYWRpbmVzcyBnbG9iYWxzIn0pCiAgZWxzZTpvLnVwZGF0ZSh7ImNsYXNzaWZpY2F0aW9uIjoiSU5DT05DTFVTSVZFIOKAlCBFVklERU5DRSBSRVFVSVJFRCIsImZpcnN0RmFpbGluZ0xheWVyIjoidW5yZXNvbHZlZCJ9KQogb1siZmluaXNoZWRBdCJdPW5vdygpO3dqKCJhcGkyNi12Mi1hdHRlbXB0LXJlc3VsdC5qc29uIixvKTtwcmludChqc29uLmR1bXBzKHsiYXR0ZW1wdCI6TiwiY2FzZSI6by5nZXQoImNhc2UiKSwiY2xhc3NpZmljYXRpb24iOm8uZ2V0KCJjbGFzc2lmaWNhdGlvbiIpLCJmaXJzdEZhaWxpbmdMYXllciI6by5nZXQoImZpcnN0RmFpbGluZ0xheWVyIiksInNlbWFudGljUGFzcyI6KG8uZ2V0KCJzZW1hbnRpY1N0YXRlIikgb3Ige30pLmdldCgicGFzcyIpfSxpbmRlbnQ9MikpCmlmIF9fbmFtZV9fPT0iX19tYWluX18iOm1haW4oKQo=' | base64 -d > "$RUNNER_TEMP/api26_devtools_restart_v2.py"
+          python3 -m py_compile "$RUNNER_TEMP/api26_devtools_restart_v2.py"
+          grep -Fq 'Page.getFrameTree' "$RUNNER_TEMP/api26_devtools_restart_v2.py"
+          grep -Fq 'Runtime.enable' "$RUNNER_TEMP/api26_devtools_restart_v2.py"
+          grep -Fq 'trueReadinessWindowSeconds' "$RUNNER_TEMP/api26_devtools_restart_v2.py"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+      - name: Ensure platform tools and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager 'platform-tools'
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Prepare API26 V2 runtime script
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/miaad-api26-devtools-v2.sh <<'BASH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p audit
+          APK="$GITHUB_WORKSPACE/historical-apk/app-debug.apk"
+          REAL_ADB="$(command -v adb)"; export REAL_ADB
+          { echo "attempt=$MIAAD_ATTEMPT"; adb version || true; emulator -version || true; echo "sdk=$(adb shell getprop ro.build.version.sdk | tr -d $'\r')"; echo "fingerprint=$(adb shell getprop ro.build.fingerprint | tr -d $'\r')"; adb shell cmd webviewupdate getCurrentWebViewPackage || true; adb shell dumpsys webviewupdate || true; adb shell dumpsys package com.android.chrome | grep -E 'versionName=|versionCode=' | head -n 8 || true; } | tee audit/api26-environment.txt
+          test "$(sha256sum "$APK" | awk '{print $1}')" = "$RAW_APK_SHA256"
+          test "$(stat -c '%s' "$APK")" = "$RAW_APK_SIZE"
+          adb install -r "$APK" | tee audit/apk-install.txt
+          grep -Fxq 'Success' audit/apk-install.txt
+          adb root; adb wait-for-device
+          adb shell svc wifi disable; adb shell svc data disable
+          adb logcat -c || true
+          adb shell am force-stop com.miaad.app
+          adb shell am start -W -n com.miaad.app/.MainActivity | tee audit/am-start-api26.txt
+          ready=false
+          for n in $(seq 1 40); do if adb logcat -d -s MiaadStartup:I '*:S' | grep -q 'content-ready'; then ready=true; break; fi; sleep 2; done
+          test "$ready" = true
+          adb exec-out screencap -p > "audit/miaad-first-frame-attempt-$MIAAD_ATTEMPT.png" || true
+          # Keep the setup path minimal: this task diagnoses restart transport,
+          # not baseline acceptance. Clear any inherited forward before staging.
+          adb forward --remove-all || true
+          set +e
+          MIAAD_API_LEVEL=26 MIAAD_ATTEMPT="$MIAAD_ATTEMPT" python3 "$RUNNER_TEMP/api26_occurrence_one_shot_setup.py" 2>&1 | tee audit/pre-restart-semantic-probe.txt
+          setup_rc=${PIPESTATUS[0]}
+          set -e
+          adb forward --remove tcp:9222 || true
+          SETUP_RC="$setup_rc" python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          log=Path('audit/pre-restart-semantic-probe.txt').read_text(encoding='utf-8',errors='replace')
+          rc=int(os.environ['SETUP_RC'])
+          if 'V2 PRE-RESTART STATE COMPLETE' in log:
+              status='COMPLETED'
+          elif 'exceptionDetails' in log:
+              status='SEMANTIC_EXCEPTION'
+          elif any(x in log for x in ('WebSocketTimeoutException','timed out','RUNTIME UNRESPONSIVE','runtime did not become ready')):
+              status='RESPONSE_LOST_OR_RUNTIME_UNAVAILABLE'
+          else:
+              status='FAILED_UNKNOWN'
+          out={'attempt':int(os.environ['MIAAD_ATTEMPT']),'exitCode':rc,'status':status,'mutationRepeated':False}
+          Path('audit/pre-restart-setup-status.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
+          print(json.dumps(out,indent=2))
+          PY
+          cat > "$RUNNER_TEMP/pre_restart_read.py" <<'PY'
+          import json,os,re,subprocess,time,urllib.request
+          from pathlib import Path
+          from urllib.parse import urlparse
+          import websocket
+
+          A=Path('audit'); A.mkdir(exist_ok=True)
+          N=int(os.environ['MIAAD_ATTEMPT']); ADB=os.environ['REAL_ADB']; PKG='com.miaad.app'
+          setup=json.loads((A/'pre-restart-setup-status.json').read_text())
+          samples=[]
+          def run(*args,t=20):
+              return subprocess.run([ADB,*args],text=True,capture_output=True,timeout=t)
+          def pid():
+              p=run('shell','pidof',PKG,t=10); s=(p.stdout or '').strip().replace('\r','')
+              return s.split()[0] if s else None
+          def http_json(port,path):
+              x=time.monotonic()
+              try:
+                  with urllib.request.urlopen(f'http://127.0.0.1:{port}{path}',timeout=4) as r:
+                      return {'ok':True,'latencyMs':round((time.monotonic()-x)*1000,1),'data':json.loads(r.read().decode())}
+              except Exception as e:
+                  return {'ok':False,'latencyMs':round((time.monotonic()-x)*1000,1),'error':repr(e)}
+          def choose(items):
+              pages=[x for x in (items if isinstance(items,list) else []) if x.get('type')=='page' and x.get('webSocketDebuggerUrl')]
+              assets=[x for x in pages if 'android_asset' in str(x.get('url',''))]
+              return (assets or [None])[0]
+          def mapped_ws(target,port):
+              p=urlparse(target['webSocketDebuggerUrl'])
+              return f'ws://127.0.0.1:{port}{p.path}'+(('?'+p.query) if p.query else '')
+          expr="""(function(){
+            var today=domain.teacherNow().date;
+            var row=domain.resolveScheduleOccurrence('runtime-occ-c1',today);
+            var c1id=row?row.id:null;
+            var realId=today+'__runtime-occ-real';
+            var c1=c1id?domain.data.records[c1id]:null;
+            var real=domain.data.records[realId];
+            var rec=Object.keys(domain.data.records||{}).filter(function(k){return k.indexOf('__runtime-occ-')>=0}).sort();
+            var sch=Object.keys(domain.data.schedules||{}).filter(function(k){return k.indexOf('runtime-occ-')===0}).sort();
+            var ss=Object.keys(sessionState||{}).filter(function(k){return k.indexOf('runtime-occ')>=0}).sort();
+            var sn=Object.keys(sessionNotes||{}).filter(function(k){return k.indexOf('runtime-occ')>=0}).sort();
+            return {
+              today:today,c1id:c1id,realId:realId,
+              c1:c1?{status:c1.status,note:c1.note,actualMinutes:c1.actualMinutes,countOverride:c1.countOverride}:null,
+              c2:real?{status:real.status,note:real.note}:null,
+              records:rec,schedules:sch,sessionState:ss,sessionNotes:sn,
+              invalidRecordKeys:rec.filter(function(k){return k.indexOf('__runtime-occ-invalid-')>=0}),
+              invalidScheduleKeys:sch.filter(function(k){return k==='runtime-occ-invalid-weekday'||k==='runtime-occ-invalid-phase'}),
+              invalidStateKeys:ss.filter(function(k){return k.indexOf('runtime-occ-invalid-')>=0}),
+              invalidNoteKeys:sn.filter(function(k){return k.indexOf('runtime-occ-invalid-')>=0})
+            };
+          })()"""
+          state=None; deadline=time.monotonic()+60
+          while time.monotonic()<deadline and state is None:
+              port=None; ws=None; row={'timestamp':time.time()}
+              try:
+                  p=pid(); row['pid']=p
+                  if not p: row['error']='process missing'; samples.append(row); break
+                  q=run('forward','tcp:0',f'localabstract:webview_devtools_remote_{p}',t=15)
+                  m=re.search(r'(\d+)',(q.stdout or '').strip())
+                  if q.returncode or not m: row['error']='forward failed'; row['stderr']=q.stderr; samples.append(row); time.sleep(1); continue
+                  port=int(m.group(1)); row['port']=port
+                  li=http_json(port,'/json/list'); row['jsonList']={k:v for k,v in li.items() if k!='data'}
+                  t=choose(li.get('data')) if li.get('ok') else None
+                  if not t: row['error']='target missing'; samples.append(row); time.sleep(1); continue
+                  row['target']={k:t.get(k) for k in ('id','type','url','title','webSocketDebuggerUrl')}
+                  ws=websocket.create_connection(mapped_ws(t,port),timeout=5)
+                  ws.settimeout(5); ws.send(json.dumps({'id':1,'method':'Runtime.enable','params':{}}))
+                  while True:
+                      z=json.loads(ws.recv())
+                      if z.get('id')==1: break
+                  ws.send(json.dumps({'id':2,'method':'Runtime.evaluate','params':{'expression':expr,'returnByValue':True,'awaitPromise':False}}))
+                  while True:
+                      z=json.loads(ws.recv())
+                      if z.get('id')==2: break
+                  rr=z.get('result') or {}
+                  if z.get('error') or rr.get('exceptionDetails'): row['error']='evaluation failure'; row['response']=z
+                  else:
+                      state=(rr.get('result') or {}).get('value'); row['state']=state
+                  samples.append(row)
+              except Exception as e:
+                  row['exception']=repr(e); samples.append(row)
+              finally:
+                  try:
+                      if ws: ws.close()
+                  except Exception: pass
+                  if port is not None: run('forward','--remove',f'tcp:{port}',t=10)
+              if state is None: time.sleep(1)
+
+          (A/'pre-restart-read-samples.json').write_text(json.dumps(samples,indent=2),encoding='utf-8')
+          if state is None:
+              out={'attempt':N,'case':'PRE_RESTART_READ_INFRASTRUCTURE','classification':'INCONCLUSIVE — PRE-RESTART CDP VERIFICATION INFRASTRUCTURE','firstFailingLayer':'pre-restart read-only verification','samples':samples}
+              (A/'api26-v2-attempt-result.json').write_text(json.dumps(out,indent=2),encoding='utf-8'); (A/'pre-restart-stop').write_text('1'); print(json.dumps(out,indent=2)); raise SystemExit(0)
+
+          ok=(state.get('c1id') and state.get('realId') and
+              isinstance(state.get('c1'),dict) and state['c1'].get('status')=='entered' and state['c1'].get('note')=='canonical-runtime-note' and state['c1'].get('actualMinutes')==23 and state['c1'].get('countOverride') is False and
+              isinstance(state.get('c2'),dict) and state['c2'].get('status')=='entered' and state['c2'].get('note')=='real-runtime-note' and
+              state.get('invalidRecordKeys')==[] and state.get('invalidScheduleKeys')==[] and state.get('invalidStateKeys')==[] and state.get('invalidNoteKeys')==[])
+          if not ok:
+              proven=setup.get('status') in ('COMPLETED','SEMANTIC_EXCEPTION')
+              out={
+                'attempt':N,
+                'case':'PRE_RESTART_SEMANTIC_FAILURE' if proven else 'PRE_RESTART_SETUP_UNPROVEN',
+                'classification':'Production Bug' if proven else 'INCONCLUSIVE — PRE-RESTART ONE-SHOT SETUP RESPONSE LOST / STATE INCOMPLETE',
+                'firstFailingLayer':'pre-restart semantic assertion' if proven else 'pre-restart one-shot setup / read-only verification',
+                'preRestartState':state,
+                'oneShotSetupStatus':setup
+              }
+              (A/'api26-v2-attempt-result.json').write_text(json.dumps(out,indent=2),encoding='utf-8'); (A/'pre-restart-stop').write_text('1'); print(json.dumps(out,indent=2)); raise SystemExit(0)
+
+          pre={
+            'pass':True,
+            'oneShotSetupStatus':setup,
+            'mutationRepeated':False,
+            'preRestartStages':{
+              'C1-A':{'projectionId':state['c1id']},
+              'C1-D':state['c1'],
+              'C2-A':{'recordId':state['realId'],'status':state['c2']['status'],'note':state['c2']['note']},
+              'C2-B':{'scheduleExists':False,'recordExists':False,'sessionStateExists':False,'sessionNotesExists':False},
+              'C2-D':{'scheduleExists':False,'recordExists':False,'mirrorState':None,'mirrorNote':None},
+              'COMMIT':{'c1Status':state['c1']['status'],'realStatus':state['c2']['status'],'invalidWeekdayRecord':False,'invalidPhaseRecord':False}
+            },
+            'independentReadOnlyState':state
+          }
+          (A/'pre-restart-semantic.json').write_text(json.dumps(pre,indent=2),encoding='utf-8')
+          print('PRE-RESTART PHASE 1C SEMANTIC STATE PASS')
+          PY
+
+          REAL_ADB="$REAL_ADB" MIAAD_ATTEMPT="$MIAAD_ATTEMPT" python3 "$RUNNER_TEMP/pre_restart_read.py" | tee audit/pre-restart-read.txt
+          if [ -f audit/pre-restart-stop ]; then exit 0; fi
+          REAL_ADB="$REAL_ADB" MIAAD_ATTEMPT="$MIAAD_ATTEMPT" python3 "$RUNNER_TEMP/api26_devtools_restart_v2.py" | tee audit/v2-console.txt
+          test -s audit/api26-v2-attempt-result.json
+          BASH
+          chmod +x /tmp/miaad-api26-devtools-v2.sh
+          bash -n /tmp/miaad-api26-devtools-v2.sh
+      - name: Run fresh API26 V2 attempt ${{ matrix.attempt }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 26
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: bash /tmp/miaad-api26-devtools-v2.sh
+      - name: Summarize attempt
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -s audit/api26-v2-attempt-result.json ]; then jq . audit/api26-v2-attempt-result.json | tee audit/attempt-summary.txt; else printf '{"attempt":%s,"classification":"INCONCLUSIVE — EVIDENCE REQUIRED","reason":"result missing"}\n' "$MIAAD_ATTEMPT" | tee audit/api26-v2-attempt-result.json audit/attempt-summary.txt; fi
+      - name: Upload attempt evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-api26-devtools-restart-diagnostic-v2-attempt-${{ matrix.attempt }}
+          path: audit/
+          if-no-files-found: error
+          retention-days: 30
+
+  classify:
+    name: Classify API26 DevTools restart diagnostic V2
+    if: always()
+    needs: [preflight, api26-attempt]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: miaad-phase-1c-api26-devtools-restart-diagnostic-v2-attempt-*
+          path: attempt-artifacts
+      - name: Cross-attempt classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob,json
+          from pathlib import Path
+          rs=[json.loads(Path(p).read_text()) for p in glob.glob('attempt-artifacts/**/api26-v2-attempt-result.json',recursive=True)];rs.sort(key=lambda x:x.get('attempt',0))
+          product=[r for r in rs if r.get('classification') in ('Production Bug','Production / Android Runtime Bug')]
+          full=[r for r in rs if r.get('classification')=='FULL PASS']
+          def infra(r):
+              s=str(r.get('classification','')).upper()
+              return any(x in s for x in ('INFRASTRUCTURE','STALL','FLAKE','TARGET CHURN'))
+          if len(rs)==3 and len(full)==3:opening='PHASE 1C API26 POST-RESTART DIAGNOSTIC PASS — HISTORICAL FAILURE NOT REPRODUCED — NO CANDIDATE MUTATION';final='TEST / RUNTIME VERIFICATION HARNESS — historical post-restart failure not reproduced'
+          elif product:opening='PHASE 1C API26 POST-RESTART PRODUCT ISSUE CONFIRMED — NO CANDIDATE MUTATION';final='Production Bug'
+          elif len(rs)==3 and all(infra(r) or r in full for r in rs):opening='PHASE 1C API26 POST-RESTART DEVTOOLS INFRASTRUCTURE CONFIRMED — NO CANDIDATE MUTATION';final='ANDROID API26 DEVTOOLS / RUNTIME VERIFICATION INFRASTRUCTURE'
+          else:opening='PHASE 1C API26 POST-RESTART DIAGNOSIS INCONCLUSIVE — NO CANDIDATE MUTATION';final='INCONCLUSIVE — EVIDENCE REQUIRED'
+          out={'opening':opening,'finalRootCauseClass':final,'attempts':rs};Path('v2-final-classification.json').write_text(json.dumps(out,indent=2));print(opening);print('FINAL ROOT-CAUSE CLASS = '+final)
+          for r in rs:print('ATTEMPT',r.get('attempt'),'case=',r.get('case'),'classification=',r.get('classification'),'firstLayer=',r.get('firstFailingLayer'),'semantic=',(r.get('semanticState') or {}).get('pass'))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-api26-devtools-restart-diagnostic-v2-classification
+          path: v2-final-classification.json
+
+  post-run-immutability:
+    name: Post-run immutability V2
+    if: always()
+    needs: [api26-attempt]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove frozen refs unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          check(){ ref="$1"; expected="$2"; got="$(git ls-remote origin "refs/heads/$ref" | awk '{print $1}')"; test "$got" = "$expected"; }
+          check miaad/phase-1c-occurrence-authority-candidate "$CANDIDATE_SHA"
+          check miaad/phase-1-correctness "$OFFICIAL_SHA"
+          check main "$MAIN_SHA"
+          check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r1 "$V1R6R1_SHA"
+          check miaad/phase-1c-occurrence-authority-api26-runtime-diagnostic-v1 "$HISTORICAL_DIAG_V1_SHA"
+          echo 'POST-RUN IMMUTABILITY PASS'
