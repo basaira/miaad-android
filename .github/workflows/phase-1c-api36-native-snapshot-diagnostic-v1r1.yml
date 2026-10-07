@@ -1,0 +1,1254 @@
+name: Phase 1C API36 Native Snapshot Restart Diagnostic V1R1
+
+on:
+  push:
+    branches:
+      - 'miaad/phase-1c-occurrence-authority-api36-native-snapshot-diagnostic-v1r1'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CANDIDATE_SHA: 6a3b367e4f0a9d007846452b9343733ff3adf086
+  CANDIDATE_TREE: 92558e4b3859baf71c3eaec4de26d1436e921eec
+  OFFICIAL_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  MAIN_SHA: 16477b29106d59d0e1fe7d4e99c63b55d6d97327
+  V1R6R2_SHA: 36a6683de26f014f952afb1a1249198c4d7bf124
+  V1R6R2_TREE: 823594c8335d4c09bc6e137a85de7cf81787779a
+  V1R6R2_RUN: '37239237458'
+  API26_V3_SHA: 4ddd852e611a920a360e81265b7c3c1535601e10
+  API26_V3_TREE: 7bd3fb801a7b112cc41b1170b4d4392dd508b2d9
+  HISTORICAL_API36_V1_SHA: bdbda0d4f470379aa2c777af0314f7614d516f97
+  HISTORICAL_API36_V1_TREE: e0143043132ace5dc110efd66b6224b0493c43cb
+  HISTORICAL_API36_V1_RUN: '37383053485'
+  HISTORICAL_ARTIFACT_ID: '11317180213'
+  HISTORICAL_ARTIFACT_NAME: miaad-phase-1c-occurrence-authority-v1r6r2-apk
+  HISTORICAL_ARTIFACT_DIGEST: sha256:72323681d80fc5acfe906bb195f4d7de1ff0f8464227bf23ec58a8bacfe79508
+  RAW_APK_SHA256: 6a1a7bc7709f7d890a3998e69ef49b2618e2b0fa4bb69431cf22ddc22aeb9052
+  RAW_APK_SIZE: '12821115'
+  PACKAGE: com.miaad.app
+  ACTIVITY: com.miaad.app/.MainActivity
+  PREFS_PATH: /data/data/com.miaad.app/shared_prefs/miaad_native_v1.xml
+  WORKFLOW_PATH: .github/workflows/phase-1c-api36-native-snapshot-diagnostic-v1r1.yml
+
+jobs:
+  preflight:
+    name: Frozen identity and exact V1R6R2 APK preflight V1R1
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout V1R1
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove workflow-only topology and frozen refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          git diff --name-only "$CANDIDATE_SHA" HEAD | tee /tmp/v1-paths.txt
+          test "$(wc -l < /tmp/v1-paths.txt)" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" /tmp/v1-paths.txt
+          check(){ ref="$1"; expected="$2"; got="$(git ls-remote origin "refs/heads/$ref" | awk '{print $1}')"; test "$got" = "$expected"; echo "$ref=$got"; }
+          check miaad/phase-1c-occurrence-authority-candidate "$CANDIDATE_SHA"
+          check miaad/phase-1-correctness "$OFFICIAL_SHA"
+          check main "$MAIN_SHA"
+          check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r2 "$V1R6R2_SHA"
+          check miaad/phase-1c-occurrence-authority-api26-native-snapshot-diagnostic-v3 "$API26_V3_SHA"
+          check miaad/phase-1c-occurrence-authority-api36-native-snapshot-diagnostic-v1 "$HISTORICAL_API36_V1_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$HISTORICAL_API36_V1_SHA" --jq .tree.sha)" = "$HISTORICAL_API36_V1_TREE"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$HISTORICAL_API36_V1_RUN" --jq .head_sha)" = "$HISTORICAL_API36_V1_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$V1R6R2_SHA" --jq .tree.sha)" = "$V1R6R2_TREE"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$V1R6R2_RUN" --jq .head_sha)" = "$V1R6R2_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$API26_V3_SHA" --jq .tree.sha)" = "$API26_V3_TREE"
+          grep -Fq "var unrelatedId='diag-unrelated-recurring'" "$WORKFLOW_PATH"
+          grep -Fq "INITIAL STARTUP SIGNALS INCOMPLETE — REQUIRED GATE FAILED" "$WORKFLOW_PATH"
+          grep -Fq "OLD PROCESS DID NOT DISAPPEAR — REQUIRED RESTART GATE FAILED" "$WORKFLOW_PATH"
+          grep -Fq "ANR in com\\.miaad\\.app" "$WORKFLOW_PATH"
+          grep -Fq "MIAAD_API_LEVEL=36 python3 scripts/emulator_acceptance.py" "$WORKFLOW_PATH"
+          grep -Fq "Native installed-APK UI + data acceptance on API 36: PASS" "$WORKFLOW_PATH"
+          grep -Fq "API36 NATIVE SNAPSHOT PRE-RESTART SEMANTIC STATE PASS" "$WORKFLOW_PATH"
+          grep -Fq "DEVTOOLS RESPONSE LOSS — ACTION COMPLETED" "$WORKFLOW_PATH"
+          grep -Fq "API36 AUTHORITATIVE NATIVE SNAPSHOT RUNTIME PASS: 2/2" "$WORKFLOW_PATH"
+          grep -Fq "DEVTOOLS/CDP RESPONSE DELIVERY EXCLUDED FROM API36 RELEASE SEMANTIC GATE" "$WORKFLOW_PATH"
+          grep -Fq "ANDROID RUNTIME VERIFICATION INFRASTRUCTURE" "$WORKFLOW_PATH"
+          grep -Fq "android.permission.POST_NOTIFICATIONS" "$WORKFLOW_PATH"
+          grep -Fq "API36 POST_NOTIFICATIONS TEST PERMISSION GRANTED" "$WORKFLOW_PATH"
+          grep -Fq "RUNTIME TEST ENVIRONMENT / PERMISSION HARNESS FAILURE" "$WORKFLOW_PATH"
+          grep -Fq "GrantPermissionsActivity" "$WORKFLOW_PATH"
+          grep -Fq "API36 PROCESS RESTART HARNESS PASS" "$WORKFLOW_PATH"
+          grep -Fq "API36 NATIVE SNAPSHOT RESTART ATTEMPT PASS" "$WORKFLOW_PATH"
+          grep -Fq "TEST / RUNTIME HARNESS DEFECT CLOSED" "$WORKFLOW_PATH"
+          grep -Fq "PHASE 1C API36 NATIVE SNAPSHOT RESTART DIAGNOSTIC V1R1 PASS — NOTIFICATION-PERMISSION HARNESS DEFECT CLOSED — NO CANDIDATE MUTATION" "$WORKFLOW_PATH"
+          grep -Fq "PHASE 1C API36 RUNTIME PERMISSION HARNESS STILL BLOCKED — NO CANDIDATE MUTATION" "$WORKFLOW_PATH"
+          grep -Fq "PHASE 1C API36 RESTART PRODUCT ISSUE CONFIRMED — NO CANDIDATE MUTATION" "$WORKFLOW_PATH"
+          echo 'API36 V1R1 WORKFLOW CONTRACT MARKERS PASS'
+          echo 'V1R1 FROZEN REF PREFLIGHT PASS'
+
+      - name: Verify exact V1R6R2 artifact metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$HISTORICAL_ARTIFACT_ID" > /tmp/artifact-meta.json
+          test "$(jq -r .name /tmp/artifact-meta.json)" = "$HISTORICAL_ARTIFACT_NAME"
+          test "$(jq -r .digest /tmp/artifact-meta.json)" = "$HISTORICAL_ARTIFACT_DIGEST"
+          jq '{id,name,digest,size_in_bytes}' /tmp/artifact-meta.json
+
+      - name: Download exact historical V1R6R2 APK
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.HISTORICAL_ARTIFACT_NAME }}
+          path: historical-apk
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '37239237458'
+
+      - name: Verify raw APK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f historical-apk/app-debug.apk
+          sha="$(sha256sum historical-apk/app-debug.apk | awk '{print $1}')"
+          size="$(stat -c '%s' historical-apk/app-debug.apk)"
+          echo "raw_apk_sha256=$sha"
+          echo "raw_apk_size=$size"
+          test "$sha" = "$RAW_APK_SHA256"
+          test "$size" = "$RAW_APK_SIZE"
+          echo 'V1R6R2 RAW APK IDENTITY PASS'
+
+  api36-attempt:
+    name: API36 native snapshot diagnostic attempt ${{ matrix.attempt }}
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1, 2]
+    env:
+      MIAAD_ATTEMPT: ${{ matrix.attempt }}
+    steps:
+      - name: Checkout V1R1
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Assert workflow-only identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+          git diff --name-only "$CANDIDATE_SHA" HEAD > audit/diagnostic-paths.txt
+          test "$(wc -l < audit/diagnostic-paths.txt)" -eq 1
+          grep -Fxq "$WORKFLOW_PATH" audit/diagnostic-paths.txt
+
+      - name: Install one-shot transport dependency
+        shell: bash
+        run: python3 -m pip install websocket-client==1.8.0
+
+      - name: Download exact historical V1R6R2 APK
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.HISTORICAL_ARTIFACT_NAME }}
+          path: historical-apk
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: '37239237458'
+
+      - name: Reverify exact APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(sha256sum historical-apk/app-debug.apk | awk '{print $1}')"
+          size="$(stat -c '%s' historical-apk/app-debug.apk)"
+          printf 'artifact_id=%s\nartifact_name=%s\nartifact_zip_digest=%s\nraw_apk_sha256=%s\nraw_apk_size=%s\npackage=%s\nversionName=%s\nversionCode=%s\n'             "$HISTORICAL_ARTIFACT_ID" "$HISTORICAL_ARTIFACT_NAME" "$HISTORICAL_ARTIFACT_DIGEST"             "$sha" "$size" "$PACKAGE" '1.2.0' '5' | tee audit/apk-identity.txt
+          test "$sha" = "$RAW_APK_SHA256"
+          test "$size" = "$RAW_APK_SIZE"
+
+      - name: Build one-shot fire-and-observe setup probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/v1_one_shot_setup.py" <<'PY'
+          import json, os, re, subprocess, time, urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib.parse import urlparse
+          import websocket
+
+          AUDIT=Path("audit")
+          AUDIT.mkdir(exist_ok=True)
+          PACKAGE="com.miaad.app"
+          ATTEMPT=int(os.environ["MIAAD_ATTEMPT"])
+
+          SETUP_EXPR=r"""
+          (function(){
+            function req(v,m){if(!v)throw new Error(m);}
+            function setInput(id,value){
+              var el=document.getElementById(id);
+              req(el,'missing input '+id);
+              el.value=String(value);
+              el.dispatchEvent(new Event('input',{bubbles:true}));
+              el.dispatchEvent(new Event('change',{bubbles:true}));
+              return el;
+            }
+            function clickState(state){
+              var b=document.querySelector('#sessionStatePicker button[data-state="'+state+'"]');
+              req(b&&!b.disabled,'state control unavailable: '+state);
+              b.click();
+            }
+            function upsertLesson(saved){
+              lessons=lessons.filter(function(x){return x.id!==saved.id;});
+              lessons.push(saved);
+            }
+            req(typeof domain!=='undefined','domain missing');
+            req(typeof openSheetWithContext==='function','openSheetWithContext missing');
+            req(typeof domainCommit==='function','domainCommit missing');
+            var today=domain.teacherNow().date;
+            var weekday=domain.weekdayForDate(today);
+            var sid='occ-authority-runtime';
+            if(!domain.data.students[sid]){
+              domain.saveStudent({id:sid,name:'Occurrence authority runtime',startDate:domain.plus(today,-30),custom:false,settings:{}});
+            }
+
+            var c1id='runtime-occ-c1';
+            domain.data.schedules[c1id]=[];
+            lessons=lessons.filter(function(x){return x.id!==c1id;});
+            var c1=domain.saveSchedule({id:c1id,studentId:sid,name:domain.data.students[sid].name,day:weekday,start:'10:00',duration:30,repeat:'weekly',reminder:20},today);
+            upsertLesson(c1);
+            var c1row=domain.resolveScheduleOccurrence(c1id,today);
+            req(c1row,'C1 projection missing');
+            domain.record(Object.assign({},c1row,{status:'entered',note:'canonical-runtime-note',actualMinutes:23,countOverride:false}));
+            sessionState[c1row.id]='absent';
+            sessionNotes[c1row.id]='stale-runtime-note';
+            saveLocalState();
+
+            var realSchedule=domain.saveSchedule({id:'runtime-occ-real',studentId:sid,name:domain.data.students[sid].name,day:weekday,start:'20:00',duration:30,repeat:'weekly',reminder:20},today);
+            upsertLesson(realSchedule);
+            var realRow=domain.resolveScheduleOccurrence('runtime-occ-real',today);
+            req(realRow,'C2 real projection missing');
+            domain.record(Object.assign({},realRow,{status:'entered',note:'real-runtime-note'}));
+
+            openSheetWithContext(null,domain.parse(today),'calendar');
+            document.getElementById('editId').value='runtime-occ-invalid-weekday';
+            setInput('fName','Occurrence invalid weekday');
+            setInput('fDay',(weekday+1)%7);
+            setInput('fStart','21:00');
+            setInput('fDuration','30');
+            setInput('fRepeat','weekly');
+            clickState('entered');
+            document.getElementById('saveLesson').click();
+            closeSheet(true);
+
+            var offPhaseDate='';
+            try{
+              domain.atomic(function(){
+                domain.saveSchedule({id:'runtime-occ-phase-probe',studentId:sid,name:domain.data.students[sid].name,day:weekday,start:'22:00',duration:30,repeat:'biweekly',phase:0},today);
+                var a=domain.plus(today,7),b=domain.plus(today,14);
+                offPhaseDate=domain.resolveScheduleOccurrence('runtime-occ-phase-probe',a)?b:a;
+                throw new Error('__ROLLBACK_PHASE_PROBE__');
+              });
+            }catch(error){
+              if(error.message!=='__ROLLBACK_PHASE_PROBE__')throw error;
+            }
+            req(offPhaseDate&&domain.weekdayForDate(offPhaseDate)===weekday,'off-phase date not derived');
+            openSheetWithContext(null,domain.parse(offPhaseDate),'calendar');
+            document.getElementById('editId').value='runtime-occ-invalid-phase';
+            setInput('fName','Occurrence invalid phase');
+            setInput('fDay',weekday);
+            setInput('fStart','22:00');
+            setInput('fDuration','30');
+            setInput('fRepeat','biweekly');
+            setInput('fSessionNote','must-not-survive');
+            clickState('entered');
+            document.getElementById('saveLesson').click();
+            closeSheet(true);
+
+            var unrelatedId='diag-unrelated-recurring';
+            domain.data.schedules[unrelatedId]=[];
+            lessons=lessons.filter(function(x){return x.id!==unrelatedId;});
+            var unrelated=domain.saveSchedule({id:unrelatedId,studentId:sid,name:domain.data.students[sid].name,day:weekday,start:'23:00',duration:30,repeat:'weekly',reminder:10},today);
+            upsertLesson(unrelated);
+            var unrelatedEdited=domain.saveSchedule(Object.assign({},unrelated,{reminder:30}),today);
+            upsertLesson(unrelatedEdited);
+
+            domainCommit();
+            var c1after=Object.values(domain.data.records).filter(function(r){return !r.deleted&&r.scheduleId===c1id;})[0]||null;
+            var realafter=Object.values(domain.data.records).filter(function(r){return !r.deleted&&r.scheduleId==='runtime-occ-real';})[0]||null;
+            return {
+              setupFinished:true,
+              today:today,
+              invalidPhaseDate:offPhaseDate,
+              c1Id:c1after&&c1after.id,
+              realId:realafter&&realafter.id
+            };
+          })()
+          """
+
+          def run(*args, check=False, timeout=20):
+              p=subprocess.run(["adb",*args],text=True,capture_output=True,timeout=timeout)
+              if check and p.returncode:
+                  raise RuntimeError("adb failed: "+" ".join(args)+"\n"+p.stdout+"\n"+p.stderr)
+              return p
+
+          def pid():
+              p=run("shell","pidof",PACKAGE,timeout=8)
+              s=(p.stdout or "").strip().replace("\r","")
+              return s.split()[0] if p.returncode==0 and s else None
+
+          def discover():
+              deadline=time.monotonic()+30
+              last=None
+              while time.monotonic()<deadline:
+                  p=pid()
+                  if not p:
+                      last="process missing"
+                      time.sleep(.5)
+                      continue
+                  try:
+                      q=run("forward","tcp:0","localabstract:webview_devtools_remote_"+p,check=True,timeout=10)
+                      port=int((q.stdout or "").strip())
+                      data=json.load(urllib.request.urlopen("http://127.0.0.1:%d/json/list"%port,timeout=3))
+                      pages=[x for x in data if x.get("type")=="page" and x.get("webSocketDebuggerUrl")]
+                      target=next((x for x in pages if "android_asset" in (x.get("url") or "")),pages[0] if pages else None)
+                      if target:
+                          return p,port,target
+                      run("forward","--remove","tcp:%d"%port,timeout=5)
+                      last="no page target"
+                  except Exception as e:
+                      last=repr(e)
+                  time.sleep(.8)
+              raise RuntimeError("DevTools setup discovery unavailable: "+str(last))
+
+          status={
+              "attempt":ATTEMPT,
+              "commandCount":0,
+              "dispatchSucceeded":False,
+              "responseReceived":False,
+              "nonmatchingMessageCount":0,
+              "startedAt":datetime.now(timezone.utc).isoformat()
+          }
+          port=None
+          ws=None
+          try:
+              p,port,target=discover()
+              status["pid"]=p
+              status["localPort"]=port
+              status["target"]={k:target.get(k) for k in ("id","type","url","title","webSocketDebuggerUrl")}
+              parsed=urlparse(target["webSocketDebuggerUrl"])
+              wsurl="ws://127.0.0.1:%d%s"%(port,parsed.path)
+              if parsed.query:
+                  wsurl+="?"+parsed.query
+              ws=websocket.create_connection(wsurl,suppress_origin=True,timeout=8)
+              payload={"id":1,"method":"Runtime.evaluate","params":{"expression":SETUP_EXPR,"returnByValue":True,"awaitPromise":False}}
+              ws.send(json.dumps(payload))
+              status["commandCount"]=1
+              status["dispatchSucceeded"]=True
+              status["dispatchedAt"]=datetime.now(timezone.utc).isoformat()
+              deadline=time.monotonic()+8
+              while time.monotonic()<deadline:
+                  ws.settimeout(max(.1,deadline-time.monotonic()))
+                  try:
+                      msg=json.loads(ws.recv())
+                  except websocket.WebSocketTimeoutException:
+                      break
+                  if msg.get("id")==1:
+                      status["responseReceived"]=True
+                      status["response"]=msg
+                      break
+                  status["nonmatchingMessageCount"]+=1
+          except Exception as e:
+              status["transportError"]=repr(e)
+          finally:
+              if ws:
+                  try: ws.close()
+                  except Exception: pass
+              if port:
+                  try: run("forward","--remove","tcp:%d"%port,timeout=5)
+                  except Exception: pass
+              status["finishedAt"]=datetime.now(timezone.utc).isoformat()
+              AUDIT.joinpath("one-shot-cdp-status.json").write_text(json.dumps(status,indent=2),encoding="utf-8")
+              print(json.dumps(status,indent=2))
+              if status["commandCount"]>1:
+                  raise SystemExit("ONE-SHOT RULE VIOLATED")
+          PY
+          python3 -m py_compile "$RUNNER_TEMP/v1_one_shot_setup.py"
+
+      - name: Build native snapshot audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/v1_snapshot_audit.py" <<'PY'
+          import hashlib, json, os, subprocess, sys, time, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          AUDIT=Path("audit")
+          PACKAGE="com.miaad.app"
+          PREFS="/data/data/com.miaad.app/shared_prefs/miaad_native_v1.xml"
+
+          def adb(*args, timeout=15):
+              return subprocess.run(["adb",*args],capture_output=True,timeout=timeout)
+
+          def read_snapshot(label, poll=False):
+              deadline=time.monotonic()+(60 if poll else 1)
+              last=None
+              while True:
+                  p=adb("exec-out","cat",PREFS)
+                  if p.returncode==0 and p.stdout:
+                      raw=p.stdout
+                      try:
+                          root=ET.fromstring(raw)
+                          node=next((n for n in root.findall("string") if n.attrib.get("name")=="snapshot"),None)
+                          if node is not None and node.text:
+                              raw_json=node.text
+                              data=json.loads(raw_json)
+                              AUDIT.joinpath("miaad_native_v1-"+label+".xml").write_bytes(raw)
+                              AUDIT.joinpath("native-snapshot-"+label+".raw.json").write_text(raw_json,encoding="utf-8")
+                              AUDIT.joinpath("native-snapshot-"+label+".json").write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding="utf-8")
+                              return raw_json,data
+                      except Exception as e:
+                          last=repr(e)
+                  else:
+                      last=(p.stderr or b"").decode("utf-8","replace")
+                  if not poll or time.monotonic()>=deadline:
+                      raise RuntimeError("snapshot unavailable: "+str(last))
+                  time.sleep(1)
+
+          def latest_lesson(domain,sid):
+              versions=(domain.get("schedules") or {}).get(sid)
+              if not isinstance(versions,list) or not versions:
+                  return None
+              for v in reversed(versions):
+                  if isinstance(v,dict) and v.get("lesson") is not None:
+                      return v.get("lesson")
+              return None
+
+          def active_records(domain,sid):
+              return [r for r in (domain.get("records") or {}).values()
+                      if isinstance(r,dict) and not r.get("deleted") and r.get("scheduleId")==sid]
+
+          def invalid_mirror_keys(snapshot,suffix):
+              state=snapshot.get("sessionState") or {}
+              notes=snapshot.get("sessionNotes") or {}
+              return sorted([k for k in set(list(state.keys())+list(notes.keys())) if str(k).endswith("__"+suffix)])
+
+          def audit_snapshot(raw_json,snapshot,label):
+              domain=snapshot.get("domain") if isinstance(snapshot.get("domain"),dict) else {}
+              c1=active_records(domain,"runtime-occ-c1")
+              real=active_records(domain,"runtime-occ-real")
+              badw=active_records(domain,"runtime-occ-invalid-weekday")
+              badp=active_records(domain,"runtime-occ-invalid-phase")
+              c1r=c1[0] if len(c1)==1 else None
+              realr=real[0] if len(real)==1 else None
+              c1s=latest_lesson(domain,"runtime-occ-c1")
+              reals=latest_lesson(domain,"runtime-occ-real")
+              unrelated=latest_lesson(domain,"diag-unrelated-recurring")
+              badws=latest_lesson(domain,"runtime-occ-invalid-weekday")
+              badps=latest_lesson(domain,"runtime-occ-invalid-phase")
+              ss=snapshot.get("sessionState") or {}
+              sn=snapshot.get("sessionNotes") or {}
+              completion=bool(unrelated and unrelated.get("reminder")==30 and len(c1)==1 and len(real)==1 and reals)
+              checks={
+                "schemaVersion": snapshot.get("schemaVersion")==4,
+                "domainVersion": domain.get("version")==4,
+                "setupCompletionMarker": completion,
+                "c1ExactlyOne": len(c1)==1,
+                "c1Status": bool(c1r and c1r.get("status")=="entered"),
+                "c1Note": bool(c1r and c1r.get("note")=="canonical-runtime-note"),
+                "c1ActualMinutes": bool(c1r and c1r.get("actualMinutes")==23),
+                "c1CountOverride": bool(c1r and c1r.get("countOverride") is False),
+                "c1MirrorState": bool(c1r and ss.get(c1r.get("id"))=="entered"),
+                "c1MirrorNote": bool(c1r and sn.get(c1r.get("id"))=="canonical-runtime-note"),
+                "c1StaleDidNotWin": bool(c1r and ss.get(c1r.get("id"))!="absent" and sn.get(c1r.get("id"))!="stale-runtime-note"),
+                "c2RealExactlyOne": len(real)==1,
+                "c2RealStatus": bool(realr and realr.get("status")=="entered"),
+                "c2RealNote": bool(realr and realr.get("note")=="real-runtime-note"),
+                "invalidWeekdayNoRecord": len(badw)==0,
+                "invalidPhaseNoRecord": len(badp)==0,
+                "invalidWeekdayNoSchedule": badws is None,
+                "invalidPhaseNoSchedule": badps is None,
+                "invalidWeekdayNoMirrors": len(invalid_mirror_keys(snapshot,"runtime-occ-invalid-weekday"))==0,
+                "invalidPhaseNoMirrors": len(invalid_mirror_keys(snapshot,"runtime-occ-invalid-phase"))==0,
+                "c1Relationship": bool(c1r and c1s and c1r.get("studentId")==c1s.get("studentId") and c1r.get("scheduleId")=="runtime-occ-c1"),
+                "c2Relationship": bool(realr and reals and realr.get("studentId")==reals.get("studentId") and realr.get("scheduleId")=="runtime-occ-real")
+              }
+              semantic_pass=all(checks.values())
+              if semantic_pass:
+                  status="PASS"
+              elif completion:
+                  status="WRONG"
+              else:
+                  status="INCOMPLETE"
+              out={
+                  "label":label,
+                  "status":status,
+                  "checks":checks,
+                  "rawSnapshotSha256":hashlib.sha256(raw_json.encode()).hexdigest(),
+                  "updatedAt":snapshot.get("updatedAt"),
+                  "domainRecordCount":len(domain.get("records") or {}),
+                  "domainScheduleCount":len(domain.get("schedules") or {}),
+                  "c1Records":c1,
+                  "c2RealRecords":real,
+                  "invalidWeekdayRecords":badw,
+                  "invalidPhaseRecords":badp,
+                  "c1Schedule":c1s,
+                  "c2RealSchedule":reals,
+                  "invalidWeekdaySchedule":badws,
+                  "invalidPhaseSchedule":badps,
+                  "unrelatedRecurringSchedule":unrelated,
+                  "invalidWeekdayMirrorKeys":invalid_mirror_keys(snapshot,"runtime-occ-invalid-weekday"),
+                  "invalidPhaseMirrorKeys":invalid_mirror_keys(snapshot,"runtime-occ-invalid-phase")
+              }
+              if c1r:
+                  out["c1Mirrors"]={"state":ss.get(c1r.get("id")),"note":sn.get(c1r.get("id"))}
+              return out
+
+          def semantic_fingerprint(snapshot):
+              domain=snapshot.get("domain") or {}
+              def slim_record(sid):
+                  rs=active_records(domain,sid)
+                  if len(rs)!=1:return rs
+                  r=rs[0]
+                  return {k:r.get(k) for k in ("id","scheduleId","studentId","date","time","duration","status","note","actualMinutes","countOverride")}
+              def slim_schedule(sid):
+                  l=latest_lesson(domain,sid)
+                  return None if l is None else {k:l.get(k) for k in ("id","studentId","name","day","start","duration","maxDuration","repeat","phase","reminder")}
+              c1=slim_record("runtime-occ-c1")
+              real=slim_record("runtime-occ-real")
+              ss=snapshot.get("sessionState") or {}
+              sn=snapshot.get("sessionNotes") or {}
+              c1id=c1.get("id") if isinstance(c1,dict) else None
+              realid=real.get("id") if isinstance(real,dict) else None
+              return {
+                  "schemaVersion":snapshot.get("schemaVersion"),
+                  "domainVersion":domain.get("version"),
+                  "c1":c1,
+                  "c1Schedule":slim_schedule("runtime-occ-c1"),
+                  "c1Mirror":{"state":ss.get(c1id),"note":sn.get(c1id)} if c1id else None,
+                  "real":real,
+                  "realSchedule":slim_schedule("runtime-occ-real"),
+                  "realMirror":{"state":ss.get(realid),"note":sn.get(realid)} if realid else None,
+                  "invalidWeekday":{"records":active_records(domain,"runtime-occ-invalid-weekday"),"schedule":slim_schedule("runtime-occ-invalid-weekday"),"mirrors":invalid_mirror_keys(snapshot,"runtime-occ-invalid-weekday")},
+                  "invalidPhase":{"records":active_records(domain,"runtime-occ-invalid-phase"),"schedule":slim_schedule("runtime-occ-invalid-phase"),"mirrors":invalid_mirror_keys(snapshot,"runtime-occ-invalid-phase")}
+              }
+
+          def diff(a,b,path="$"):
+              out=[]
+              if type(a)!=type(b):
+                  return [{"path":path,"before":a,"after":b}]
+              if isinstance(a,dict):
+                  for k in sorted(set(a)|set(b)):
+                      if k not in a: out.append({"path":path+"."+k,"before":"<MISSING>","after":b[k]})
+                      elif k not in b: out.append({"path":path+"."+k,"before":a[k],"after":"<MISSING>"})
+                      else: out.extend(diff(a[k],b[k],path+"."+k))
+              elif isinstance(a,list):
+                  if a!=b: out.append({"path":path,"before":a,"after":b})
+              elif a!=b:
+                  out.append({"path":path,"before":a,"after":b})
+              return out
+
+          mode=sys.argv[1]
+          if mode=="pre":
+              try:
+                  raw,snap=read_snapshot("before-restart",poll=True)
+                  out=audit_snapshot(raw,snap,"before-restart")
+              except Exception as e:
+                  out={"label":"before-restart","status":"INCOMPLETE","error":repr(e),"checks":{"setupCompletionMarker":False}}
+              AUDIT.joinpath("pre-restart-semantic-audit.json").write_text(json.dumps(out,indent=2,ensure_ascii=False),encoding="utf-8")
+              ident=[
+                  "status="+str(out.get("status")),
+                  "raw_snapshot_sha256="+str(out.get("rawSnapshotSha256")),
+                  "updatedAt="+str(out.get("updatedAt")),
+                  "domain_record_count="+str(out.get("domainRecordCount")),
+                  "domain_schedule_count="+str(out.get("domainScheduleCount")),
+                  "c1_id="+str((out.get("c1Records") or [{}])[0].get("id") if out.get("c1Records") else None),
+                  "c2_real_id="+str((out.get("c2RealRecords") or [{}])[0].get("id") if out.get("c2RealRecords") else None)
+              ]
+              AUDIT.joinpath("pre-restart-native-snapshot-identity.txt").write_text("\n".join(ident)+"\n",encoding="utf-8")
+              print(json.dumps(out,indent=2,ensure_ascii=False))
+          elif mode=="post":
+              try:
+                  raw,snap=read_snapshot("after-restart",poll=False)
+                  out=audit_snapshot(raw,snap,"after-restart")
+              except Exception as e:
+                  out={"label":"after-restart","status":"INCOMPLETE","error":repr(e)}
+              AUDIT.joinpath("post-restart-semantic-audit.json").write_text(json.dumps(out,indent=2,ensure_ascii=False),encoding="utf-8")
+              print(json.dumps(out,indent=2,ensure_ascii=False))
+          elif mode=="compare":
+              pre=json.loads(AUDIT.joinpath("native-snapshot-before-restart.json").read_text())
+              post=json.loads(AUDIT.joinpath("native-snapshot-after-restart.json").read_text())
+              pre_raw=AUDIT.joinpath("native-snapshot-before-restart.raw.json").read_text()
+              post_raw=AUDIT.joinpath("native-snapshot-after-restart.raw.json").read_text()
+              fp1,fp2=semantic_fingerprint(pre),semantic_fingerprint(post)
+              changes=diff(fp1,fp2)
+              full_changes=diff(pre,post)
+              out={
+                  "rawHashBefore":hashlib.sha256(pre_raw.encode()).hexdigest(),
+                  "rawHashAfter":hashlib.sha256(post_raw.encode()).hexdigest(),
+                  "rawHashChanged":pre_raw!=post_raw,
+                  "updatedAtBefore":pre.get("updatedAt"),
+                  "updatedAtAfter":post.get("updatedAt"),
+                  "semanticEquivalent":len(changes)==0,
+                  "relevantSemanticDiff":changes,
+                  "fullJsonDiffIfHashChanged":full_changes if pre_raw!=post_raw else []
+              }
+              AUDIT.joinpath("semantic-diff.json").write_text(json.dumps(out,indent=2,ensure_ascii=False),encoding="utf-8")
+              print(json.dumps(out,indent=2,ensure_ascii=False))
+          else:
+              raise SystemExit("unknown mode")
+          PY
+          python3 -m py_compile "$RUNNER_TEMP/v1_snapshot_audit.py"
+
+      - name: Build attempt classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/v1r1_finalize_attempt.py" <<'PY'
+          import json, os
+          from pathlib import Path
+
+          A=Path("audit")
+          N=int(os.environ["MIAAD_ATTEMPT"])
+
+          def load(name,default=None):
+              p=A/name
+              return json.loads(p.read_text()) if p.exists() else default
+          def text_has(name,needle):
+              p=A/name
+              return p.exists() and needle in p.read_text(errors="replace")
+
+          setup=load("one-shot-cdp-status.json",{})
+          pre=load("pre-restart-semantic-audit.json",{"status":"INCOMPLETE"})
+          post=load("post-restart-semantic-audit.json",{"status":"NOT_RUN"})
+          semdiff=load("semantic-diff.json",{})
+          startup=load("post-restart-startup-and-logcat.json",{})
+          permission_failure=load("permission-harness-failure.json",None)
+          restart=load("restart-process.json",{})
+          response=bool(setup.get("responseReceived"))
+          dispatch=bool(setup.get("dispatchSucceeded"))
+          fatal=any(startup.get(k,0) for k in ("fatalExceptionCount","androidRuntimeFatalCount","anrCount","genuineMiaadWebErrorCount"))
+          signals=startup.get("startupSignals") or {}
+          all_signals=all(bool(signals.get(k)) for k in ("page-finished","first-frame-ready","content-ready"))
+          pre_failed=[k for k,v in (pre.get("checks") or {}).items() if v is False]
+          post_failed=[k for k,v in (post.get("checks") or {}).items() if v is False]
+          permission_initial=text_has("permission-initial-granted.txt","API36 POST_NOTIFICATIONS TEST PERMISSION GRANTED")
+          permission_phase1c=text_has("permission-phase1c-granted.txt","API36 POST_NOTIFICATIONS TEST PERMISSION GRANTED")
+          permission_prerestart=text_has("permission-pre-restart-granted.txt","API36 POST_NOTIFICATIONS TEST PERMISSION GRANTED")
+          general_acceptance=text_has("general-installed-apk-acceptance.txt","Native installed-APK UI + data acceptance on API 36: PASS")
+          process_restart=text_has("process-restart-pass.txt","API36 PROCESS RESTART HARNESS PASS")
+          raw_attempt_pass=text_has("attempt-pass.txt","API36 NATIVE SNAPSHOT RESTART ATTEMPT PASS")
+
+          if permission_failure:
+              case="PERMISSION_HARNESS_FAILURE"
+              classification="RUNTIME TEST ENVIRONMENT / PERMISSION HARNESS FAILURE"
+              reason=permission_failure.get("reason","PermissionController still obstructed the runtime test")
+          elif pre.get("status")=="WRONG":
+              case="D"; classification="Production Bug"; reason="pre-restart native state semantically wrong: "+", ".join(pre_failed)
+          elif not dispatch:
+              case="C"; classification="SETUP TRANSPORT FAILURE"; reason="one-shot mutation was not successfully dispatched; no product verdict"
+          elif pre.get("status")!="PASS":
+              case="C"; classification="SETUP INCOMPLETE"; reason="pre-restart native snapshot incomplete; no product verdict"
+          elif post.get("status")=="WRONG" or (post.get("status")=="PASS" and semdiff.get("semanticEquivalent") is False):
+              case="E"; classification="Production Bug — restart persistence"; reason="MainActivity restart completed but Phase 1C semantic state changed: "+", ".join(post_failed)
+          elif fatal:
+              case="F"; classification="Production / Android Runtime Bug"; reason="restarted installed app produced fatal/ANR/genuine MiaadWeb evidence"
+          elif post.get("status")!="PASS" or not all_signals or not restart.get("newPid") or restart.get("newPid")==restart.get("oldPid"):
+              case="RUNTIME_INFRA"; classification="ANDROID RUNTIME VERIFICATION INFRASTRUCTURE"; reason="post-restart runtime evidence incomplete without a proven semantic contradiction"
+          else:
+              case="B" if response else "A"
+              classification="API36 NATIVE SNAPSHOT RUNTIME PASS" if response else "API36 DEVTOOLS RESPONSE LOSS / VERIFICATION INFRASTRUCTURE"
+              reason="native snapshot restart semantics passed; CDP response was "+("received" if response else "not required")
+
+          attempt_pass=(
+              classification in ("API36 NATIVE SNAPSHOT RUNTIME PASS","API36 DEVTOOLS RESPONSE LOSS / VERIFICATION INFRASTRUCTURE")
+              and permission_initial and permission_phase1c and permission_prerestart
+              and general_acceptance and process_restart and raw_attempt_pass
+              and pre.get("status")=="PASS" and post.get("status")=="PASS"
+              and semdiff.get("semanticEquivalent") is True and all_signals and not fatal
+          )
+          out={
+              "attempt":N,
+              "case":case,
+              "classification":classification,
+              "reason":reason,
+              "attemptPass":attempt_pass,
+              "permission":{"initialGranted":permission_initial,"phase1cGranted":permission_phase1c,"preRestartGranted":permission_prerestart},
+              "generalInstalledApkAcceptancePass":general_acceptance,
+              "cdp":{"commandCount":setup.get("commandCount"),"dispatchSucceeded":dispatch,"responseReceived":response,"transportError":setup.get("transportError")},
+              "preRestartStatus":pre.get("status"),
+              "postRestartStatus":post.get("status"),
+              "semanticEquivalent":semdiff.get("semanticEquivalent"),
+              "restartProcess":restart,
+              "startupSignals":signals,
+              "fatalClassification":{k:startup.get(k) for k in ("fatalExceptionCount","androidRuntimeFatalCount","anrCount","genuineMiaadWebErrorCount","benignVibrationWarningCount")},
+              "c1":post.get("c1Records") or pre.get("c1Records") or [],
+              "c2Real":post.get("c2RealRecords") or pre.get("c2RealRecords") or [],
+              "invalidWeekdayRecords":post.get("invalidWeekdayRecords",pre.get("invalidWeekdayRecords")),
+              "invalidPhaseRecords":post.get("invalidPhaseRecords",pre.get("invalidPhaseRecords")),
+              "unrelatedRecurringSchedule":post.get("unrelatedRecurringSchedule",pre.get("unrelatedRecurringSchedule")),
+              "preRestartRawSnapshotSha256":pre.get("rawSnapshotSha256"),
+              "postRestartRawSnapshotSha256":post.get("rawSnapshotSha256")
+          }
+          A.joinpath("attempt-classification.json").write_text(json.dumps(out,indent=2,ensure_ascii=False),encoding="utf-8")
+          print(json.dumps(out,indent=2,ensure_ascii=False))
+          if pre.get("status")=="PASS":
+              print("API36 NATIVE SNAPSHOT PRE-RESTART SEMANTIC STATE PASS")
+          if process_restart:
+              print("API36 PROCESS RESTART HARNESS PASS")
+          if attempt_pass:
+              print("API36 NATIVE SNAPSHOT RESTART ATTEMPT PASS")
+          PY
+          python3 -m py_compile "$RUNNER_TEMP/v1r1_finalize_attempt.py"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - name: Ensure platform tools and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager 'platform-tools'
+          adb version
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Prepare V1R1 runtime script
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/miaad-api36-native-snapshot-v1r1.sh <<'BASH'
+          #!/usr/bin/env bash
+          set -uo pipefail
+          mkdir -p audit
+          APK="$GITHUB_WORKSPACE/historical-apk/app-debug.apk"
+          PERM="android.permission.POST_NOTIFICATIONS"
+
+          wait_startup(){
+            out="$1"
+            ok=0
+            for n in $(seq 1 90); do
+              adb logcat -d -s MiaadStartup:I '*:S' > "$out" 2>/dev/null || true
+              if grep -q 'page-finished' "$out" && grep -q 'first-frame-ready' "$out" && grep -q 'content-ready' "$out"; then ok=1; break; fi
+              sleep 1
+            done
+            return $((1-ok))
+          }
+
+          snapshot_screen(){
+            name="$1"
+            adb exec-out screencap -p > "audit/$name.png" 2>/dev/null || true
+          }
+
+          dump_ui(){
+            name="$1"
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+            adb exec-out cat /sdcard/window.xml > "audit/$name.xml" 2>/dev/null || true
+          }
+
+          capture_activity(){
+            name="$1"
+            adb shell dumpsys activity activities > "audit/activity-$name.txt" 2>&1 || true
+            adb shell dumpsys window > "audit/window-$name.txt" 2>&1 || true
+            {
+              grep -E 'mResumedActivity|topResumedActivity|ResumedActivity' "audit/activity-$name.txt" || true
+              grep -E 'mCurrentFocus|mFocusedApp' "audit/window-$name.txt" || true
+            } > "audit/activity-summary-$name.txt"
+          }
+
+          permission_controller_active(){
+            name="$1"
+            grep -Eiq 'GrantPermissionsActivity|com\.google\.android\.permissioncontroller|com\.android\.permissioncontroller' "audit/activity-summary-$name.txt"
+          }
+
+          main_activity_present(){
+            name="$1"
+            grep -Eq 'com\.miaad\.app/(\.MainActivity|com\.miaad\.app\.MainActivity)' "audit/activity-$name.txt"
+          }
+
+          write_permission_failure(){
+            stage="$1"
+            reason="$2"
+            STAGE="$stage" REASON="$reason" python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          out={
+            "attempt":int(os.environ["MIAAD_ATTEMPT"]),
+            "case":"PERMISSION_HARNESS_FAILURE",
+            "classification":"RUNTIME TEST ENVIRONMENT / PERMISSION HARNESS FAILURE",
+            "stage":os.environ["STAGE"],
+            "reason":os.environ["REASON"]
+          }
+          Path("audit/permission-harness-failure.json").write_text(json.dumps(out,indent=2))
+          Path("audit/attempt-classification.json").write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+          }
+
+          verify_permission(){
+            label="$1"
+            adb shell cmd package check-permission "$PERM" "$PACKAGE" 0 > "audit/permission-check-$label.txt" 2>&1 || true
+            adb shell dumpsys package "$PACKAGE" > "audit/package-$label.txt" 2>&1 || true
+            if grep -Eiq '^granted$|permission granted|granted=true' "audit/permission-check-$label.txt" || grep -Fq 'android.permission.POST_NOTIFICATIONS: granted=true' "audit/package-$label.txt"; then
+              echo 'API36 POST_NOTIFICATIONS TEST PERMISSION GRANTED' | tee "audit/permission-$label-granted.txt"
+              return 0
+            fi
+            echo 'POST_NOTIFICATIONS NOT GRANTED' | tee "audit/permission-$label-failed.txt"
+            return 1
+          }
+
+          grant_permission(){
+            label="$1"
+            adb shell pm grant "$PACKAGE" "$PERM" > "audit/permission-grant-$label.txt" 2>&1 || true
+            verify_permission "$label"
+          }
+
+          sha="$(sha256sum "$APK" | awk '{print $1}')"
+          size="$(stat -c '%s' "$APK")"
+          test "$sha" = "$RAW_APK_SHA256" || exit 2
+          test "$size" = "$RAW_APK_SIZE" || exit 2
+          adb install -r "$APK" | tee audit/apk-install.txt
+          grep -Fxq 'Success' audit/apk-install.txt || exit 2
+
+          adb root | tee audit/adb-root.txt || true
+          adb wait-for-device
+          root_uid="$(adb shell id -u 2>/dev/null | tr -d '\r')"
+          echo "root_uid=$root_uid" | tee audit/root-gate.txt
+          if [ "$root_uid" != "0" ]; then
+            printf '{"attempt":%s,"case":"RUNTIME_INFRA","classification":"ANDROID RUNTIME VERIFICATION INFRASTRUCTURE","reason":"adb root unavailable"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+            exit 6
+          fi
+
+          adb shell svc wifi disable || true
+          adb shell svc data disable || true
+
+          # Every pm clear is followed by an explicit POST_NOTIFICATIONS grant.
+          adb shell pm clear "$PACKAGE" | tee audit/pm-clear-initial.txt
+          grep -Fxq 'Success' audit/pm-clear-initial.txt || exit 2
+          if ! grant_permission initial; then
+            write_permission_failure initial 'POST_NOTIFICATIONS could not be deterministically granted before initial launch'
+            exit 20
+          fi
+
+          adb logcat -c || true
+          set +e
+          adb shell am start -W -n "$ACTIVITY" > audit/am-start-initial.txt 2>&1
+          initial_start_rc=$?
+          set -e
+          cat audit/am-start-initial.txt
+          initial_pid=""
+          for n in $(seq 1 60); do
+            initial_pid="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' | awk '{print $1}')"
+            [ -n "$initial_pid" ] && break
+            sleep 1
+          done
+          echo "$initial_pid" | tee audit/initial-pid.txt
+          capture_activity initial
+          snapshot_screen initial-first-frame
+          dump_ui initial-ui
+          adb logcat -v threadtime -d > audit/initial-logcat.txt || true
+          if permission_controller_active initial; then
+            write_permission_failure initial 'GrantPermissionsActivity or PermissionController blocked initial MainActivity'
+            exit 21
+          fi
+          if [ -z "$initial_pid" ] || ! main_activity_present initial; then
+            printf '{"attempt":%s,"case":"RUNTIME_INFRA","classification":"ANDROID RUNTIME VERIFICATION INFRASTRUCTURE","reason":"initial MainActivity/PID not established after permission grant"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+            exit 22
+          fi
+          if ! wait_startup audit/initial-startup-signals.txt; then
+            printf '{"attempt":%s,"case":"RUNTIME_INFRA","classification":"ANDROID RUNTIME VERIFICATION INFRASTRUCTURE","reason":"initial startup signals incomplete"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+            exit 23
+          fi
+          echo 'INITIAL STARTUP SIGNALS PASS' | tee audit/initial-startup-status.txt
+
+          # Existing installed-APK acceptance must now survive its genuine restart.
+          set +e
+          MIAAD_API_LEVEL=36 python3 scripts/emulator_acceptance.py 2>&1 | tee audit/general-installed-apk-acceptance.txt
+          acceptance_rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$acceptance_rc" -ne 0 ] || ! grep -Fxq 'Native installed-APK UI + data acceptance on API 36: PASS' audit/general-installed-apk-acceptance.txt; then
+            capture_activity general-acceptance-failure
+            snapshot_screen general-acceptance-failure
+            dump_ui general-acceptance-failure
+            adb logcat -v threadtime -d > audit/general-acceptance-failure-logcat.txt || true
+            if permission_controller_active general-acceptance-failure; then
+              write_permission_failure general-acceptance 'PermissionController still blocked the existing installed-APK acceptance restart'
+            else
+              printf '{"attempt":%s,"case":"RUNTIME_INFRA","classification":"TEST / RUNTIME VERIFICATION HARNESS","reason":"general installed-APK acceptance failed without a Phase 1C semantic assertion"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+            fi
+            exit 24
+          fi
+
+          # Clean Phase 1C state, then grant notification permission AGAIN.
+          adb shell pm clear "$PACKAGE" | tee audit/pm-clear-phase1c.txt
+          grep -Fxq 'Success' audit/pm-clear-phase1c.txt || exit 7
+          if ! grant_permission phase1c; then
+            write_permission_failure phase1c 'POST_NOTIFICATIONS could not be re-granted after Phase 1C pm clear'
+            exit 25
+          fi
+
+          adb logcat -c || true
+          set +e
+          adb shell am start -W -n "$ACTIVITY" > audit/am-start-phase1c.txt 2>&1
+          phase1c_start_rc=$?
+          set -e
+          cat audit/am-start-phase1c.txt
+          phase1c_pid=""
+          for n in $(seq 1 60); do
+            phase1c_pid="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' | awk '{print $1}')"
+            [ -n "$phase1c_pid" ] && break
+            sleep 1
+          done
+          echo "$phase1c_pid" | tee audit/phase1c-initial-pid.txt
+          if ! wait_startup audit/phase1c-startup-signals.txt; then
+            printf '{"attempt":%s,"case":"RUNTIME_INFRA","classification":"ANDROID RUNTIME VERIFICATION INFRASTRUCTURE","reason":"clean Phase 1C startup signals incomplete"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+            exit 26
+          fi
+          capture_activity phase1c
+          snapshot_screen phase1c-initial
+          dump_ui phase1c-initial-ui
+          if permission_controller_active phase1c; then
+            write_permission_failure phase1c 'PermissionController blocked clean Phase 1C MainActivity'
+            exit 27
+          fi
+          if [ -z "$phase1c_pid" ] || ! main_activity_present phase1c; then
+            printf '{"attempt":%s,"case":"RUNTIME_INFRA","classification":"ANDROID RUNTIME VERIFICATION INFRASTRUCTURE","reason":"clean Phase 1C MainActivity/PID not established"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+            exit 28
+          fi
+          echo 'PHASE 1C CLEAN STARTUP SIGNALS PASS' | tee audit/phase1c-startup-status.txt
+
+          # Exactly one mutating Runtime.evaluate dispatch; never retry mutation.
+          python3 "$RUNNER_TEMP/v1_one_shot_setup.py" | tee audit/one-shot-setup-console.txt
+
+          python3 "$RUNNER_TEMP/v1_snapshot_audit.py" pre | tee audit/pre-restart-snapshot-console.txt
+          pre_status="$(python3 - <<'PY'
+          import json
+          print(json.load(open('audit/pre-restart-semantic-audit.json')).get('status','INCOMPLETE'))
+          PY
+          )"
+          echo "pre_status=$pre_status" | tee audit/pre-restart-status.txt
+          if [ "$pre_status" != "PASS" ]; then
+            python3 "$RUNNER_TEMP/v1r1_finalize_attempt.py" | tee audit/attempt-classification-console.txt
+            exit 29
+          fi
+          echo 'API36 NATIVE SNAPSHOT PRE-RESTART SEMANTIC STATE PASS' | tee audit/pre-restart-decision.txt
+
+          # Pre-restart process/activity/permission hard gates.
+          old_pid="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' | awk '{print $1}')"
+          echo "$old_pid" > audit/old-pid.txt
+          capture_activity pre-restart
+          verify_permission pre-restart || {
+            write_permission_failure pre-restart 'POST_NOTIFICATIONS was no longer granted before force-stop'
+            exit 30
+          }
+          if [ -z "$old_pid" ]; then
+            printf '{"attempt":%s,"case":"RUNTIME_INFRA","classification":"ANDROID RUNTIME VERIFICATION INFRASTRUCTURE","reason":"old Miaad PID missing before force-stop"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+            exit 31
+          fi
+          if permission_controller_active pre-restart; then
+            write_permission_failure pre-restart 'PermissionController active before force-stop'
+            exit 32
+          fi
+
+          adb shell am force-stop "$PACKAGE"
+          stopped=false
+          for n in $(seq 1 80); do
+            now="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' | awk '{print $1}')"
+            if [ -z "$now" ]; then stopped=true; break; fi
+            sleep .25
+          done
+          echo "old_process_disappeared=$stopped" | tee audit/force-stop-evidence.txt
+          if [ "$stopped" != true ]; then
+            printf '{"attempt":%s,"case":"RUNTIME_INFRA","classification":"ANDROID RUNTIME VERIFICATION INFRASTRUCTURE","reason":"old process did not disappear after force-stop"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+            exit 33
+          fi
+
+          adb forward --remove-all || true
+          adb logcat -c || true
+          set +e
+          adb shell am start -W -n "$ACTIVITY" > audit/am-start-post-restart.txt 2>&1
+          restart_start_rc=$?
+          set -e
+          cat audit/am-start-post-restart.txt
+          echo "am_start_return_code=$restart_start_rc" > audit/am-start-post-restart-status.txt
+
+          new_pid=""
+          permission_blocked=false
+          for n in $(seq 1 90); do
+            new_pid="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' | awk '{print $1}')"
+            capture_activity restart-poll
+            if permission_controller_active restart-poll; then
+              permission_blocked=true
+              break
+            fi
+            [ -n "$new_pid" ] && break
+            sleep 1
+          done
+
+          capture_activity post-restart
+          snapshot_screen post-restart
+          dump_ui post-restart-ui
+          adb logcat -v threadtime -d > audit/post-restart-logcat.txt || true
+          echo "$new_pid" > audit/new-pid.txt
+
+          if [ "$permission_blocked" = true ] || permission_controller_active post-restart || grep -Eiq 'GrantPermissionsActivity|com\.google\.android\.permissioncontroller|com\.android\.permissioncontroller' audit/am-start-post-restart.txt; then
+            write_permission_failure post-restart 'GrantPermissionsActivity or PermissionController blocked explicit MainActivity restart'
+            exit 34
+          fi
+
+          pid_changed=false
+          if [ -n "$new_pid" ] && [ "$new_pid" != "$old_pid" ]; then pid_changed=true; fi
+          OLD_PID="$old_pid" NEW_PID="$new_pid" PID_CHANGED="$pid_changed" START_RC="$restart_start_rc" python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          out={
+            "oldPid":os.environ["OLD_PID"],
+            "newPid":os.environ["NEW_PID"],
+            "pidChanged":os.environ["PID_CHANGED"]=="true",
+            "amStartReturnCode":int(os.environ["START_RC"])
+          }
+          Path("audit/restart-process.json").write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+
+          if [ -z "$new_pid" ] || [ "$new_pid" = "$old_pid" ]; then
+            printf '{"attempt":%s,"case":"RUNTIME_INFRA","classification":"ANDROID RUNTIME VERIFICATION INFRASTRUCTURE","reason":"new valid Miaad PID was not established after explicit restart"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+            exit 35
+          fi
+          if ! main_activity_present post-restart; then
+            printf '{"attempt":%s,"case":"RUNTIME_INFRA","classification":"ANDROID RUNTIME VERIFICATION INFRASTRUCTURE","reason":"Miaad MainActivity/task not present after explicit restart"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+            exit 36
+          fi
+
+          post_startup_rc=0
+          wait_startup audit/post-restart-startup-signals.txt || post_startup_rc=$?
+
+          python3 "$RUNNER_TEMP/v1_snapshot_audit.py" post | tee audit/post-restart-snapshot-console.txt
+          if [ -s audit/native-snapshot-after-restart.json ]; then
+            python3 "$RUNNER_TEMP/v1_snapshot_audit.py" compare | tee audit/semantic-diff-console.txt
+          fi
+
+          POST_STARTUP_RC="$post_startup_rc" python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          p=Path('audit/post-restart-logcat.txt')
+          s=p.read_text(errors='replace') if p.exists() else ''
+          startup=Path('audit/post-restart-startup-signals.txt').read_text(errors='replace') if Path('audit/post-restart-startup-signals.txt').exists() else ''
+          lines=s.splitlines()
+          fatal=[]
+          for i,x in enumerate(lines):
+              if 'FATAL EXCEPTION' not in x: continue
+              block='\n'.join(lines[i:min(len(lines),i+16)])
+              if 'com.miaad.app' in block: fatal.append(x)
+          android=[x for x in lines if 'AndroidRuntime' in x and (' F ' in x or ' E ' in x or 'FATAL' in x)]
+          anr=[x for x in lines if re.search(r'(?:\bANR in com\.miaad\.app\b|Application Not Responding.*com\.miaad\.app|\bam_anr\b.*com\.miaad\.app)',x,re.I)]
+          miaad=[x for x in lines if re.search(r'\bE\s+MiaadWeb\b|MiaadWeb:.*(?:error|exception)',x,re.I)]
+          benign=[x for x in miaad if "Blocked call to navigator.vibrate" in x]
+          genuine=[x for x in miaad if x not in benign]
+          out={
+            'startupSignals':{
+              'page-finished':'page-finished' in startup,
+              'first-frame-ready':'first-frame-ready' in startup,
+              'content-ready':'content-ready' in startup
+            },
+            'startupWaitReturnCode':int(os.environ.get('POST_STARTUP_RC','1')),
+            'fatalExceptionCount':len(fatal),
+            'androidRuntimeFatalCount':len(android),
+            'anrCount':len(anr),
+            'genuineMiaadWebErrorCount':len(genuine),
+            'benignVibrationWarningCount':len(benign),
+            'fatalLines':fatal[-20:],
+            'androidRuntimeLines':android[-20:],
+            'anrLines':anr[-20:],
+            'genuineMiaadWebLines':genuine[-20:]
+          }
+          Path('audit/post-restart-startup-and-logcat.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+
+          post_status="$(python3 - <<'PY'
+          import json
+          print(json.load(open('audit/post-restart-semantic-audit.json')).get('status','INCOMPLETE'))
+          PY
+          )"
+          semantic_equivalent="$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('audit/semantic-diff.json')
+          d=json.loads(p.read_text()) if p.exists() else {}
+          print('true' if d.get('semanticEquivalent') is True else 'false')
+          PY
+          )"
+          runtime_gates="$(python3 - <<'PY'
+          import json
+          d=json.load(open('audit/post-restart-startup-and-logcat.json'))
+          sig=d.get('startupSignals') or {}
+          ok=all(sig.get(k) is True for k in ('page-finished','first-frame-ready','content-ready'))
+          ok=ok and all(d.get(k,0)==0 for k in ('fatalExceptionCount','androidRuntimeFatalCount','anrCount','genuineMiaadWebErrorCount'))
+          print('true' if ok else 'false')
+          PY
+          )"
+
+          if [ "$post_status" = "PASS" ] && [ "$semantic_equivalent" = "true" ] && [ "$runtime_gates" = "true" ]; then
+            echo 'API36 PROCESS RESTART HARNESS PASS' | tee audit/process-restart-pass.txt
+            echo 'API36 NATIVE SNAPSHOT RESTART ATTEMPT PASS' | tee audit/attempt-pass.txt
+            echo 'NATIVE SNAPSHOT STARTUP/HYDRATION COMPATIBILITY = OBSERVED WITHOUT FATAL ERROR' | tee audit/startup-hydration-pass.txt
+          fi
+
+          python3 "$RUNNER_TEMP/v1r1_finalize_attempt.py" | tee audit/attempt-classification-console.txt
+          attempt_pass="$(python3 - <<'PY'
+          import json
+          print('true' if json.load(open('audit/attempt-classification.json')).get('attemptPass') is True else 'false')
+          PY
+          )"
+          [ "$attempt_pass" = "true" ] || exit 40
+          BASH
+          chmod +x /tmp/miaad-api36-native-snapshot-v1r1.sh
+          bash -n /tmp/miaad-api36-native-snapshot-v1r1.sh
+
+      - name: Run fresh API36 native snapshot attempt ${{ matrix.attempt }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: false
+          script: bash /tmp/miaad-api36-native-snapshot-v1r1.sh
+
+      - name: Guarantee attempt classification
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ ! -s audit/attempt-classification.json ]; then
+            printf '{"attempt":%s,"case":"HARNESS_INCOMPLETE","classification":"ANDROID RUNTIME VERIFICATION INFRASTRUCTURE","reason":"attempt ended before complete classification; no product semantic verdict"}\n' "$MIAAD_ATTEMPT" > audit/attempt-classification.json
+          fi
+          jq . audit/attempt-classification.json | tee audit/attempt-summary.txt
+
+      - name: Upload attempt evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-api36-native-snapshot-diagnostic-v1r1-attempt-${{ matrix.attempt }}
+          path: audit/
+          if-no-files-found: error
+          retention-days: 30
+
+  classify:
+    name: Cross-attempt native snapshot classification V1R1
+    if: always()
+    needs: [preflight, api36-attempt]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download all attempt artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: miaad-phase-1c-api36-native-snapshot-diagnostic-v1r1-attempt-*
+          path: attempt-artifacts
+          merge-multiple: false
+
+      - name: Classify two attempts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob,json
+          from pathlib import Path
+          paths=glob.glob('attempt-artifacts/**/attempt-classification.json',recursive=True)
+          rs=[json.loads(Path(p).read_text()) for p in paths]
+          rs.sort(key=lambda x:x.get('attempt',0))
+          permission_blocked=[r for r in rs if r.get('classification')=='RUNTIME TEST ENVIRONMENT / PERMISSION HARNESS FAILURE']
+          product=[r for r in rs if str(r.get('classification','')).startswith('Production')]
+          complete=[r for r in rs if r.get('attemptPass') is True]
+          if permission_blocked:
+              opening='PHASE 1C API36 RUNTIME PERMISSION HARNESS STILL BLOCKED — NO CANDIDATE MUTATION'
+              final='RUNTIME TEST ENVIRONMENT / PERMISSION HARNESS FAILURE'
+              root='POST_NOTIFICATIONS / PermissionController still obstructs restart verification'
+          elif product:
+              opening='PHASE 1C API36 RESTART PRODUCT ISSUE CONFIRMED — NO CANDIDATE MUTATION'
+              final='Production Bug'
+              root='MainActivity restart completed but installed runtime semantics or Android runtime evidence failed'
+          elif len(rs)==2 and len(complete)==2:
+              opening='PHASE 1C API36 NATIVE SNAPSHOT RESTART DIAGNOSTIC V1R1 PASS — NOTIFICATION-PERMISSION HARNESS DEFECT CLOSED — NO CANDIDATE MUTATION'
+              final='TEST / RUNTIME HARNESS DEFECT CLOSED'
+              root='unresolved POST_NOTIFICATIONS GrantPermissionsActivity blocked process-restart verification in historical V1'
+          else:
+              opening='PHASE 1C API36 NATIVE SNAPSHOT RESTART DIAGNOSIS V1R1 INCONCLUSIVE — NO CANDIDATE MUTATION'
+              final='INCONCLUSIVE — RUNTIME VERIFICATION EVIDENCE INCOMPLETE'
+              root='no product semantic contradiction proven'
+          out={
+              'opening':opening,
+              'classification':final,
+              'rootCause':root,
+              'completeIndependentAttempts':len(complete),
+              'attempts':rs
+          }
+          Path('api36-v1r1-final-classification.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          print(opening)
+          print('CLASSIFICATION = '+final)
+          print('ROOT CAUSE = '+root)
+          print('COMPLETE INDEPENDENT ATTEMPTS = '+str(len(complete)))
+          if len(rs)==2 and len(complete)==2:
+              print('API36 AUTHORITATIVE NATIVE SNAPSHOT RUNTIME PASS: 2/2')
+              print('TEST / RUNTIME HARNESS DEFECT CLOSED')
+          for r in rs:
+              print('ATTEMPT',r.get('attempt'),'pass=',r.get('attemptPass'),'case=',r.get('case'),'classification=',r.get('classification'),'pre=',r.get('preRestartStatus'),'post=',r.get('postRestartStatus'),'semanticEquivalent=',r.get('semanticEquivalent'))
+          PY
+
+      - name: Upload final classification
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-api36-native-snapshot-diagnostic-v1r1-classification
+          path: api36-v1r1-final-classification.json
+          retention-days: 90
+
+  post-run-immutability:
+    name: Post-run immutability V1R1
+    if: always()
+    needs: [api36-attempt]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout V1R1
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove frozen refs and historical V2 identities unchanged
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+          test "$(git diff --name-only "$CANDIDATE_SHA" HEAD | wc -l)" -eq 1
+          git diff --name-only "$CANDIDATE_SHA" HEAD | grep -Fxq "$WORKFLOW_PATH"
+          check(){ ref="$1"; expected="$2"; got="$(git ls-remote origin "refs/heads/$ref" | awk '{print $1}')"; test "$got" = "$expected"; echo "$ref=$got"; }
+          check miaad/phase-1c-occurrence-authority-candidate "$CANDIDATE_SHA"
+          check miaad/phase-1-correctness "$OFFICIAL_SHA"
+          check main "$MAIN_SHA"
+          check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r2 "$V1R6R2_SHA"
+          check miaad/phase-1c-occurrence-authority-api26-native-snapshot-diagnostic-v3 "$API26_V3_SHA"
+          check miaad/phase-1c-occurrence-authority-api36-native-snapshot-diagnostic-v1 "$HISTORICAL_API36_V1_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$HISTORICAL_API36_V1_SHA" --jq .tree.sha)" = "$HISTORICAL_API36_V1_TREE"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$HISTORICAL_API36_V1_RUN" --jq .head_sha)" = "$HISTORICAL_API36_V1_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$V1R6R2_SHA" --jq .tree.sha)" = "$V1R6R2_TREE"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$V1R6R2_RUN" --jq .head_sha)" = "$V1R6R2_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$API26_V3_SHA" --jq .tree.sha)" = "$API26_V3_TREE"
+          echo 'POST-RUN IMMUTABILITY PASS — NO PROMOTION'
