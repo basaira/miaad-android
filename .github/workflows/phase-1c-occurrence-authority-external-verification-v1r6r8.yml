@@ -1,0 +1,847 @@
+name: Phase 1C V1R6R8 Expression-Safe Authenticated External Verification
+'on':
+  push:
+    branches:
+    - miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r8
+permissions:
+  contents: read
+  actions: read
+env:
+  CANDIDATE_SHA: 6a3b367e4f0a9d007846452b9343733ff3adf086
+  CANDIDATE_TREE: 92558e4b3859baf71c3eaec4de26d1436e921eec
+  OFFICIAL_SHA: ca703d82a9a500393a0ce8948b279488f8e6c517
+  MAIN_SHA: 16477b29106d59d0e1fe7d4e99c63b55d6d97327
+  WORKFLOW_PATH: .github/workflows/phase-1c-occurrence-authority-external-verification-v1r6r8.yml
+  HIST_SHA: 43875808a3ffd193f904dd2bee647a3f1e7f8499
+  HIST_PATH: .github/workflows/phase-1c-occurrence-authority-external-verification-v1r6r3.yml
+  V1R6R1_SHA: 41dcbc63b9ef4e593a4c86007f08a814d8a974b9
+  V2_RUN_A: '37208022969'
+  V2_SHA_A: 0e4022fd6796adfdabcf5adfc3b575203cd46955
+  V2_RUN_B: '37209686038'
+  V2_SHA_B: a64f48c3597bf350e82d732176d12327ad1e65aa
+  V3_RUN: '37234222936'
+  V3_SHA: 4ddd852e611a920a360e81265b7c3c1535601e10
+  V3_TREE: 7bd3fb801a7b112cc41b1170b4d4392dd508b2d9
+  PACKAGE: com.miaad.app
+  ACTIVITY: com.miaad.app/.MainActivity
+  PREFS_PATH: /data/data/com.miaad.app/shared_prefs/miaad_native_v1.xml
+  V1R6R4_SHA: b5a9266d5a1719a4b6b3d5367dae1c76104eb5a6
+  V1R6R4_TREE: 7b5600a8d7c468817f845b21162549c8c512ec2b
+  V1R6R4_RUN: '38075392981'
+  V1R6R5_SHA: b639fa600b4d45ad106878ea8dc6d997cf827c7f
+  V1R6R5_TREE: 544a5d9acde9969338a66bf3737a374436002092
+  V1R6R5_RUN: '38076738834'
+  HISTORICAL_V1R6R2_SHA: 36a6683de26f014f952afb1a1249198c4d7bf124
+  HISTORICAL_V1R6R2_TREE: 823594c8335d4c09bc6e137a85de7cf81787779a
+  HISTORICAL_V1R6R2_RUN: '37239237458'
+  API36_V1R2_SHA: cf595d34ce1e416d4ff55027b8e1579e338c1c60
+  API36_V1R2_TREE: 1d1da5d35373b4274b9c3ce6a429a3dd501ab7fa
+  API36_V1R2_RUN: '37599496924'
+  V1R6R6_SHA: b14397bb11d3cb5bbdeb009dd29d49235b65dede
+  V1R6R7_SHA: 461fd2db2c2fcc355318375eb4c0c76e612884c7
+  V1R6R7_TREE: 874113c31e556a00788099e96072a0431153d51a
+jobs:
+  harness-preflight:
+    name: V1R6R8 early lightweight runner and source preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+    - name: Checkout published verification branch and pinned history
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: '0'
+    - name: Fail fast on frozen refs, historical blobs, runner values and scripts
+      shell: bash
+      run: "set -euo pipefail\npython3 -m pip install --disable-pip-version-check PyYAML==6.0.2\ntest \"$GITHUB_REPOSITORY\" = basaira/miaad-android\ntest -n \"$GITHUB_WORKSPACE\"\ntest -n \"$RUNNER_TEMP\"\ntest -n \"$GH_TOKEN\"\ntest \"$(git rev-parse HEAD^)\" = \"$CANDIDATE_SHA\"\ntest \"$(git rev-parse \"$CANDIDATE_SHA^{tree}\")\" = \"$CANDIDATE_TREE\"\ntest \"$(git diff --name-only \"$CANDIDATE_SHA\" HEAD)\" = \"$WORKFLOW_PATH\"\ntest \"$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r8 | awk '{print $1}')\" = \"$(git rev-parse HEAD)\"\ntest \"$(git show \"HEAD:$WORKFLOW_PATH\" | git hash-object --stdin)\" = \"$(git hash-object --no-filters \"$WORKFLOW_PATH\")\"\necho 'V1R6R8 FINAL PUBLISHED WORKFLOW BYTE-IDENTITY PASS'\nfor pair in \"miaad/phase-1c-occurrence-authority-candidate:$CANDIDATE_SHA\" \"miaad/phase-1-correctness:$OFFICIAL_SHA\" \"main:$MAIN_SHA\" \"miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r2:$HISTORICAL_V1R6R2_SHA\"\
+        \ \"miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r3:$HIST_SHA\" \"miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r4:$V1R6R4_SHA\" \"miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r5:$V1R6R5_SHA\" \"miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r6:$V1R6R6_SHA\" \"miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r7:$V1R6R7_SHA\" \"miaad/phase-1c-occurrence-authority-api26-native-snapshot-diagnostic-v3:$V3_SHA\" \"miaad/phase-1c-occurrence-authority-api36-native-snapshot-diagnostic-v1r2:$API36_V1R2_SHA\"; do\n  branch=\"${pair%%:*}\"\n  expected=\"${pair##*:}\"\n  test \"$(git ls-remote origin \"refs/heads/$branch\" | awk '{print $1}')\" = \"$expected\"\ndone\ntest \"$(gh api \"repos/$GITHUB_REPOSITORY\" --jq .full_name)\" = \"$GITHUB_REPOSITORY\"\nfor mapping in \"$HISTORICAL_V1R6R2_RUN:$HISTORICAL_V1R6R2_SHA\" \"$API36_V1R2_RUN:$API36_V1R2_SHA\" \"$V1R6R4_RUN:$V1R6R4_SHA\" \"$V1R6R5_RUN:$V1R6R5_SHA\"; do\n  run=\"\
+        ${mapping%%:*}\"\n  expected=\"${mapping##*:}\"\n  test \"$(gh api \"repos/$GITHUB_REPOSITORY/actions/runs/$run\" --jq .head_sha)\" = \"$expected\"\ndone\ntest \"$(gh api \"repos/$GITHUB_REPOSITORY/git/commits/$HISTORICAL_V1R6R2_SHA\" --jq .tree.sha)\" = \"$HISTORICAL_V1R6R2_TREE\"\ntest \"$(gh api \"repos/$GITHUB_REPOSITORY/git/commits/$API36_V1R2_SHA\" --jq .tree.sha)\" = \"$API36_V1R2_TREE\"\ntest \"$(git show \"$HIST_SHA:$HIST_PATH\" | git hash-object --stdin)\" = b644cf9bd9a263c166c8c3e384858561420b05d8\ntest \"$(git show \"$V1R6R6_SHA:.github/workflows/phase-1c-occurrence-authority-external-verification-v1r6r6.yml\" | git hash-object --stdin)\" = ae0c9bc422851f26480346fbb38fec5203d75c0c\ntest \"$(git rev-parse \"$V1R6R7_SHA^{tree}\")\" = \"$V1R6R7_TREE\"\ntest \"$(git show \"$V1R6R7_SHA:.github/workflows/phase-1c-occurrence-authority-external-verification-v1r6r7.yml\" | git hash-object --stdin)\" = fe34771c32c5ee8126ce88de19ee24287459d074\nfor executable in git gh bash python3\
+        \ node npm java; do command -v \"$executable\" >/dev/null; done\npython3 - <<'PY'\nimport os,subprocess,yaml,re,pathlib\nold=yaml.load(subprocess.check_output(['git','show',os.environ['HIST_SHA']+':'+os.environ['HIST_PATH']]),Loader=yaml.BaseLoader)\nnew=yaml.load(pathlib.Path(os.environ['WORKFLOW_PATH']).read_text(),Loader=yaml.BaseLoader)\nassert len(new['jobs'])==9\nassert new['permissions']=={'contents':'read','actions':'read'}\nassert len([1 for j in new['jobs'].values() for s in j['steps'] if 'run_legacy.py\" ' in s.get('run','') and '--auth-smoke' not in s['run']])==21\nexecutor=next(s for s in new['jobs']['verification']['steps'] if s.get('name')=='Prepare pinned verified gate executor')['run']\nhelper=executor.split('cat > \"$RUNNER_TEMP/run_legacy.py\" <<\\'PY\\'\\n',1)[1].split('\\nPY\\n',1)[0]\nns={'__name__':'v1r6r8_preflight_helper'}\nexec(compile(helper,'run_legacy.py','exec'),ns)\nns['nested_auth_smoke']()\nfor k,v in old['env'].items():\n    if k=='WORKFLOW_PATH':continue\n\
+        \    assert os.environ.get(k)==v,('MISSING HISTORICAL WORKFLOW ENV',k)\nassert os.environ['WORKFLOW_PATH'].endswith('v1r6r8.yml')\nOPEN=chr(36)+chr(123)*2\nfor j in new['jobs'].values():\n    for step in j['steps']:\n        script=step.get('run')\n        if script is not None:\n            assert OPEN not in script,('UNRESOLVED ACTIONS EXPRESSION',step['name'])\n            subprocess.run(['bash','-n'],input=script,text=True,check=True)\nfor kind,names in {\n 'verification':['Prove topology and exact candidate diff','Install verification dependencies','Run complete source suite and historical closures','Build separated Primary Authority helpers and run source gates','Generate tested WebView69 assets and verify exact historical hashes','Build generated-suite harness','Run complete generated suite repeatability primary authority and transform audit','Install Android SDK packages','Prove clean regeneration equivalence','Run Android Gradle gates','Audit exact same-run APK'],\n 'api26-native':['Build\
+        \ one-shot fire-and-observe setup probe','Build native snapshot audit','Build attempt classifier','Ensure platform tools and KVM','Prepare V3 runtime script'],\n 'api36-native':['Build one-shot fire-and-observe setup probe','Build native snapshot audit','Build attempt classifier','Ensure platform tools and KVM','Prepare V1R2 runtime script']}.items():\n    for name in names:\n        steps=[s for s in old['jobs'][kind]['steps'] if s.get('name')==name]\n        assert len(steps)==1,(kind,name)\n        assert OPEN not in steps[0]['run']\n        subprocess.run(['bash','-n'],input=steps[0]['run'],text=True,check=True)\nfor kind in ('api26-native','api36-native'):\n    assert os.environ.get('PACKAGE')=='com.miaad.app'\nassert not re.search(r'\\b(?:deploy|promotion|force-push)\\b',new['name'],re.I)\nprint('V1R6R8 LIVE HARNESS PREFLIGHT PASS')\nPY\n"
+    - name: Exercise snapshot retry and verdict mapping regression fixtures
+      shell: bash
+      run: "set -euo pipefail\npython3 - <<'PY'\nimport json\nimport os\nimport pathlib\nimport tempfile\nimport types\nimport xml.sax.saxutils\nimport yaml\nimport time\nimport subprocess\n\npath = pathlib.Path(os.environ.get('WORKFLOW_PATH', 'phase-1c-occurrence-authority-external-verification-v1r6r8.yml'))\ndoc = yaml.load(path.read_text(), Loader=yaml.BaseLoader)\nsnapshot_step = next(x for x in doc['jobs']['api36-native']['steps'] if x['name'].startswith('Apply review fix A:'))\nfinal_step = next(x for x in doc['jobs']['final-verdict']['steps'] if x['name'].startswith('Validate all evidence'))\ndef heredoc(script, filename):\n    marker = 'cat > \"$RUNNER_TEMP/' + filename + '\" <<\\'PY\\'\\n'\n    return script.split(marker, 1)[1].split('\\nPY\\n', 1)[0] + '\\n'\n\nsnapshot_code = heredoc(snapshot_step['run'], 'review_fix_A.py')\nfinal_code = heredoc(final_step['run'], 'final_check.py')\ncompile(snapshot_code, 'review_fix_A.py', 'exec')\ncompile(final_code, 'final_check.py', 'exec')\n\
+        base = {'schemaVersion': 4, 'domain': {'version': 4, 'records': {}, 'schedules': {}}, 'flag': 'pass', 'generation': 1}\ndef xml_data(data):\n    return ('<map><string name=\"snapshot\">' + xml.sax.saxutils.escape(json.dumps(data)) + '</string></map>').encode()\nGOOD = xml_data(base)\nBAD_STRUCTURE = xml_data({'schemaVersion': 2, 'domain': {'version': 2}})\nNO_KEY = b'<map><string name=\"else\">foo</string></map>'\nBAD_JSON = b'<map><string name=\"snapshot\">{bad}</string></map>'\nWRONG = xml_data(dict(base, flag='wrong'))\nINCOMPLETE = xml_data(dict(base, flag='incomplete'))\nVARIANT = xml_data(dict(base, generation=2))\n\ncases = [\n    ('two-stable', [GOOD, GOOD], 'PASS'),\n    ('adb-nonzero-then-valid', [(1, b''), GOOD, GOOD], 'PASS'),\n    ('empty-then-valid', [b'', GOOD, GOOD], 'PASS'),\n    ('xml-invalid-then-valid', [b'<map>', GOOD, GOOD], 'PASS'),\n    ('missing-key-then-valid', [NO_KEY, GOOD, GOOD], 'PASS'),\n    ('json-invalid-then-valid', [BAD_JSON, GOOD, GOOD], 'PASS'),\n\
+        \    ('structure-invalid-then-valid', [BAD_STRUCTURE, GOOD, GOOD], 'PASS'),\n    ('semantic-incomplete-then-valid', [INCOMPLETE, GOOD, GOOD], 'PASS'),\n    ('valid-contradiction', [WRONG], 'WRONG'),\n    ('inconsistent-then-stable', [GOOD, VARIANT, VARIANT], 'PASS'),\n    ('bounded-incomplete', [b'' for _ in range(100)], 'INCOMPLETE'),\n]\nfor name, sequence, expected in cases:\n    with tempfile.TemporaryDirectory() as tmp:\n        audit = pathlib.Path(tmp)\n        clock = [0.0]\n        old_monotonic, old_sleep = time.monotonic, time.sleep\n        def monotonic():\n            clock[0] += 0.37\n            return clock[0]\n        def sleep(seconds):\n            clock[0] += seconds\n        time.monotonic, time.sleep = monotonic, sleep\n        calls = iter(sequence)\n        def adb(*args, **kwargs):\n            if args[:2] == ('shell', 'pidof'):\n                return types.SimpleNamespace(returncode=0, stdout=b'123', stderr=b'')\n            item = next(calls, b'')\n \
+        \           if isinstance(item, tuple):\n                return types.SimpleNamespace(returncode=item[0], stdout=item[1], stderr=b'fixture error')\n            return types.SimpleNamespace(returncode=0, stdout=item, stderr=b'')\n        def audit_snapshot(raw, data, label):\n            status = {'wrong':'WRONG','incomplete':'INCOMPLETE'}.get(data.get('flag'), 'PASS')\n            return {'status':status, 'checks': {'canonical':status!='WRONG'}}\n        namespace = {'adb':adb, 'PACKAGE':'com.miaad.app','AUDIT':audit,'PREFS':'/prefs.xml',\n                     'audit_snapshot':audit_snapshot, 'semantic_fingerprint':lambda data:data}\n        exec(snapshot_code, namespace)\n        try:\n            namespace['read_snapshot'](name)\n            observed = 'PASS'\n        except namespace['SnapshotContradiction']:\n            observed = 'WRONG'\n        except namespace['SnapshotEvidenceError']:\n            observed = 'INCOMPLETE'\n        finally:\n            time.monotonic, time.sleep\
+        \ = old_monotonic, old_sleep\n        assert observed == expected, (name, observed, expected)\n        evidence = json.loads((audit / ('snapshot-read-telemetry-' + name + '.json')).read_text())\n        assert evidence['outcome'] == expected if expected != 'WRONG' else evidence['outcome'] == 'SEMANTIC_CONTRADICTION'\nprint('SNAPSHOT READ-RETRY REGRESSION PASS: 11/11')\n\nhistorical = pathlib.Path('historical-v1r6r3.yml')\nif historical.exists():\n    old = yaml.load(historical.read_text(), Loader=yaml.BaseLoader)\nelse:\n    sha=os.environ['HIST_SHA']; source=os.environ['HIST_PATH']\n    old=yaml.load(subprocess.check_output(['git','show',sha+':'+source]),Loader=yaml.BaseLoader)\nruntime = next(s for s in old['jobs']['api36-native']['steps'] if s.get('name')=='Prepare V1R2 runtime script')['run']\nsafe_pid = runtime.split('safe_pidof(){\\n',1)[1].split('\\n}\\n',1)[0]\nfor value, status, expected in [('',1,''),('123\\r\\n',0,'123'),('123 456\\r\\n',0,'123'),('',0,'')]:\n    fixture='set\
+        \ -euo pipefail\\nPACKAGE=com.miaad.app\\nadb(){ printf %s \"$MOCK_PID\"; return \"$MOCK_STATUS\"; }\\nsafe_pidof(){\\n'+safe_pid+'\\n}\\ngot=\"$(safe_pidof)\"\\ntest \"$got\" = \"$EXPECTED_PID\"\\necho ALIVE\\n'\n    process=subprocess.run(['bash'],input=fixture,text=True,capture_output=True,env=dict(os.environ,MOCK_PID=value,MOCK_STATUS=str(status),EXPECTED_PID=expected))\n    assert process.returncode==0 and 'ALIVE' in process.stdout,process.stderr\nprint('ERREXIT-SAFE PID POLLING REGRESSION PASS: 4/4')\n\nnamespace = {}\nexec(final_code, namespace)\nprefix = namespace['PREFIX']\nmandatory = namespace['MANDATORY']\ndef setup(root, invalid=None):\n    invalid = invalid or {}\n    for suffix in mandatory:\n        folder = root / (prefix + suffix)\n        folder.mkdir()\n        (folder / 'marker.txt').write_text('ok')\n    for name, (suffix, filename) in namespace['MAP'].items():\n        (root / (prefix + suffix) / filename).write_text(json.dumps({'authoritativePass':True, 'attempts':[{'attempt':1},{'attempt':2}]}))\n\
+        \    (root / (prefix + 'post-run-immutability') / 'post-run-immutability.txt').write_text('POST-RUN IMMUTABILITY PASS — NO PROMOTION')\n    return {s:'success' for s in ['STATUS_SOURCE','STATUS_API26','STATUS_API36','STATUS_API26_AGG','STATUS_API36_AGG','STATUS_MATRIX','STATUS_IMMUTABILITY']}\nfor name in ('all-valid','api26-missing','api36-missing','cross-missing','duplicate-json','api26-false','skipped-job','immutability-missing'):\n    with tempfile.TemporaryDirectory() as tmp:\n        root=pathlib.Path(tmp); jobs=setup(root)\n        if name.endswith('-missing') and name!='immutability-missing':\n            key=name.split('-')[0]\n            suffix,filename=namespace['MAP'][key]\n            (root/(prefix+suffix)/filename).unlink()\n        elif name=='duplicate-json':\n            folder=root/(prefix+namespace['MAP']['api36'][0])\n            (folder/'unexpected.json').write_text('{}')\n        elif name=='api26-false':\n            suffix,filename=namespace['MAP']['api26']\n\
+        \            (root/(prefix+suffix)/filename).write_text(json.dumps({'authoritativePass':False,'attempts':[{'attempt':1},{'attempt':2}]}))\n        elif name=='skipped-job':\n            jobs['STATUS_API26']='skipped'\n        elif name=='immutability-missing':\n            (root/(prefix+'post-run-immutability')/'post-run-immutability.txt').unlink()\n        verdict=namespace['check'](root,jobs)\n        assert verdict['authoritativePass'] is (name=='all-valid'),(name,verdict)\nprint('FINAL VERDICT ARTIFACT RESOLUTION REGRESSION PASS: 8/8')\nPY\n"
+  verification:
+    name: Fresh source generated Gradle APK V1R6R8
+    runs-on: ubuntu-24.04
+    timeout-minutes: 115
+    steps:
+    - name: Checkout verification branch
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: '0'
+    - name: Real workflow YAML and Bash validation
+      shell: bash
+      run: "set -euo pipefail\npython3 -m pip install --disable-pip-version-check PyYAML==6.0.2\npython3 - <<'PY'\nimport yaml,pathlib,subprocess\np=pathlib.Path('.github/workflows/phase-1c-occurrence-authority-external-verification-v1r6r8.yml')\ndoc=yaml.load(p.read_text(),Loader=yaml.BaseLoader)\nassert len(doc['jobs'])==9\nassert doc['permissions']=={'contents':'read','actions':'read'}\nOPEN=chr(36)+chr(123)*2\nruns=0\nfor job in doc['jobs'].values():\n    for step in job['steps']:\n        if 'run' in step:\n            script=step['run']\n            if OPEN in script:raise AssertionError('LITERAL ACTIONS EXPRESSION IN RUN SOURCE')\n            subprocess.run(['bash','-n'],input=script,text=True,check=True)\n            runs+=1\nassert runs>=35,runs\nassert doc['jobs']['verification']['env']['GH_TOKEN']==OPEN+' github.token '+chr(125)*2\nprint('WORKFLOW YAML PARSE PASS')\nprint('WORKFLOW STRUCTURAL LOAD PASS')\nprint('ALL WORKFLOW BASH RUN BLOCKS SYNTAX PASS')\nprint('ALL RUN BLOCKS\
+        \ FREE OF LITERAL ACTIONS EXPRESSIONS PASS')\nPY"
+    - &id001
+      name: Prepare pinned verified gate executor
+      shell: bash
+      run: "set -euo pipefail\npython3 -m pip install --disable-pip-version-check PyYAML==6.0.2\nmkdir -p audit\ncat > \"$RUNNER_TEMP/run_legacy.py\" <<'PY'\nimport os,sys,yaml,subprocess,pathlib\nOPEN=chr(36)+chr(123)*2\nCLOSE=chr(125)*2\ndef fake_expression(body):\n    return OPEN+body+CLOSE\ndef approved_env(raw_env,prior):\n    env=prior.copy()\n    token=env.get('GH_TOKEN')\n    if (not isinstance(token,str) or not token.strip()\n        or OPEN in token or token.strip() in ('***','[MASKED]','dummy-placeholder','<redacted>','placeholder')):\n        raise RuntimeError('AUTHENTICATION HARNESS: CURRENT JOB TOKEN ABSENT OR PLACEHOLDER')\n    for key,value in raw_env.items():\n        if key in ('GH_TOKEN','GITHUB_TOKEN'):continue\n        if not isinstance(value,str):\n            raise RuntimeError('AUTHENTICATION HARNESS: NONSTRING HISTORICAL ENV '+key)\n        workspace=env.get('GITHUB_WORKSPACE')\n        if not isinstance(workspace,str) or not workspace:\n            raise RuntimeError('AUTHENTICATION\
+        \ HARNESS: MISSING CURRENT WORKSPACE')\n        value=value.replace(fake_expression(' github.workspace '),workspace)\n        if OPEN in value:\n            raise RuntimeError('AUTHENTICATION HARNESS: UNRESOLVED ACTIONS EXPRESSION IN '+key)\n        env[key]=value\n    if env.get('GH_TOKEN')!=token:\n        raise RuntimeError('AUTHENTICATION HARNESS: APPROVED JOB TOKEN WAS OVERWRITTEN')\n    return env\ndef nested_auth_smoke():\n    inherited=approved_env({'GH_TOKEN':fake_expression(' github.token '),'GITHUB_TOKEN':'discard-archived'},os.environ.copy())\n    repo=inherited['GITHUB_REPOSITORY']\n    def query(args):\n        p=subprocess.run(['gh','api',*args],env=inherited,check=False,capture_output=True,text=True,timeout=30)\n        if p.returncode:raise RuntimeError('NESTED AUTHENTICATION FAILURE: gh api exit '+str(p.returncode))\n        return p.stdout.strip()\n    if query(['repos/'+repo,'--jq','.full_name'])!='basaira/miaad-android':\n        raise RuntimeError('NESTED AUTHENTICATION\
+        \ FAILURE: REPOSITORY IDENTITY')\n    if query(['repos/'+repo+'/actions/runs/'+inherited['V1R6R5_RUN'],'--jq','.head_sha'])!=inherited['V1R6R5_SHA']:\n        raise RuntimeError('NESTED AUTHENTICATION FAILURE: HISTORICAL RUN IDENTITY')\n    print('NESTED HARNESS GITHUB API AUTHENTICATION PASS',flush=True)\nif __name__=='__main__':\n    if sys.argv[1:]==['--auth-smoke']:\n        nested_auth_smoke();raise SystemExit(0)\n    kind=sys.argv[1];name=sys.argv[2]\n    sha=os.environ['HIST_SHA'];src=os.environ['HIST_PATH']\n    raw=subprocess.check_output(['git','show',sha+':'+src])\n    doc=yaml.load(raw,Loader=yaml.BaseLoader)\n    for key,value in doc.get('env',{}).items():\n        if key=='WORKFLOW_PATH':continue\n        if os.environ.get(key)!=value:\n            raise RuntimeError('PINNED HISTORICAL WORKFLOW ENV MISSING OR CHANGED: '+key)\n    for key,value in doc['jobs'][kind].get('env',{}).items():\n        if key=='MIAAD_ATTEMPT':\n            if os.environ.get(key) not in ('1','2'):\n\
+        \                raise RuntimeError('CURRENT MATRIX ATTEMPT MISSING')\n        elif key not in ('GH_TOKEN','GITHUB_TOKEN') and os.environ.get(key)!=value:\n            raise RuntimeError('PINNED HISTORICAL JOB ENV MISSING OR CHANGED: '+key)\n    for key,value in doc.get('env',{}).items():\n        if key=='WORKFLOW_PATH':continue\n        if os.environ.get(key)!=value:\n            raise RuntimeError('PINNED HISTORICAL WORKFLOW ENV MISSING OR CHANGED: '+key)\n    for key,value in doc['jobs'][kind].get('env',{}).items():\n        if key=='MIAAD_ATTEMPT':\n            if os.environ.get(key) not in ('1','2'):\n                raise RuntimeError('CURRENT MATRIX ATTEMPT MISSING')\n        elif key not in ('GH_TOKEN','GITHUB_TOKEN') and os.environ.get(key)!=value:\n            raise RuntimeError('PINNED HISTORICAL JOB ENV MISSING OR CHANGED: '+key)\n    for key,value in doc.get('env',{}).items():\n        if key=='WORKFLOW_PATH':continue\n        if os.environ.get(key)!=value:\n      \
+        \      raise RuntimeError('PINNED HISTORICAL WORKFLOW ENV MISSING OR CHANGED: '+key)\n    for key,value in doc['jobs'][kind].get('env',{}).items():\n        if key=='MIAAD_ATTEMPT':\n            if os.environ.get(key) not in ('1','2'):\n                raise RuntimeError('CURRENT MATRIX ATTEMPT MISSING')\n        elif key not in ('GH_TOKEN','GITHUB_TOKEN') and os.environ.get(key)!=value:\n            raise RuntimeError('PINNED HISTORICAL JOB ENV MISSING OR CHANGED: '+key)\n    found=[x for x in doc['jobs'][kind]['steps'] if x.get('name')==name]\n    if len(found)!=1:raise SystemExit('PINNED SOURCE STEP MISSING OR DUPLICATE: '+kind+' / '+name)\n    step=found[0]\n    if 'run' not in step:raise SystemExit('PINNED STEP HAS NO RUN SCRIPT '+name)\n    env=approved_env(step.get('env',{}),os.environ.copy())\n    script=step['run']\n    if OPEN in script:raise RuntimeError('AUTHENTICATION HARNESS: UNRESOLVED ACTIONS EXPRESSION IN PINNED STEP')\n    out=pathlib.Path(env['RUNNER_TEMP'])/('copied-'+kind+'-'+str(len(name))+'-'+str(abs(sum(ord(c)\
+        \ for c in name)))+'.sh')\n    out.write_text(script)\n    subprocess.run(['bash','-n',str(out)],check=True)\n    print('FRESH PINNED HARNESS STEP:',kind,'/',name,flush=True)\n    subprocess.run(['bash','--noprofile','--norc',str(out)],check=True,env=env)\nPY\npython3 -m py_compile \"$RUNNER_TEMP/run_legacy.py\"\n"
+    - name: Authentication harness non-secret regression fixtures
+      shell: bash
+      run: "set -euo pipefail\ncat > \"$RUNNER_TEMP/auth_regression.py\" <<'PY'\nimport os,sys,tempfile,pathlib,subprocess\nsys.path.insert(0,os.environ['RUNNER_TEMP'])\nimport run_legacy\nfrom run_legacy import approved_env,fake_expression,OPEN\nkey='DUMMY_ALLOWED_CURRENT_JOB_TOKEN'\nbase={'GH_TOKEN':key,'GITHUB_TOKEN':'dummy-legacy-existing','GITHUB_WORKSPACE':'/dummy/workspace'}\nold_token=fake_expression(' github.token ')\nworkspace_expr=fake_expression(' github.workspace ')\nunknown_expr=fake_expression(' secrets.EXAMPLE ')\nassert approved_env({},base)['GH_TOKEN']==key\nassert approved_env({'GH_TOKEN':old_token},base)['GH_TOKEN']==key\nassert approved_env({'GH_TOKEN':''},base)['GH_TOKEN']==key\nassert approved_env({'GH_TOKEN':'historical-token'},base)['GH_TOKEN']==key\nassert approved_env({'GITHUB_TOKEN':'unsafe-legacy-token'},base)['GH_TOKEN']==key\nassert approved_env({'PATH':workspace_expr+'/bin'},base)['PATH']=='/dummy/workspace/bin'\nfor bad in ('',' ',old_token,'***','[MASKED]','dummy-placeholder','<redacted>'):\n\
+        \    try:approved_env({},dict(base,GH_TOKEN=bad))\n    except RuntimeError:pass\n    else:raise AssertionError('absent/placeholder token accepted')\nfor unknown in (unknown_expr,fake_expression(' github.ref '),OPEN+'unclosed'):\n    try:approved_env({'OVERRIDE':unknown},base)\n    except RuntimeError:pass\n    else:raise AssertionError('unresolved expression accepted')\nchild=subprocess.run([sys.executable,'-c','import os,sys; sys.exit(0 if os.getenv(\"GH_TOKEN\")==\"DUMMY_ALLOWED_CURRENT_JOB_TOKEN\" else 1)'],env=approved_env({'GH_TOKEN':'unsafe'},base),capture_output=True,text=True,timeout=4)\nassert child.returncode==0 and key not in child.stdout+child.stderr\ntry:\n    p=subprocess.run([sys.executable,'-c','import sys;sys.exit(4)'],capture_output=True,env=approved_env({},base),timeout=3)\n    if p.returncode:raise RuntimeError('NESTED AUTHENTICATION FAILURE: API EXIT')\nexcept RuntimeError as exc:assert 'NESTED AUTHENTICATION FAILURE' in str(exc)\nelse:raise AssertionError('API\
+        \ failure did not classify')\nsource=pathlib.Path(run_legacy.__file__).read_text()\nassert key not in source\nassert old_token not in source\nassert OPEN not in source\nwith tempfile.TemporaryDirectory() as tmp:\n    p=pathlib.Path(tmp)/'diagnostics.txt'\n    p.write_text('non-secret authentication harness regression PASS')\n    assert key not in p.read_text()\nprint('AUTHENTICATION HARNESS REGRESSION PASS')\nprint('TOKEN-TO-SOURCE INTERPOLATION PREVENTION PASS')\nPY\npython3 \"$RUNNER_TEMP/auth_regression.py\" | tee audit/auth-regression-pass.txt\n"
+    - name: MANDATORY Direct and Nested GitHub Authentication Smoke Gate
+      shell: bash
+      run: "set -euo pipefail\nmkdir -p audit\nclassification(){\n  printf 'classification=%s\\n' \"$1\" | tee audit/authentication-smoke-status.txt\n}\nif [ -z \"${GH_TOKEN:-}\" ]; then\n  classification RUNNER_TOKEN_AUTHENTICATION_INFRASTRUCTURE\n  exit 41\nfi\nif ! repo=\"$(gh api \"repos/$GITHUB_REPOSITORY\" --jq '.full_name' 2>audit/direct-gh-error-redacted.txt)\"; then\n  classification RUNNER_TOKEN_AUTHENTICATION_INFRASTRUCTURE\n  rm -f audit/direct-gh-error-redacted.txt\n  exit 42\nfi\nrm -f audit/direct-gh-error-redacted.txt\ntest \"$repo\" = 'basaira/miaad-android' || { classification RUNNER_TOKEN_AUTHENTICATION_INFRASTRUCTURE; exit 43; }\nif ! hist=\"$(gh api \"repos/$GITHUB_REPOSITORY/actions/runs/$V1R6R4_RUN\" --jq '.head_sha' 2>/dev/null)\"; then\n  classification RUNNER_TOKEN_AUTHENTICATION_INFRASTRUCTURE\n  exit 44\nfi\ntest \"$hist\" = \"$V1R6R4_SHA\" || { classification RUNNER_TOKEN_AUTHENTICATION_INFRASTRUCTURE; exit 45; }\necho 'DIRECT GITHUB API AUTHENTICATION PASS'\
+        \ | tee audit/direct-authentication-pass.txt\nif ! python3 \"$RUNNER_TEMP/run_legacy.py\" --auth-smoke; then\n  classification NESTED_HARNESS_ENVIRONMENT_PROPAGATION_FAILURE\n  exit 46\nfi\necho 'NESTED HARNESS GITHUB API AUTHENTICATION PASS' | tee audit/nested-authentication-pass.txt\necho 'TOKEN PROPAGATION CONTRACT PASS' | tee audit/token-propagation-pass.txt\n"
+    - name: Frozen identity and topology independently verified
+      shell: bash
+      run: 'set -euo pipefail
+
+        mkdir -p audit
+
+        test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+
+        test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+
+        test "$(git diff --name-only "$CANDIDATE_SHA" HEAD | wc -l)" -eq 1
+
+        git diff --name-only "$CANDIDATE_SHA" HEAD | grep -Fxq "$WORKFLOW_PATH"
+
+        python3 "$RUNNER_TEMP/run_legacy.py" verification ''Prove topology and exact candidate diff''
+
+        test "$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r3 | awk ''{print $1}'')" = "$HIST_SHA"
+
+
+        test "$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r4 | awk ''{print $1}'')" = "$V1R6R4_SHA"
+
+        test "$(git rev-parse "$V1R6R4_SHA^{tree}")" = "$V1R6R4_TREE"
+
+        echo ''V1R6R8 FROZEN BASELINE PREFLIGHT PASS''  | tee audit/baseline-v1r6r8.txt
+
+        '
+      env:
+        GH_TOKEN: ${{ github.token }}
+    - name: Verify frozen V1R6R5 reference
+      shell: bash
+      run: 'set -euo pipefail
+
+        test "$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r5 | awk ''{print $1}'')" = "$V1R6R5_SHA"
+
+        test "$(git rev-parse "$V1R6R5_SHA^{tree}")" = "$V1R6R5_TREE"
+
+        test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$V1R6R5_RUN" --jq .head_sha)" = "$V1R6R5_SHA"
+
+        echo ''V1R6R8 FROZEN V1R6R5 IDENTITY PASS'' | tee audit/v1r6r5-history.txt
+
+        '
+    - name: Install verification dependencies
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''verification'' ''Install verification dependencies''
+
+        '
+    - name: Run complete source suite and historical closures
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''verification'' ''Run complete source suite and historical closures''
+
+        '
+    - name: Build separated Primary Authority helpers and run source gates
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''verification'' ''Build separated Primary Authority helpers and run source gates''
+
+        '
+    - name: Generate tested WebView69 assets and verify exact historical hashes
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''verification'' ''Generate tested WebView69 assets and verify exact historical hashes''
+
+        '
+    - name: Build generated-suite harness
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''verification'' ''Build generated-suite harness''
+
+        '
+    - name: Run complete generated suite repeatability primary authority and transform audit
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''verification'' ''Run complete generated suite repeatability primary authority and transform audit''
+
+        '
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: ''
+    - name: Install Android SDK packages
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''verification'' ''Install Android SDK packages''
+
+        '
+    - name: Set up Gradle 9.6.0
+      uses: gradle/actions/setup-gradle@v6
+      with:
+        gradle-version: 9.6.0
+    - name: Prove clean regeneration equivalence
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''verification'' ''Prove clean regeneration equivalence''
+
+        '
+    - name: Run Android Gradle gates
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''verification'' ''Run Android Gradle gates''
+
+        '
+    - name: Audit exact same-run APK
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''verification'' ''Audit exact same-run APK''
+
+        '
+    - name: Require same-run APK label package and version
+      shell: bash
+      run: 'set -euo pipefail
+
+        grep -q "name=''com.miaad.app''" audit/apk-package-version.txt
+
+        grep -q "versionCode=''5''" audit/apk-package-version.txt
+
+        grep -q "versionName=''1.2.0''" audit/apk-package-version.txt
+
+        grep -Fq ''مِيعاد'' audit/apk-application-label.txt
+
+        test -s audit/apk-sha256.txt
+
+        test "$(cat audit/apk-size-bytes.txt)" -gt 1000000
+
+        echo ''SAME-RUN APK METADATA CONTRACT PASS'' | tee audit/apk-metadata-pass.txt
+
+        '
+    - name: Upload current-run APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-apk
+        path: app/build/outputs/apk/debug/app-debug.apk
+        if-no-files-found: error
+        retention-days: '90'
+    - name: Upload source-verification evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-source-verification
+        path: 'audit/source-*
+
+          audit/rf1-a-e.txt
+
+          audit/historical-flow-closures.txt
+
+          audit/primary-authority-helper-*
+
+          audit/*authentication*pass.txt
+
+          audit/token-propagation-pass.txt
+
+          audit/auth-regression-pass.txt
+
+          audit/authentication-smoke-status.txt'
+        if-no-files-found: error
+        retention-days: '90'
+    - name: Upload tested-generated evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-tested-generated
+        path: 'audit/generated-*
+
+          audit/compat-generation.*
+
+          audit/historical-generated-hashes.txt'
+        if-no-files-found: error
+        retention-days: '90'
+    - name: Upload generated-repeatability evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-generated-repeatability
+        path: 'audit/generated-test-flows-repeatability.txt
+
+          audit/generated-flows-attempt-2.txt
+
+          audit/generated-flows-attempt-3.txt'
+        if-no-files-found: error
+        retention-days: '90'
+    - name: Upload primary-authority evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-primary-authority
+        path: 'audit/source-primary-*
+
+          audit/generated-primary-*
+
+          audit/clean-generated-primary-*
+
+          audit/primary-authority-helper-separation.txt'
+        if-no-files-found: error
+        retention-days: '90'
+    - name: Upload transform-audit evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-transform-audit
+        path: 'audit/generated-classic-script-audit.txt
+
+          audit/generated-global-declarations.json
+
+          audit/transform-audit-helper-syntax.txt'
+        if-no-files-found: error
+        retention-days: '90'
+    - name: Upload clean-regeneration evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-clean-regeneration
+        path: 'audit/clean-*
+
+          audit/generated-assets-*
+
+          audit/regeneration-equivalence.txt'
+        if-no-files-found: error
+        retention-days: '90'
+    - name: Upload gradle evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-gradle
+        path: 'audit/android-*
+
+          audit/sdkmanager-version.txt
+
+          audit/adb-version.txt'
+        if-no-files-found: error
+        retention-days: '90'
+    - name: Upload apk-identity evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-apk-identity
+        path: 'audit/authoritative-apk-identity.txt
+
+          audit/apk-sha256.txt
+
+          audit/apk-size-bytes.txt
+
+          audit/apk-package-version.txt
+
+          audit/apk-application-label.txt
+
+          audit/apk-signature.txt
+
+          audit/apk-compat.txt
+
+          audit/apk-metadata-pass.txt'
+        if-no-files-found: error
+        retention-days: '90'
+    env:
+      GH_TOKEN: ${{ github.token }}
+    needs: harness-preflight
+  api26-native:
+    name: API26 independent native attempt ${{ matrix.attempt }}
+    needs: verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt:
+        - 1
+        - 2
+    env:
+      MIAAD_ATTEMPT: ${{ matrix.attempt }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+    - name: Checkout V1R6R8
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: '0'
+    - *id001
+    - name: Verify candidate identity for runtime
+      shell: bash
+      run: 'set -euo pipefail
+
+        mkdir -p audit
+
+        test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+
+        test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+
+        test "$(git diff --name-only "$CANDIDATE_SHA" HEAD | wc -l)" -eq 1
+
+        git diff --name-only "$CANDIDATE_SHA" HEAD | grep -Fxq "$WORKFLOW_PATH"'
+    - name: Install transport dependency
+      shell: bash
+      run: python3 -m pip install websocket-client==1.8.0
+    - name: Download freshly built APK
+      uses: actions/download-artifact@v4
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-apk
+        path: app/build/outputs/apk/debug
+    - name: Download freshly built APK identity
+      uses: actions/download-artifact@v4
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-apk-identity
+        path: apk-identity
+    - &id002
+      name: Validate APK from current run
+      shell: bash
+      run: 'set -euo pipefail
+
+        mkdir -p audit
+
+        f=app/build/outputs/apk/debug/app-debug.apk
+
+        expected="$(cat apk-identity/apk-sha256.txt)"
+
+        size="$(cat apk-identity/apk-size-bytes.txt)"
+
+        actual="$(sha256sum "$f" | awk ''{print $1}'')"
+
+        actual_size="$(stat -c ''%s'' "$f")"
+
+        test "$actual" = "$expected"
+
+        test "$actual_size" = "$size"
+
+        printf ''main_job_raw_apk_sha256=%s\nmain_job_raw_apk_size=%s\nruntime_raw_apk_sha256=%s\nruntime_raw_apk_size=%s\n'' "$expected" "$size" "$actual" "$actual_size" | tee audit/apk-identity.txt
+
+        echo "RAW_APK_SHA256=$actual" >> "$GITHUB_ENV"
+
+        echo "RAW_APK_SIZE=$actual_size" >> "$GITHUB_ENV"
+
+        echo ''SAME-RUN APK IDENTITY PASS'' | tee audit/same-run-apk-pass.txt
+
+        '
+    - name: Build one-shot fire-and-observe setup probe
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''api26-native'' ''Build one-shot fire-and-observe setup probe''
+
+        '
+    - name: Build native snapshot audit
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''api26-native'' ''Build native snapshot audit''
+
+        '
+    - name: Build attempt classifier
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''api26-native'' ''Build attempt classifier''
+
+        '
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: ''
+    - name: Ensure platform tools and KVM
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''api26-native'' ''Ensure platform tools and KVM''
+
+        '
+    - name: Prepare V3 runtime script
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''api26-native'' ''Prepare V3 runtime script''
+
+        '
+    - name: Installed Android API26 native snapshot restart
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: '26'
+        target: google_apis
+        arch: x86_64
+        profile: pixel_2
+        disable-animations: 'false'
+        script: bash /tmp/miaad-api26-native-snapshot-v3.sh
+    - name: Require complete native attempt evidence
+      shell: bash
+      run: "set -euo pipefail\nmkdir -p audit\nif [ ! -s audit/attempt-classification.json ]; then\n printf '{\"attempt\":%s,\"case\":\"HARNESS_INCOMPLETE\",\"classification\":\"TEST / VERIFICATION HARNESS\"}\n' \"$MIAAD_ATTEMPT\" > audit/attempt-classification.json\nfi\npython3 - <<'PY'\nimport os,json\nfrom pathlib import Path\nr=json.loads(Path('audit/attempt-classification.json').read_text())\nassert r.get('attempt')==int(os.environ['MIAAD_ATTEMPT'])\nassert r.get('preRestartStatus')=='PASS' and r.get('postRestartStatus')=='PASS' and r.get('semanticEquivalent') is True\nif 26==36:\n assert r.get('attemptPass') is True\n for label in ('before-restart','after-restart'):\n  p=Path('audit/snapshot-read-telemetry-'+label+'.json');assert p.is_file()\n  v=json.loads(p.read_text());assert v.get('outcome')=='PASS' and v.get('readAttempts',0)>=2\nelse:\n assert r.get('case') in ('A','B')\nprint('API26 NATIVE SNAPSHOT ATTEMPT PASS')\nPY\n"
+      if: always()
+    - name: Upload API26 attempt evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-api26-attempt-${{ matrix.attempt }}
+        path: audit/
+        if-no-files-found: error
+        retention-days: '90'
+  api36-native:
+    name: API36 independent native attempt ${{ matrix.attempt }}
+    needs: verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt:
+        - 1
+        - 2
+    env:
+      MIAAD_ATTEMPT: ${{ matrix.attempt }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+    - name: Checkout V1R6R8
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: '0'
+    - *id001
+    - name: Verify candidate identity for runtime
+      shell: bash
+      run: 'set -euo pipefail
+
+        mkdir -p audit
+
+        test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+
+        test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+
+        test "$(git diff --name-only "$CANDIDATE_SHA" HEAD | wc -l)" -eq 1
+
+        git diff --name-only "$CANDIDATE_SHA" HEAD | grep -Fxq "$WORKFLOW_PATH"'
+    - name: Install transport dependency
+      shell: bash
+      run: python3 -m pip install websocket-client==1.8.0
+    - name: Download freshly built APK
+      uses: actions/download-artifact@v4
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-apk
+        path: app/build/outputs/apk/debug
+    - name: Download freshly built APK identity
+      uses: actions/download-artifact@v4
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-apk-identity
+        path: apk-identity
+    - *id002
+    - name: Build one-shot fire-and-observe setup probe
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''api36-native'' ''Build one-shot fire-and-observe setup probe''
+
+        '
+    - name: Build native snapshot audit
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''api36-native'' ''Build native snapshot audit''
+
+        '
+    - name: Build attempt classifier
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''api36-native'' ''Build attempt classifier''
+
+        '
+    - name: 'Apply review fix A: bounded read-only snapshot retries'
+      shell: bash
+      run: "set -euo pipefail\ncat > \"$RUNNER_TEMP/review_fix_A.py\" <<'PY'\nclass SnapshotEvidenceError(RuntimeError): pass\nclass SnapshotContradiction(RuntimeError): pass\n\ndef read_snapshot(label, poll=False):\n    import time, json, hashlib, xml.etree.ElementTree as ET\n    deadline=time.monotonic()+60.0\n    start=time.monotonic()\n    samples=[]\n    stable_signature=None\n    any_xml=False\n    any_json=False\n    def telemetry(outcome, reason=None):\n        try:\n            proc=adb('shell','pidof',PACKAGE,timeout=3)\n            pid=proc.stdout.decode('utf-8','replace').strip()\n        except Exception as err:\n            pid='unavailable: '+repr(err)\n        signal_file=AUDIT/'post-restart-startup-signals.txt'\n        signals=signal_file.read_text(errors='replace') if signal_file.exists() else ''\n        t={'label':label,'outcome':outcome,'reason':reason,'readAttempts':len(samples),'attempts':samples,\n           'elapsedSeconds':round(time.monotonic()-start,3),'completeXmlObserved':any_xml,\n\
+        \           'validJsonObserved':any_json,'appPid':pid,\n           'startupSignals':{k:(k in signals) for k in ('page-finished','first-frame-ready','content-ready')},\n           'firstFailure':next((x for x in samples if x.get('reason')),None),\n           'lastFailure':next((x for x in reversed(samples) if x.get('reason')),None)}\n        AUDIT.joinpath('snapshot-read-telemetry-'+label+'.json').write_text(json.dumps(t,indent=2,ensure_ascii=False),encoding='utf-8')\n    while True:\n        remaining=deadline-time.monotonic()\n        if remaining<=0:\n            telemetry('INCOMPLETE','API36 POST-RESTART SNAPSHOT EVIDENCE INCOMPLETE')\n            raise SnapshotEvidenceError('API36 POST-RESTART SNAPSHOT EVIDENCE INCOMPLETE')\n        tick=time.monotonic()\n        item={'attempt':len(samples)+1,'elapsedSeconds':round(tick-start,3),'bytes':0,'sha256':None,'adbReturnCode':None,'xmlParsed':False,'jsonParsed':False,'reason':None}\n        samples.append(item)\n        try:\n     \
+        \       p=adb('exec-out','cat',PREFS,timeout=max(.5,min(5.0,remaining)))\n            raw=p.stdout or b''\n            item['adbReturnCode']=p.returncode\n            item['bytes']=len(raw)\n            item['sha256']=hashlib.sha256(raw).hexdigest()\n            if p.returncode!=0:\n                raise ValueError('ADB_NONZERO: '+str(p.returncode)+' '+(p.stderr or b'').decode('utf-8','replace')[:180])\n            if not raw: raise ValueError('ADB_EMPTY_OUTPUT')\n            root=ET.fromstring(raw)\n            item['xmlParsed']=True\n            any_xml=True\n            node=next((n for n in root.findall('string') if n.attrib.get('name')=='snapshot'),None)\n            if node is None or not node.text: raise ValueError('MISSING_SNAPSHOT_KEY')\n            raw_json=node.text\n            data=json.loads(raw_json)\n            item['jsonParsed']=True\n            any_json=True\n            if not isinstance(data,dict) or data.get('schemaVersion')!=4 or not isinstance(data.get('domain'),dict)\
+        \ or data['domain'].get('version')!=4 or not isinstance(data['domain'].get('records'),dict) or not isinstance(data['domain'].get('schedules'),dict):\n                raise ValueError('STRUCTURE_INVALID')\n            proof=audit_snapshot(raw_json,data,label)\n            item['semanticStatus']=proof.get('status')\n            if proof.get('status')=='WRONG':\n                item['reason']='VALIDATED_SEMANTIC_CONTRADICTION'\n                telemetry('SEMANTIC_CONTRADICTION',item['reason'])\n                raise SnapshotContradiction('VALIDATED_SEMANTIC_CONTRADICTION '+str([k for k,v in (proof.get('checks') or {}).items() if v is False]))\n            if proof.get('status')!='PASS':\n                item['reason']='SEMANTIC_SETUP_INCOMPLETE'\n                stable_signature=None\n            else:\n                sig=json.dumps(semantic_fingerprint(data),sort_keys=True,ensure_ascii=False)\n                item['semanticSha256']=hashlib.sha256(sig.encode()).hexdigest()\n      \
+        \          if stable_signature==sig:\n                    AUDIT.joinpath('miaad_native_v1-'+label+'.xml').write_bytes(raw)\n                    AUDIT.joinpath('native-snapshot-'+label+'.raw.json').write_text(raw_json,encoding='utf-8')\n                    AUDIT.joinpath('native-snapshot-'+label+'.json').write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf-8')\n                    telemetry('PASS')\n                    return raw_json,data\n                stable_signature=sig\n                item['reason']='AWAITING_INDEPENDENT_STABLE_READ'\n        except SnapshotContradiction:\n            raise\n        except Exception as err:\n            item['reason']=type(err).__name__+': '+str(err)[:240]\n            stable_signature=None\n        if time.monotonic()>=deadline:\n            telemetry('INCOMPLETE','API36 POST-RESTART SNAPSHOT EVIDENCE INCOMPLETE')\n            raise SnapshotEvidenceError('API36 POST-RESTART SNAPSHOT EVIDENCE INCOMPLETE')\n        time.sleep(min(.6,max(.01,deadline-time.monotonic())))\n\
+        PY\ncat > \"$RUNNER_TEMP/apply_review_fix_A.py\" <<'PY'\nimport os, pathlib, re\np=pathlib.Path(os.environ['RUNNER_TEMP'])/'v1_snapshot_audit.py'\ns=p.read_text()\na=s.index('def read_snapshot(label, poll=False):')\nb=s.index('def latest_lesson(',a)\npatch=pathlib.Path(os.environ['RUNNER_TEMP'])/'review_fix_A.py'\ns=s[:a]+patch.read_text()+'\\n'+s[b:]\nold='    except Exception as e:\\n        out={\"label\":\"after-restart\",\"status\":\"INCOMPLETE\",\"error\":repr(e)}'\nnew='    except SnapshotContradiction as e:\\n        out={\"label\":\"after-restart\",\"status\":\"WRONG\",\"error\":repr(e)}\\n    except Exception as e:\\n        out={\"label\":\"after-restart\",\"status\":\"INCOMPLETE\",\"error\":repr(e)}'\nif s.count(old)!=1:raise SystemExit('POST MODE CONTRADICTION HANDLER NOT FOUND')\ns=s.replace(old,new)\nold_pre='    except Exception as e:\\n        out={\"label\":\"before-restart\",\"status\":\"INCOMPLETE\",\"error\":repr(e),\"checks\":{\"setupCompletionMarker\":False}}'\n\
+        new_pre='    except SnapshotContradiction as e:\\n        out={\"label\":\"before-restart\",\"status\":\"WRONG\",\"error\":repr(e),\"checks\":{\"setupCompletionMarker\":True}}\\n    except Exception as e:\\n        out={\"label\":\"before-restart\",\"status\":\"INCOMPLETE\",\"error\":repr(e),\"checks\":{\"setupCompletionMarker\":False}}'\nif s.count(old_pre)!=1:raise SystemExit('PRE MODE CONTRADICTION HANDLER NOT FOUND')\ns=s.replace(old_pre,new_pre)\np.write_text(s)\nprint('API36 POST-RESTART SNAPSHOT READ-RETRY PATCH PASS')\nPY\npython3 -m py_compile \"$RUNNER_TEMP/review_fix_A.py\" \"$RUNNER_TEMP/apply_review_fix_A.py\"\npython3 \"$RUNNER_TEMP/apply_review_fix_A.py\"\npython3 -m py_compile \"$RUNNER_TEMP/v1_snapshot_audit.py\"\necho 'API36 NATIVE SNAPSHOT HELPER SYNTAX PASS'\n"
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: ''
+    - name: Ensure platform tools and KVM
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''api36-native'' ''Ensure platform tools and KVM''
+
+        '
+    - name: Prepare V1R2 runtime script
+      shell: bash
+      run: 'set -euo pipefail
+
+        python3 "$RUNNER_TEMP/run_legacy.py" ''api36-native'' ''Prepare V1R2 runtime script''
+
+        '
+    - name: Installed Android API36 native snapshot restart
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: '36'
+        target: google_apis
+        arch: x86_64
+        profile: pixel_2
+        disable-animations: 'false'
+        script: bash /tmp/miaad-api36-native-snapshot-v1r2.sh
+    - name: Require complete native attempt evidence
+      shell: bash
+      run: "set -euo pipefail\nmkdir -p audit\nif [ ! -s audit/attempt-classification.json ]; then\n printf '{\"attempt\":%s,\"case\":\"HARNESS_INCOMPLETE\",\"classification\":\"TEST / VERIFICATION HARNESS\"}\n' \"$MIAAD_ATTEMPT\" > audit/attempt-classification.json\nfi\npython3 - <<'PY'\nimport os,json\nfrom pathlib import Path\nr=json.loads(Path('audit/attempt-classification.json').read_text())\nassert r.get('attempt')==int(os.environ['MIAAD_ATTEMPT'])\nassert r.get('preRestartStatus')=='PASS' and r.get('postRestartStatus')=='PASS' and r.get('semanticEquivalent') is True\nif 36==36:\n assert r.get('attemptPass') is True\n for label in ('before-restart','after-restart'):\n  p=Path('audit/snapshot-read-telemetry-'+label+'.json');assert p.is_file()\n  v=json.loads(p.read_text());assert v.get('outcome')=='PASS' and v.get('readAttempts',0)>=2\nelse:\n assert r.get('case') in ('A','B')\nprint('API36 NATIVE SNAPSHOT ATTEMPT PASS')\nPY\n"
+      if: always()
+    - name: Upload API36 attempt evidence
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-api36-attempt-${{ matrix.attempt }}
+        path: audit/
+        if-no-files-found: error
+        retention-days: '90'
+  api26-authoritative:
+    name: API26 2/2 independent semantic classification
+    if: always()
+    needs:
+    - verification
+    - api26-native
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Download attempt evidence
+      uses: actions/download-artifact@v4
+      with:
+        pattern: miaad-phase-1c-occurrence-authority-v1r6r8-api26-attempt-*
+        path: attempts
+        merge-multiple: 'false'
+    - name: Enforce two independent semantic passes
+      shell: bash
+      run: "set -euo pipefail\npython3 - <<'PY'\nimport glob,json,sys\nfrom pathlib import Path\nrs=sorted([json.loads(Path(f).read_text()) for f in glob.glob('attempts/**/attempt-classification.json',recursive=True)],key=lambda r:r.get('attempt',0))\ndef good(r):\n sig=r.get('startupSignals') or {}\n errors=r.get('fatalClassification') or {}\n ok=r.get('preRestartStatus')=='PASS' and r.get('postRestartStatus')=='PASS' and r.get('semanticEquivalent') is True and all(sig.get(k) is True for k in ('page-finished','first-frame-ready','content-ready')) and all(errors.get(k)==0 for k in ('fatalExceptionCount','androidRuntimeFatalCount','anrCount','genuineMiaadWebErrorCount')) and r.get('oldProcessDisappeared') is True and r.get('generalInstalledApkAcceptancePass') is True\n if 26==36:\n  proc=r.get('restartProcess') or {}\n  ok=ok and r.get('attemptPass') is True and r.get('newProcessIdentityPass') is True and proc.get('pidChanged') is True and proc.get('amStartReturnCode')==0 and bool(proc.get('newPid'))\
+        \ and proc.get('newPid')!=proc.get('oldPid') and all((r.get('permission') or {}).get(z) is True for z in ('initialGranted','phase1cGranted','preRestartGranted'))\n else:ok=ok and r.get('pidChanged') is True and r.get('case') in ('A','B')\n return ok\nok=len(rs)==2 and [r.get('attempt') for r in rs]==[1,2] and all(good(r) for r in rs)\nPath('api26-authoritative-v1r6r8.json').write_text(json.dumps({'authoritativePass':ok,'attempts':rs},indent=2))\nfor r in rs: print('API26 attempt',r.get('attempt'),r.get('case'),r.get('preRestartStatus'),r.get('postRestartStatus'),r.get('semanticEquivalent'))\nif not ok:print('API26 AUTHORITATIVE NATIVE SNAPSHOT RUNTIME FAILED');sys.exit(2)\nprint('API26 AUTHORITATIVE NATIVE SNAPSHOT RUNTIME PASS: 2/2')\nPY\n"
+    - name: Upload authoritative API26 classification
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-api26-authoritative
+        path: api26-authoritative-v1r6r8.json
+        if-no-files-found: error
+        retention-days: '90'
+  api36-authoritative:
+    name: API36 2/2 independent semantic classification
+    if: always()
+    needs:
+    - verification
+    - api36-native
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Download attempt evidence
+      uses: actions/download-artifact@v4
+      with:
+        pattern: miaad-phase-1c-occurrence-authority-v1r6r8-api36-attempt-*
+        path: attempts
+        merge-multiple: 'false'
+    - name: Enforce two independent semantic passes
+      shell: bash
+      run: "set -euo pipefail\npython3 - <<'PY'\nimport glob,json,sys\nfrom pathlib import Path\nrs=sorted([json.loads(Path(f).read_text()) for f in glob.glob('attempts/**/attempt-classification.json',recursive=True)],key=lambda r:r.get('attempt',0))\ndef good(r):\n sig=r.get('startupSignals') or {}\n errors=r.get('fatalClassification') or {}\n ok=r.get('preRestartStatus')=='PASS' and r.get('postRestartStatus')=='PASS' and r.get('semanticEquivalent') is True and all(sig.get(k) is True for k in ('page-finished','first-frame-ready','content-ready')) and all(errors.get(k)==0 for k in ('fatalExceptionCount','androidRuntimeFatalCount','anrCount','genuineMiaadWebErrorCount')) and r.get('oldProcessDisappeared') is True and r.get('generalInstalledApkAcceptancePass') is True\n if 36==36:\n  proc=r.get('restartProcess') or {}\n  ok=ok and r.get('attemptPass') is True and r.get('newProcessIdentityPass') is True and proc.get('pidChanged') is True and proc.get('amStartReturnCode')==0 and bool(proc.get('newPid'))\
+        \ and proc.get('newPid')!=proc.get('oldPid') and all((r.get('permission') or {}).get(z) is True for z in ('initialGranted','phase1cGranted','preRestartGranted'))\n else:ok=ok and r.get('pidChanged') is True and r.get('case') in ('A','B')\n return ok\nok=len(rs)==2 and [r.get('attempt') for r in rs]==[1,2] and all(good(r) for r in rs)\nPath('api36-authoritative-v1r6r8.json').write_text(json.dumps({'authoritativePass':ok,'attempts':rs},indent=2))\nfor r in rs: print('API36 attempt',r.get('attempt'),r.get('case'),r.get('preRestartStatus'),r.get('postRestartStatus'),r.get('semanticEquivalent'))\nif not ok:print('API36 AUTHORITATIVE NATIVE SNAPSHOT RUNTIME FAILED');sys.exit(2)\nprint('API36 AUTHORITATIVE NATIVE SNAPSHOT RUNTIME PASS: 2/2')\nPY\n"
+    - name: Upload authoritative API36 classification
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-api36-authoritative
+        path: api36-authoritative-v1r6r8.json
+        if-no-files-found: error
+        retention-days: '90'
+  cross-platform-runtime:
+    name: Cross-platform authoritative runtime matrix
+    if: always()
+    needs:
+    - verification
+    - api26-authoritative
+    - api36-authoritative
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Download API26 verdict
+      uses: actions/download-artifact@v4
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-api26-authoritative
+        path: api26-verdict
+    - name: Download API36 verdict
+      uses: actions/download-artifact@v4
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-api36-authoritative
+        path: api36-verdict
+    - name: Download same-run APK identity
+      uses: actions/download-artifact@v4
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-apk-identity
+        path: apk-identity
+    - name: Download four original runtime attempts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: miaad-phase-1c-occurrence-authority-v1r6r8-api*-attempt-*
+        path: attempts
+        merge-multiple: 'false'
+    - name: Require native 4/4 and same-run APK
+      shell: bash
+      run: "set -euo pipefail\npython3 - <<'PY'\nimport json,glob,sys\nfrom pathlib import Path\na=json.loads(Path('api26-verdict/api26-authoritative-v1r6r8.json').read_text())\nb=json.loads(Path('api36-verdict/api36-authoritative-v1r6r8.json').read_text())\nsha=Path('apk-identity/apk-sha256.txt').read_text().strip()\nsize=Path('apk-identity/apk-size-bytes.txt').read_text().strip()\nfs=glob.glob('attempts/**/apk-identity.txt',recursive=True)\nrs=glob.glob('attempts/**/attempt-classification.json',recursive=True)\nreports=[]\nfor f in fs:\n data=Path(f).read_text()\n ok=all(x in data for x in ('main_job_raw_apk_sha256='+sha,'runtime_raw_apk_sha256='+sha,'main_job_raw_apk_size='+size,'runtime_raw_apk_size='+size))\n reports.append({'file':f,'sameRunApkMatch':ok})\nok=a.get('authoritativePass') is True and b.get('authoritativePass') is True and len(fs)==4 and len(rs)==4 and all(x['sameRunApkMatch'] for x in reports)\nPath('cross-platform-runtime-v1r6r8.json').write_text(json.dumps({'authoritativePass':ok,'api26':a.get('authoritativePass'),'api36':b.get('authoritativePass'),'attempts':reports,'sameRunApkSha256':sha},indent=2))\n\
+        if not ok:print('PHASE 1C INSTALLED RUNTIME MATRIX FAILED');sys.exit(2)\nprint('PHASE 1C INSTALLED RUNTIME MATRIX PASS: API26 2/2 + API36 2/2')\nPY\n"
+    - name: Upload cross-platform verdict
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-cross-platform-runtime
+        path: cross-platform-runtime-v1r6r8.json
+        if-no-files-found: error
+        retention-days: '90'
+  post-run-immutability:
+    name: Frozen refs after runtime
+    if: always()
+    needs:
+    - verification
+    - api26-native
+    - api36-native
+    - api26-authoritative
+    - api36-authoritative
+    - cross-platform-runtime
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout frozen verification branch
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: '0'
+    - name: Verify all immutable refs
+      shell: bash
+      run: 'set -euo pipefail
+
+        mkdir -p audit
+
+        test "$(git rev-parse HEAD^)" = "$CANDIDATE_SHA"
+
+        test "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE"
+
+        test "$(git diff --name-only "$CANDIDATE_SHA" HEAD | wc -l)" -eq 1
+
+        git diff --name-only "$CANDIDATE_SHA" HEAD | grep -Fxq "$WORKFLOW_PATH"
+
+        check(){ got="$(git ls-remote origin "refs/heads/$1" | awk ''{print $1}'')"; test "$got" = "$2"; echo "$1=$got"; }
+
+        check miaad/phase-1c-occurrence-authority-candidate "$CANDIDATE_SHA"
+
+        check miaad/phase-1-correctness "$OFFICIAL_SHA"
+
+        check main "$MAIN_SHA"
+
+        check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r2 36a6683de26f014f952afb1a1249198c4d7bf124
+
+        check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r3 "$HIST_SHA"
+
+        check miaad/phase-1c-occurrence-authority-api26-native-snapshot-diagnostic-v3 4ddd852e611a920a360e81265b7c3c1535601e10
+
+        check miaad/phase-1c-occurrence-authority-api36-native-snapshot-diagnostic-v1r2 cf595d34ce1e416d4ff55027b8e1579e338c1c60
+
+        test "$(git rev-parse "$HIST_SHA^{tree}")" = 2135d822c7304e4cad94aa686640490f7900d094
+
+
+        check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r4 "$V1R6R4_SHA"
+
+        test "$(git rev-parse "$V1R6R4_SHA^{tree}")" = "$V1R6R4_TREE"
+
+        check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r6 "$V1R6R6_SHA"
+
+        check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r7 "$V1R6R7_SHA"
+
+        test "$(git rev-parse "$V1R6R7_SHA^{tree}")" = "$V1R6R7_TREE"
+
+        check miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r8 "$(git rev-parse HEAD)"
+
+        echo ''POST-RUN IMMUTABILITY PASS — NO PROMOTION''  | tee audit/post-run-immutability.txt
+
+        '
+    - name: Verify V1R6R5 remains immutable
+      shell: bash
+      run: 'set -euo pipefail
+
+        test "$(git ls-remote origin refs/heads/miaad/phase-1c-occurrence-authority-runtime-verification-v1r6r5 | awk ''{print $1}'')" = "$V1R6R5_SHA"
+
+        test "$(git rev-parse "$V1R6R5_SHA^{tree}")" = "$V1R6R5_TREE"
+
+        echo ''V1R6R5 IMMUTABILITY PASS''
+
+        '
+    - name: Upload immutability report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-post-run-immutability
+        path: audit/post-run-immutability.txt
+        if-no-files-found: error
+        retention-days: '90'
+  final-verdict:
+    name: Final V1R6R8 verdict with explicit artifact mapping
+    if: always()
+    needs:
+    - verification
+    - api26-native
+    - api36-native
+    - api26-authoritative
+    - api36-authoritative
+    - cross-platform-runtime
+    - post-run-immutability
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Download all current-run required artifacts
+      uses: actions/download-artifact@v4
+      if: always()
+      with:
+        pattern: miaad-phase-1c-occurrence-authority-v1r6r8-*
+        path: evidence
+        merge-multiple: 'false'
+    - name: Validate all evidence and exact platform verdict paths
+      shell: bash
+      run: "set -euo pipefail\ncat > \"$RUNNER_TEMP/final_check.py\" <<'PY'\nimport json,os,pathlib\nPREFIX='miaad-phase-1c-occurrence-authority-v1r6r8-'\nMAP={\n 'api26':('api26-authoritative','api26-authoritative-v1r6r8.json'),\n 'api36':('api36-authoritative','api36-authoritative-v1r6r8.json'),\n 'cross':('cross-platform-runtime','cross-platform-runtime-v1r6r8.json')}\nMANDATORY=['source-verification','tested-generated','generated-repeatability','primary-authority','transform-audit','clean-regeneration','gradle','apk','apk-identity','api26-attempt-1','api26-attempt-2','api26-authoritative','api36-attempt-1','api36-attempt-2','api36-authoritative','cross-platform-runtime','post-run-immutability']\ndef check(root,jobs):\n root=pathlib.Path(root)\n verdict={}; errors=[]\n for name,(suffix,filename) in MAP.items():\n  folder=root/(PREFIX+suffix)\n  path=folder/filename\n  if not path.is_file():\n   errors.append('FINAL VERDICT EVIDENCE MISSING: '+str(path))\n   verdict[name]=False;continue\n\
+        \  if len(list(folder.glob('*.json')))!=1:\n   errors.append('FINAL VERDICT EVIDENCE INVALID: '+str(path)+' (unexpected JSON multiplicity)')\n   verdict[name]=False;continue\n  try:\n   obj=json.loads(path.read_text(encoding='utf-8'))\n   if not isinstance(obj,dict) or type(obj.get('authoritativePass')) is not bool:raise ValueError('authoritativePass must be boolean')\n   if obj['authoritativePass'] is not True:errors.append('SEMANTIC VERDICT FALSE: '+str(path))\n   verdict[name]=obj['authoritativePass'] is True\n  except Exception as e:\n   errors.append('FINAL VERDICT EVIDENCE INVALID: '+str(path)+' '+repr(e));verdict[name]=False\n for suffix in MANDATORY:\n  directory=root/(PREFIX+suffix)\n  if not directory.is_dir() or not any(directory.rglob('*')):\n   errors.append('FINAL VERDICT EVIDENCE MISSING: '+str(directory))\n for name,result in jobs.items():\n  if result!='success':errors.append('MANDATORY JOB NOT SUCCESS: '+name+' = '+str(result))\n immut=root/(PREFIX+'post-run-immutability')/'post-run-immutability.txt'\n\
+        \ if not immut.is_file():errors.append('FINAL VERDICT EVIDENCE MISSING: '+str(immut))\n elif 'POST-RUN IMMUTABILITY PASS — NO PROMOTION' not in immut.read_text():errors.append('FINAL VERDICT EVIDENCE INVALID: '+str(immut))\n # Each runtime verdict must represent BOTH genuinely independent attempts.\n for name in ('api26','api36'):\n  p=root/(PREFIX+MAP[name][0])/MAP[name][1]\n  if p.is_file():\n   try:\n    obj=json.loads(p.read_text())\n    attempts=obj.get('attempts')\n    if not isinstance(attempts,list) or sorted(x.get('attempt') for x in attempts)!=[1,2]:\n     errors.append('FINAL VERDICT EVIDENCE INVALID: '+str(p)+' (two attempts required)')\n   except Exception:pass\n return {'authoritativePass':not errors,'errors':errors,'verdicts':verdict,'jobs':jobs}\nPY\npython3 -m py_compile \"$RUNNER_TEMP/final_check.py\"\npython3 - <<'PY'\nimport os,json,sys\nfrom pathlib import Path\nexec((Path(os.environ['RUNNER_TEMP'])/'final_check.py').read_text())\nr=check('evidence',{k:v for\
+        \ k,v in os.environ.items() if k.startswith('STATUS_')})\n# The source evidence must include the direct and nested smoke pass markers.\nimport glob\nsource=list(Path('evidence').glob('miaad-phase-1c-occurrence-authority-v1r6r8-source-verification/**/*'))\nfor marker in ('direct-authentication-pass.txt','nested-authentication-pass.txt','token-propagation-pass.txt','auth-regression-pass.txt'):\n    paths=[p for p in source if p.name==marker]\n    if len(paths)!=1 or 'PASS' not in paths[0].read_text():\n        r['errors'].append('FINAL VERDICT EVIDENCE MISSING: AUTHENTICATION '+marker)\n        r['authoritativePass']=False\nPath('final-verdict-v1r6r8.json').write_text(json.dumps(r,indent=2))\nif not r['authoritativePass']:\n print('EXTERNAL VERIFICATION V1R6R8 FAILED');print(json.dumps(r,indent=2));sys.exit(2)\nprint('EXTERNAL VERIFICATION V1R6R8 PASS — READY FOR PROMOTION REVIEW')\nprint('PHASE 1C STATUS = OPEN')\nprint('NEXT GATE = INDEPENDENT PROMOTION REVIEW')\nprint('DO NOT PROMOTE')\n\
+        print('STOP')\nPY\n"
+      if: always()
+      env:
+        STATUS_SOURCE: ${{ needs.verification.result }}
+        STATUS_API26: ${{ needs.api26-native.result }}
+        STATUS_API36: ${{ needs.api36-native.result }}
+        STATUS_API26_AGG: ${{ needs.api26-authoritative.result }}
+        STATUS_API36_AGG: ${{ needs.api36-authoritative.result }}
+        STATUS_MATRIX: ${{ needs.cross-platform-runtime.result }}
+        STATUS_IMMUTABILITY: ${{ needs.post-run-immutability.result }}
+    - name: Upload final evidence verdict
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: miaad-phase-1c-occurrence-authority-v1r6r8-final-verdict
+        path: final-verdict-v1r6r8.json
+        if-no-files-found: error
+        retention-days: '90'
