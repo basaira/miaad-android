@@ -15,11 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 3
       - name: Verify isolated candidate parent and change scope
         run: |
-          test "$(git rev-parse HEAD^)" = 6a3b367e4f0a9d007846452b9343733ff3adf086
-          git diff --name-only HEAD^ HEAD > /tmp/phase-1c-changed-paths.txt
+          git merge-base --is-ancestor 6a3b367e4f0a9d007846452b9343733ff3adf086 HEAD
+          git diff --name-only 6a3b367e4f0a9d007846452b9343733ff3adf086 HEAD > /tmp/phase-1c-changed-paths.txt
           cat > /tmp/phase-1c-expected-paths.txt <<'EOF'
           .github/workflows/phase-1c-cloud-hydration-repair-verification.yml
           app/src/main/assets/app-core.js
@@ -68,9 +68,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Install Android SDK 36
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: |
+          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.6.0'
