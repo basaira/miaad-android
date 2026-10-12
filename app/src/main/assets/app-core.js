@@ -85,7 +85,40 @@ const viewScroll={today:0,week:0,students:0,report:0,settings:0};
 function snapshotData(){return{schemaVersion:4,updatedAt:lastUpdatedAt,lessons,sessionState,sessionNotes,sessionAudit,idrisPhase,domain:domain.data}}
 function saveLocalState(){store.set("miaadDomainV4",JSON.stringify(domain.data));store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
 function persist(){domain.notifications();lastUpdatedAt=Math.max(Date.now(),lastUpdatedAt+1);saveLocalState();if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){try{NATIVE.saveSnapshot(JSON.stringify(snapshotData()))}catch{}}syncNativeReminders()}
-window.__miaadReceiveCloud=function(raw){try{const data=JSON.parse(raw);const incoming=Number(data.updatedAt||0);if(!Array.isArray(data.lessons)||incoming<=lastUpdatedAt)return;lessons=normalizeSchedule(data.lessons);sessionState=data.sessionState||{};sessionNotes=data.sessionNotes||{};sessionAudit=data.sessionAudit||{};idrisPhase=Number(data.idrisPhase||0);const modern=!!(data.domain&&typeof data.domain==='object');domain.replace(modern?data.domain:domain.data,modern?{}:data,{migrateLegacy:!modern});if(typeof refreshLegacyOccurrenceMirrors==='function')refreshLegacyOccurrenceMirrors();lastUpdatedAt=incoming;saveLocalState();nativeSyncState='synced';if(typeof renderAll==='function')renderAll();if(typeof showToast==='function')showToast('تمت مزامنة بيانات مِيعاد')}catch{}};
+function classifyCloudDomainPayload(data){
+ if(!data||typeof data!=='object'||Array.isArray(data))return'invalid';
+ if(!Object.prototype.hasOwnProperty.call(data,'domain'))return'legacy';
+ const value=data.domain;
+ if(!isModernDomainPayload(value)||value.version!==4||
+    !isDomainMap(value.cycles)||!isDomainMap(value.periods)||
+    !isDomainMap(value.notifications)||!Array.isArray(value.activity))return'invalid';
+ for(const key of ['students','records','cycles','periods','notifications']){
+  if(Object.values(value[key]).some(entry=>!isDomainMap(entry)))return'invalid'
+ }
+ if(Object.values(value.schedules).some(revisions=>!Array.isArray(revisions)||
+    revisions.some(revision=>!isDomainMap(revision)||!isDomainMap(revision.lesson))))return'invalid';
+ if(value.activity.some(entry=>!isDomainMap(entry)))return'invalid';
+ return'modern'
+}
+window.__miaadReceiveCloud=function(raw){
+ try{
+  const data=JSON.parse(raw),incoming=Number(data?.updatedAt),classification=classifyCloudDomainPayload(data);
+  if(classification==='invalid'||!Number.isFinite(incoming)||!Array.isArray(data.lessons)||incoming<=lastUpdatedAt)return;
+  const nextLessons=normalizeSchedule(data.lessons);
+  domain.replace(classification==='modern'?data.domain:domain.data,classification==='modern'?{}:data,{migrateLegacy:classification==='legacy'});
+  lessons=nextLessons;
+  sessionState=data.sessionState||{};
+  sessionNotes=data.sessionNotes||{};
+  sessionAudit=data.sessionAudit||{};
+  idrisPhase=Number(data.idrisPhase||0);
+  if(typeof refreshLegacyOccurrenceMirrors==='function')refreshLegacyOccurrenceMirrors();
+  lastUpdatedAt=incoming;
+  saveLocalState();
+  nativeSyncState='synced';
+  if(typeof renderAll==='function')renderAll();
+  if(typeof showToast==='function')showToast('تمت مزامنة بيانات مِيعاد')
+ }catch{}
+};
 window.__miaadNativeStatus=function(status){nativeSyncState=status||'local-only';const el=document.getElementById('syncStatus');if(el){const labels={connecting:'جارٍ الاتصال…','cloud-ready':'Firebase جاهز',synced:'متزامن الآن','cloud-pending':'محفوظ محليًا · المزامنة معلقة','local-only':'محلي فقط',browser:'نسخة ويب','reminder-error':'مشكلة في جدولة التنبيه'};el.textContent=labels[nativeSyncState]||nativeSyncState}if(typeof renderHeader==='function')renderHeader()};
 function startOfDay(d){const x=new Date(d);x.setHours(0,0,0,0);return x}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
