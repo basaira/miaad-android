@@ -118,6 +118,7 @@ invalidDomain('empty canonical student rejected before mutation',v=>{v.students=
 invalidDomain('record identity mismatch rejected',v=>{v.records['2026-09-21__historical'].id='elsewhere'});
 invalidDomain('record with invalid civil date rejected',v=>{v.records['2026-09-21__historical'].date='2026-02-30'});
 invalidDomain('record with unknown status rejected',v=>{v.records['2026-09-21__historical'].status='unknown'});
+invalidDomain('record without duration rejected',v=>{delete v.records['2026-09-21__historical'].duration});
 invalidDomain('record with missing student rejected',v=>{v.records['2026-09-21__historical'].studentId='missing'});
 invalidDomain('record with invalid optional countOverride rejected',v=>{v.records['2026-09-21__historical'].countOverride='yes'});
 invalidDomain('record with invalid optional actualMinutes rejected',v=>{v.records['2026-09-21__historical'].actualMinutes=-1});

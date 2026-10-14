@@ -106,7 +106,7 @@ function validCloudRecord(key,record,students){
   (record.scheduleId===undefined||cloudId(record.scheduleId))&&
   (record.time===undefined||typeof record.time==='string'&&
    (record.time===''||/^([01]\d|2[0-3]):[0-5]\d$/.test(record.time)))&&
-  (record.duration===undefined||typeof record.duration==='number'&&Number.isFinite(record.duration)&&record.duration>=0)&&
+  typeof record.duration==='number'&&Number.isFinite(record.duration)&&record.duration>=0&&
   (record.actualMinutes===undefined||typeof record.actualMinutes==='number'&&Number.isFinite(record.actualMinutes)&&record.actualMinutes>=0)&&
   (record.note===undefined||typeof record.note==='string')&&
   (record.countOverride===undefined||record.countOverride===null||typeof record.countOverride==='boolean')&&
