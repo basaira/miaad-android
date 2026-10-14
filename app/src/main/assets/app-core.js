@@ -85,6 +85,52 @@ const viewScroll={today:0,week:0,students:0,report:0,settings:0};
 function snapshotData(){return{schemaVersion:4,updatedAt:lastUpdatedAt,lessons,sessionState,sessionNotes,sessionAudit,idrisPhase,domain:domain.data}}
 function saveLocalState(){store.set("miaadDomainV4",JSON.stringify(domain.data));store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
 function persist(){domain.notifications();lastUpdatedAt=Math.max(Date.now(),lastUpdatedAt+1);saveLocalState();if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){try{NATIVE.saveSnapshot(JSON.stringify(snapshotData()))}catch{}}syncNativeReminders()}
+function cloudCivilDate(value){
+ if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;
+ const year=+value.slice(0,4),month=+value.slice(5,7),day=+value.slice(8,10),date=new Date(0);
+ date.setUTCHours(0,0,0,0);date.setUTCFullYear(year,month-1,day);
+ return date.getUTCFullYear()===year&&date.getUTCMonth()+1===month&&date.getUTCDate()===day
+}
+function cloudId(value){return typeof value==='string'&&!!value.trim()}
+function validCloudStudent(key,student){
+ return isDomainMap(student)&&cloudId(key)&&student.id===key&&
+  cloudId(student.name)&&cloudCivilDate(student.startDate)&&
+  (student.custom===undefined||typeof student.custom==='boolean')&&
+  (student.settings===undefined||isDomainMap(student.settings))
+}
+function validCloudRecord(key,record,students){
+ return isDomainMap(record)&&cloudId(key)&&record.id===key&&
+  cloudId(record.studentId)&&Object.prototype.hasOwnProperty.call(students,record.studentId)&&
+  cloudCivilDate(record.date)&&
+  ['entered','absent','student_cancelled','missed','notheld','rescheduled','makeup','pending'].includes(record.status)&&
+  (record.scheduleId===undefined||cloudId(record.scheduleId))&&
+  (record.time===undefined||typeof record.time==='string'&&
+   (record.time===''||/^([01]\d|2[0-3]):[0-5]\d$/.test(record.time)))&&
+  (record.duration===undefined||typeof record.duration==='number'&&Number.isFinite(record.duration)&&record.duration>=0)&&
+  (record.actualMinutes===undefined||typeof record.actualMinutes==='number'&&Number.isFinite(record.actualMinutes)&&record.actualMinutes>=0)&&
+  (record.note===undefined||typeof record.note==='string')&&
+  (record.countOverride===undefined||record.countOverride===null||typeof record.countOverride==='boolean')&&
+  (record.deleted===undefined||typeof record.deleted==='boolean')
+}
+function validCloudSchedule(key,revisions,students){
+ if(!cloudId(key)||!Array.isArray(revisions)||!revisions.length)return false;
+ let previous='';
+ for(const revision of revisions){
+  if(!isDomainMap(revision)||!cloudCivilDate(revision.from)||revision.from<=previous)return false;
+  previous=revision.from;
+  if(revision.lesson===null)continue;
+  const lesson=revision.lesson;
+  if(!isDomainMap(lesson)||lesson.id!==key||
+     !cloudId(lesson.studentId)||!Object.prototype.hasOwnProperty.call(students,lesson.studentId)||
+     !Number.isInteger(lesson.day)||lesson.day<0||lesson.day>6||
+     typeof lesson.start!=='string'||lesson.start!==''&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(lesson.start)||
+     lesson.start===''&&!cloudId(lesson.displayTime)||
+     !(typeof lesson.duration==='number'||typeof lesson.duration==='string'&&!!lesson.duration.trim())||
+     !Number.isFinite(+lesson.duration)||+lesson.duration<0||
+     !['weekly','biweekly','flex'].includes(lesson.repeat))return false
+ }
+ return true
+}
 function classifyCloudDomainPayload(data){
  if(!data||typeof data!=='object'||Array.isArray(data))return'invalid';
  if(!Object.prototype.hasOwnProperty.call(data,'domain'))return'legacy';
@@ -92,11 +138,12 @@ function classifyCloudDomainPayload(data){
  if(!isModernDomainPayload(value)||value.version!==4||
     !isDomainMap(value.cycles)||!isDomainMap(value.periods)||
     !isDomainMap(value.notifications)||!Array.isArray(value.activity))return'invalid';
- for(const key of ['students','records','cycles','periods','notifications']){
+ for(const key of ['cycles','periods','notifications']){
   if(Object.values(value[key]).some(entry=>!isDomainMap(entry)))return'invalid'
  }
- if(Object.values(value.schedules).some(revisions=>!Array.isArray(revisions)||
-    revisions.some(revision=>!isDomainMap(revision)||!isDomainMap(revision.lesson))))return'invalid';
+ if(Object.entries(value.students).some(([key,student])=>!validCloudStudent(key,student))||
+    Object.entries(value.records).some(([key,record])=>!validCloudRecord(key,record,value.students))||
+    Object.entries(value.schedules).some(([key,revisions])=>!validCloudSchedule(key,revisions,value.students)))return'invalid';
  if(value.activity.some(entry=>!isDomainMap(entry)))return'invalid';
  return'modern'
 }

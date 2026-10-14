@@ -1,9 +1,10 @@
-name: Phase 1C Cloud hydration repair verification
+name: Phase 1C V1R2 Cloud hydration repair verification
 
 on:
   push:
     branches:
       - miaad/phase-1c-cloud-hydration-safety-repair-v1
+      - miaad/phase-1c-cloud-hydration-safety-repair-v1r2
 
 permissions:
   contents: read
@@ -91,6 +92,91 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: miaad-phase-1c-cloud-hydration-repair-evidence
+          path: audit/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Upload exact APK for installed runtime checks
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-v1r2-built-apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            audit/cloud-repair-apk-sha256.txt
+            audit/cloud-repair-apk-size.txt
+          if-no-files-found: error
+          retention-days: 90
+
+  installed-apk-runtime:
+    needs: targeted-verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 36]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: miaad-phase-1c-v1r2-built-apk
+          path: runtime
+      - name: Verify downloaded build identity and prepare emulator
+        run: |
+          test -s runtime/app/build/outputs/apk/debug/app-debug.apk
+          expected="$(cut -d' ' -f1 runtime/audit/cloud-repair-apk-sha256.txt)"
+          test "$(sha256sum runtime/app/build/outputs/apk/debug/app-debug.apk | cut -d' ' -f1)" = "$expected"
+          test "$(stat -c '%s' runtime/app/build/outputs/apk/debug/app-debug.apk)" = "$(cat runtime/audit/cloud-repair-apk-size.txt)"
+          sudo chmod 666 /dev/kvm
+          mkdir -p audit
+          cat > "$RUNNER_TEMP/check-installed-apk.sh" <<'SH'
+          set -euo pipefail
+          apk=runtime/app/build/outputs/apk/debug/app-debug.apk
+          expected="$(cut -d' ' -f1 runtime/audit/cloud-repair-apk-sha256.txt)"
+          adb wait-for-device
+          adb install -r "$apk"
+          adb logcat -c
+          adb shell am start -W -n com.miaad.app/.MainActivity
+          for attempt in $(seq 1 60); do
+            adb logcat -d -s MiaadStartup:I MiaadWeb:E AndroidRuntime:E > audit/runtime-log.txt
+            if grep -q 'MiaadStartup: content-ready' audit/runtime-log.txt; then break; fi
+            sleep 2
+          done
+          grep -q 'MiaadStartup: page-finished' audit/runtime-log.txt
+          grep -q 'MiaadStartup: first-frame-ready' audit/runtime-log.txt
+          grep -q 'MiaadStartup: content-ready' audit/runtime-log.txt
+          if grep -Eq 'FATAL EXCEPTION|AndroidRuntime:.*FATAL' audit/runtime-log.txt; then exit 1; fi
+          adb shell pidof com.miaad.app
+          installed="$(adb shell pm path com.miaad.app | tr -d '\r' | sed -n 's/^package://p' | head -1)"
+          test -n "$installed"
+          adb pull "$installed" audit/installed-base.apk
+          test "$(sha256sum audit/installed-base.apk | cut -d' ' -f1)" = "$expected"
+          adb shell am force-stop com.miaad.app
+          adb logcat -c
+          adb shell am start -W -n com.miaad.app/.MainActivity
+          for attempt in $(seq 1 60); do
+            adb logcat -d -s MiaadStartup:I MiaadWeb:E AndroidRuntime:E > audit/restart-log.txt
+            if grep -q 'MiaadStartup: content-ready' audit/restart-log.txt; then break; fi
+            sleep 2
+          done
+          grep -q 'MiaadStartup: page-finished' audit/restart-log.txt
+          grep -q 'MiaadStartup: first-frame-ready' audit/restart-log.txt
+          grep -q 'MiaadStartup: content-ready' audit/restart-log.txt
+          if grep -Eq 'FATAL EXCEPTION|AndroidRuntime:.*FATAL' audit/restart-log.txt; then exit 1; fi
+          adb shell pidof com.miaad.app
+          printf 'API=%s\nAPK_SHA256=%s\nINSTALLED_SHA256=%s\nSTARTUP=PASS\nRESTART=PASS\n' "${{ matrix.api }}" "$expected" "$expected" > audit/installed-runtime.txt
+          SH
+      - name: Install and restart same-run APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          script: bash "$RUNNER_TEMP/check-installed-apk.sh"
+      - name: Upload installed runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-v1r2-installed-api${{ matrix.api }}
           path: audit/
           if-no-files-found: warn
           retention-days: 90
