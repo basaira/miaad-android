@@ -133,6 +133,9 @@ jobs:
           expected="$(cut -d' ' -f1 runtime/audit/cloud-repair-apk-sha256.txt)"
           adb wait-for-device
           adb install -r "$apk"
+          if test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" -ge 33; then
+            adb shell pm grant com.miaad.app android.permission.POST_NOTIFICATIONS
+          fi
           adb shell am start -W -n com.miaad.app/.MainActivity
           for attempt in $(seq 1 60); do
             adb logcat -d -s MiaadStartup:I MiaadWeb:E AndroidRuntime:E > audit/runtime-log.txt
