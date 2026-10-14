@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 3
+          fetch-depth: 0
       - name: Verify isolated candidate parent and change scope
         run: |
           git merge-base --is-ancestor 6a3b367e4f0a9d007846452b9343733ff3adf086 HEAD
