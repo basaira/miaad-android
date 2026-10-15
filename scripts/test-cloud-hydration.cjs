@@ -131,4 +131,79 @@ invalidDomain('empty schedule revision list rejected',v=>{v.schedules.historical
 invalidDomain('schedule revision with wrong lesson identity rejected',v=>{v.schedules.historical[0].lesson.id='wrong'});
 invalidDomain('schedule revision with missing student rejected',v=>{v.schedules.historical[0].lesson.studentId='missing'});
 invalidDomain('schedule revision with null duration rejected',v=>{v.schedules.historical[0].lesson.duration=null});
+
+// V1R3: exercise the real Cloud receiver (not only a duplicate classifier).
+function settingsRejected(label,edit){
+ invalidDomain(label,v=>edit(v.settings))
+}
+function settingsAccepted(label,edit,verify=()=>{}){
+ check(label,()=>{
+  const h=harness(),incoming=fixture().data;
+  edit(incoming.settings);
+  const p={...legacy,domain:clone(incoming),sessionState:{stale:'missed'},sessionNotes:{stale:'old'}};
+  assert.equal(h.context.classifyCloudDomainPayload(p),'modern');
+  h.receive(p);
+  assert.equal(h.context.nativeSyncState,'synced');
+  assert.equal(h.context.lastUpdatedAt,100);
+  assert.deepEqual(h.calls,{save:1,render:1,toast:1});
+  assert.deepEqual(clone(h.domain.data.records),clone(incoming.records));
+  assert.deepEqual(clone(h.domain.data.schedules),clone(incoming.schedules));
+  assert.equal(h.domain.data.records[date+'__tombstone'].deleted,true);
+  assert.equal(h.context.sessionState.stale,undefined);
+  assert.equal(h.context.sessionNotes.stale,undefined);
+  assert.doesNotThrow(()=>h.domain.availability(date));
+  assert.doesNotThrow(()=>h.domain.availability('2026-09-22'));
+  verify(h)
+ })
+}
+const invalidSettings=[
+ ['working null',s=>s.working=null],
+ ['blocked null',s=>s.blocked=null],
+ ['working array',s=>s.working=[]],
+ ['working scalar',s=>s.working='bad'],
+ ['working unexpected weekday',s=>s.working={'7':[['12:00','13:00']]}],
+ ['working day not an array',s=>s.working={'1':{}}],
+ ['working day null',s=>s.working={'1':null}],
+ ['working pair null',s=>s.working={'1':[null]}],
+ ['working pair not an array',s=>s.working={'1':[{start:'10:00',end:'12:00'}]}],
+ ['working pair wrong length',s=>s.working={'1':[['10:00']]}],
+ ['working start 24:00',s=>s.working={'1':[['24:00','01:00']]}],
+ ['working end 24:01',s=>s.working={'1':[['23:00','24:01']]}],
+ ['working end 24:00:00',s=>s.working={'1':[['23:00','24:00:00']]}],
+ ['working identical times',s=>s.working={'1':[['10:00','10:00']]}],
+ ['working invalid minute',s=>s.working={'1':[['12:60','13:00']]}],
+ ['blocked map',s=>s.blocked={}],
+ ['blocked null item',s=>s.blocked=[null]],
+ ['blocked missing end',s=>s.blocked=[{day:1,start:'12:00'}]],
+ ['blocked missing day/date',s=>s.blocked=[{start:'12:00',end:'13:00'}]],
+ ['blocked invalid civil date',s=>s.blocked=[{date:'2026-02-30',start:'12:00',end:'13:00'}]],
+ ['blocked invalid leap day',s=>s.blocked=[{date:'2025-02-29',start:'12:00',end:'13:00'}]],
+ ['blocked weekday 7',s=>s.blocked=[{day:7,start:'12:00',end:'13:00'}]],
+ ['blocked weekday string',s=>s.blocked=[{day:'1',start:'12:00',end:'13:00'}]],
+ ['blocked invalid date alongside valid day',s=>s.blocked=[{date:'2026-02-30',day:1,start:'12:00',end:'13:00'}]],
+ ['blocked 24:00 as start',s=>s.blocked=[{day:1,start:'24:00',end:'01:00'}]],
+ ['blocked 24:01 as end',s=>s.blocked=[{day:1,start:'23:00',end:'24:01'}]],
+ ['notifications null',s=>s.notifications=null],
+ ['notifications dailyTime 24:00',s=>s.notifications={dailyTime:'24:00'}],
+ ['rules null',s=>s.rules=null],
+ ['negative buffer',s=>s.buffer=-1],
+ ['zero minSlot',s=>s.minSlot=0]
+];
+for(const [label,edit] of invalidSettings)settingsRejected('V1R3 reject '+label+' without mutations',edit);
+settingsAccepted('V1R3 valid full settings',()=>{});
+settingsAccepted('V1R3 optional working omitted',s=>{delete s.working},h=>assert.ok(h.domain.data.settings.working[1]));
+settingsAccepted('V1R3 optional blocked omitted',s=>{delete s.blocked},h=>assert.deepEqual(h.domain.data.settings.blocked,[]));
+settingsAccepted('V1R3 working and blocked omitted',s=>{delete s.working;delete s.blocked});
+settingsAccepted('V1R3 partial working weekday and day off',s=>{s.working={'1':[]}},h=>assert.deepEqual(h.domain.availability(date),[]));
+settingsAccepted('V1R3 end 24:00 is allowed',s=>{s.working={'1':[['00:00','24:00']]}});
+settingsAccepted('V1R3 overnight working is allowed',s=>{s.working={'1':[['23:00','01:30']]}},h=>assert.ok(h.domain.availability('2026-09-22').some(w=>w.start===0&&w.end>=90)));
+settingsAccepted('V1R3 overnight blocked date is allowed',s=>{s.blocked=[{date, start:'23:00',end:'01:30'}]},h=>assert.ok(h.domain.availability('2026-09-22').every(w=>w.start>=90)));
+settingsAccepted('V1R3 blocked weekday with 24:00 end',s=>{s.blocked=[{day:1,start:'23:00',end:'24:00'}]});
+settingsAccepted('V1R3 real leap day is valid',s=>{s.blocked=[{date:'2028-02-29',start:'09:00',end:'10:00'}]});
+settingsAccepted('V1R3 omitted rules',s=>{delete s.rules});
+settingsAccepted('V1R3 omitted notifications',s=>{delete s.notifications});
+settingsAccepted('V1R3 partial notifications defaults',s=>{s.notifications={daily:true}},h=>assert.equal(h.domain.data.settings.notifications.dailyTime,'08:00'));
+settingsAccepted('V1R3 empty timezone falls back to existing valid IANA',s=>{s.teacherTimeZone=''},h=>assert.equal(h.domain.data.settings.teacherTimeZone,'Africa/Cairo'));
+settingsAccepted('V1R3 valid numeric-string duration from older v4',s=>{s.duration='30'},h=>assert.equal(h.domain.data.settings.duration,'30'));
+
 console.log('CLOUD HYDRATION RECEIVER REGRESSION PASS: '+cases.length+'/'+cases.length);

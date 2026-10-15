@@ -1,10 +1,11 @@
-name: Phase 1C V1R2 Cloud hydration repair verification
+name: Phase 1C V1R3 Cloud settings hydration repair verification
 
 on:
   push:
     branches:
       - miaad/phase-1c-cloud-hydration-safety-repair-v1
       - miaad/phase-1c-cloud-hydration-safety-repair-v1r2
+      - miaad/phase-1c-cloud-settings-hydration-repair-v1r3
 
 permissions:
   contents: read
@@ -98,7 +99,7 @@ jobs:
       - name: Upload exact APK for installed runtime checks
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-phase-1c-v1r2-built-apk
+          name: miaad-phase-1c-v1r3-built-apk
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             audit/cloud-repair-apk-sha256.txt
@@ -117,7 +118,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: miaad-phase-1c-v1r2-built-apk
+          name: miaad-phase-1c-v1r3-built-apk
           path: runtime
       - name: Verify downloaded build identity and prepare emulator
         run: |
@@ -182,7 +183,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-phase-1c-v1r2-installed-api${{ matrix.api }}
+          name: miaad-phase-1c-v1r3-installed-api${{ matrix.api }}
           path: audit/
           if-no-files-found: warn
           retention-days: 90

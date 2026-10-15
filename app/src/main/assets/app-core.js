@@ -92,6 +92,46 @@ function cloudCivilDate(value){
  return date.getUTCFullYear()===year&&date.getUTCMonth()+1===month&&date.getUTCDate()===day
 }
 function cloudId(value){return typeof value==='string'&&!!value.trim()}
+// Validate present modern Cloud settings before Domain replacement or any sync side effect.
+// Absent optional settings retain the Domain v4 defaults (including old snapshots).
+function validCloudSettings(settings){
+ if(!isDomainMap(settings))return false;
+ const has=(key)=>Object.prototype.hasOwnProperty.call(settings,key);
+ const time=/^([01]\d|2[0-3]):[0-5]\d$/;
+ const endTime=(value)=>typeof value==='string'&&(time.test(value)||value==='24:00');
+ const interval=(pair)=>Array.isArray(pair)&&pair.length===2&&
+  typeof pair[0]==='string'&&time.test(pair[0])&&endTime(pair[1])&&pair[0]!==pair[1];
+ if(has('working')){
+  if(!isDomainMap(settings.working))return false;
+  for(const [day,pairs] of Object.entries(settings.working)){
+   if(!/^[0-6]$/.test(day)||!Array.isArray(pairs)||pairs.some(pair=>!interval(pair)))return false;
+  }
+ }
+ if(has('blocked')){
+  if(!Array.isArray(settings.blocked))return false;
+  for(const block of settings.blocked){
+   if(!isDomainMap(block)||!interval([block.start,block.end]))return false;
+   const hasDate=Object.prototype.hasOwnProperty.call(block,'date');
+   const hasDay=Object.prototype.hasOwnProperty.call(block,'day');
+   if(!hasDate&&!hasDay)return false;
+   if(hasDate&&!cloudCivilDate(block.date))return false;
+   if(hasDay&&(!Number.isInteger(block.day)||block.day<0||block.day>6))return false;
+  }
+ }
+ if(has('notifications')){
+  if(!isDomainMap(settings.notifications))return false;
+  if(Object.prototype.hasOwnProperty.call(settings.notifications,'dailyTime')&&
+     (typeof settings.notifications.dailyTime!=='string'||!time.test(settings.notifications.dailyTime)))return false;
+ }
+ if(has('rules')&&!isDomainMap(settings.rules))return false;
+ if(has('teacherTimeZone')&&typeof settings.teacherTimeZone!=='string')return false;
+ for(const key of ['target','duration','minSlot'])if(has(key)&&
+  !(typeof settings[key]==='number'||typeof settings[key]==='string'&&/^\d+$/.test(settings[key]))||
+  has(key)&&(!Number.isSafeInteger(+settings[key])||+settings[key]<1))return false;
+ if(has('buffer')&&(!['string','number'].includes(typeof settings.buffer)||
+    !Number.isFinite(+settings.buffer)||+settings.buffer<0))return false;
+ return true;
+}
 function validCloudStudent(key,student){
  return isDomainMap(student)&&cloudId(key)&&student.id===key&&
   cloudId(student.name)&&cloudCivilDate(student.startDate)&&
@@ -144,7 +184,7 @@ function classifyCloudDomainPayload(data){
  if(Object.entries(value.students).some(([key,student])=>!validCloudStudent(key,student))||
     Object.entries(value.records).some(([key,record])=>!validCloudRecord(key,record,value.students))||
     Object.entries(value.schedules).some(([key,revisions])=>!validCloudSchedule(key,revisions,value.students)))return'invalid';
- if(value.activity.some(entry=>!isDomainMap(entry)))return'invalid';
+ if(!validCloudSettings(value.settings)||value.activity.some(entry=>!isDomainMap(entry)))return'invalid';
  return'modern'
 }
 window.__miaadReceiveCloud=function(raw){
