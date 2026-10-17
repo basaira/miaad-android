@@ -320,7 +320,10 @@ check('V1R4 accepts older partial Boolean settings and operates Domain',()=>{
  incoming.students.student.custom=true;incoming.students.student.settings={};
  assert.equal(v1r4Send(h,incoming),'modern');
  assert.doesNotThrow(()=>h.domain.notifications());
- assert.equal(h.domain.counts(h.domain.data.records[date+'__historical']),true)
+ assert.equal(h.domain.prefs('student').rules.entered,true);
+ // The historical fixture has an explicit countOverride:false: never erase it.
+ assert.equal(h.domain.counts(h.domain.data.records[date+'__historical']),false);
+ assert.equal(h.domain.counts({studentId:'student',status:'entered',deleted:false}),true)
 });
 
 console.log('CLOUD HYDRATION RECEIVER REGRESSION PASS: '+cases.length+'/'+cases.length);
