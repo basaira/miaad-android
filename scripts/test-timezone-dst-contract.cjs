@@ -114,7 +114,36 @@ check('AB pure civil date arithmetic ignores device DST',()=>{assert.equal(Miaad
 
 check('AC first legacy initialization chooses process device IANA zone once',()=>{const zone=cp.execFileSync(process.execPath,[__filename,'--legacy-zone'],{env:{...process.env,TZ:'Pacific/Honolulu'},encoding:'utf8'});assert.equal(zone,'Pacific/Honolulu')});
 check('AD reopen initialized state in another device zone preserves established authority',()=>{const seed=Buffer.from(JSON.stringify({settings:{teacherTimeZone:'Pacific/Honolulu'}})).toString('base64'),zone=cp.execFileSync(process.execPath,[__filename,'--seed-zone',seed],{env:{...process.env,TZ:'Pacific/Kiritimati'},encoding:'utf8'});assert.equal(zone,'Pacific/Honolulu')});
-check('AE native primary missing zone inherits only established local timezone',()=>{const native={settings:{target:9},students:{native:{id:'native'}}},local={settings:{teacherTimeZone:'Africa/Cairo',target:77},students:{local:{id:'local'}}};let persists=0;const context={createMiaadDomain,stabilizeMiaadTeacherTimeZoneSeed,nativeInitial:{domain:native},loadJSON:()=>local,lessons:[],sessionState:{},sessionNotes:{},sessionAudit:{},idrisPhase:0,persist:()=>persists++,renderAll:()=>{}};vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'app-integration.js'),'utf8'),context);const state=vm.runInContext('domain.data',context);assert.equal(state.settings.teacherTimeZone,'Africa/Cairo');assert.equal(state.settings.target,9);assert.ok(state.students.native);assert.equal(state.students.local,undefined);assert.equal(persists,0)});
+// V1R6: the old AE fixture was an incomplete modern Domain; V1R5 Cloud
+// contract rightly rejects it. Preserve all AE assertions using genuine valid
+// v4 Native/Local snapshots; test timezone fallback without weakening admission.
+check('AE native primary missing zone inherits only established local timezone',()=>{
+ const date=()=>new Date('2026-09-21T12:00:00Z');
+ const native=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo',target:9}},{},date).data;
+ const local=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo',target:77}},{},date).data;
+ native.students.native={id:'native',name:'Native',startDate:'2026-09-01',custom:false,settings:{}};
+ local.students.local={id:'local',name:'Local',startDate:'2026-09-01',custom:false,settings:{}};
+ delete native.settings.teacherTimeZone;
+ let persists=0;
+ const context={createMiaadDomain,MiaadTemporal,stabilizeMiaadTeacherTimeZoneSeed,
+  nativeInitial:{domain:native},nativeSnapshotParseFailed:false,NATIVE:null,
+  STORAGE:{lessons:'miadLessonsV2',state:'miadSessionStateV2',notes:'miadSessionNotesV2',audit:'miadSessionAuditV2',phase:'miadIdrisPhaseV2',updated:'miadUpdatedAtV1'},
+  store:{get:key=>key==='miaadDomainV4'?JSON.stringify(local):null},BASE:[],
+  loadJSON:()=>local,normalizeSchedule:x=>x,lessons:[],sessionState:{},sessionNotes:{},sessionAudit:{},
+  idrisPhase:0,lastUpdatedAt:0,nativeSyncState:'browser',persist:()=>persists++,renderAll:()=>{}};
+ context.window=context;vm.createContext(context);
+ const core=fs.readFileSync(path.join(root,'app-core.js'),'utf8');
+ const a=core.indexOf('function cloudCivilDate('),b=core.indexOf('window.__miaadReceiveCloud',a);
+ assert.ok(a>=0&&b>a,'real production Cloud classifier available');
+ vm.runInContext(core.slice(a,b),context);
+ vm.runInContext(fs.readFileSync(path.join(root,'app-integration.js'),'utf8'),context);
+ const state=vm.runInContext('domain.data',context);
+ assert.equal(state.settings.teacherTimeZone,'Africa/Cairo');
+ assert.equal(state.settings.target,9);
+ assert.ok(state.students.native);
+ assert.equal(state.students.local,undefined);
+ assert.equal(persists,0)
+});
 check('AF replace missing or blank timezone preserves current authority',()=>{for(const settings of [{target:7},{teacherTimeZone:'',target:8}]){const d=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z'));d.replace({settings});assert.equal(d.teacherZone(),'Africa/Cairo')}});
 check('AG merge missing or blank timezone preserves current authority',()=>{for(const settings of [{target:7},{teacherTimeZone:'',target:8}]){const d=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z'));d.merge({settings});assert.equal(d.teacherZone(),'Africa/Cairo')}});
 check('AH legacy merge after explicit teacher-zone change preserves newest authority',()=>{const d=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z')),settings=d.copy(d.data.settings);settings.teacherTimeZone='Europe/London';d.saveSettings(settings);d.merge({settings:{target:11}});assert.equal(d.teacherZone(),'Europe/London')});

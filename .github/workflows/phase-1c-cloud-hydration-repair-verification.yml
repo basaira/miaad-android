@@ -36,6 +36,7 @@ jobs:
           scripts/test-initial-browser.cjs
           scripts/test-initial-hydration.cjs
           scripts/test-occurrence-authority.cjs
+          scripts/test-timezone-dst-contract.cjs
           EOF
           diff -u /tmp/phase-1c-expected-paths.txt /tmp/phase-1c-changed-paths.txt
           test ! -e app/build/generated/compatAssets
