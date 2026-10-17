@@ -15,7 +15,7 @@ function fixture(){
  const l={id:'sched',studentId:s.id,name:s.name,day:1,start:'10:00',duration:30,repeat:'weekly'};
  d.saveSchedule(l,date);
  d.record({...d.resolveScheduleOccurrence(l.id,date),status:'entered',note:'canonical',countOverride:false});
- const del=d.saveSchedule({id:'deleted',studentId:s.id,name:s.name,day:1,start:'11:00',duration:30,repeat:'weekly'},'2026-09-01');
+ const del=d.saveSchedule({id:'deleted',studentId:s.id,name:s.name,day:1,start:'11:00',duration:30,repeat:'weekly'},date);
  d.deleteSchedule(del.id);
  d.createPeriod('s','2026-09-01','2026-09-30');
  d.data.students.s.custom=true;
