@@ -4,7 +4,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 
 const root=path.resolve(process.env.MIAAD_ASSET_ROOT||path.join(__dirname,'../app/src/main/assets'));
-const {createMiaadDomain}=require(path.join(root,'app-domain.js'));
+const {createMiaadDomain,MiaadTemporal}=require(path.join(root,'app-domain.js'));
 const core=fs.readFileSync(path.join(root,'app-core.js'),'utf8');
 const integration=fs.readFileSync(path.join(root,'app-integration.js'),'utf8');
 const start=core.indexOf('function cloudCivilDate(');
@@ -32,7 +32,7 @@ function fixture(){
 }
 function harness(){
  const domain=fixture(),calls={save:0,render:0,toast:0};
- const context={window:null,domain,lastUpdatedAt:1,lessons:[{id:'local'}],sessionState:{local:'entered'},sessionNotes:{local:'note'},sessionAudit:{a:1},idrisPhase:3,nativeSyncState:'cloud-ready',
+ const context={window:null,domain,MiaadTemporal,lastUpdatedAt:1,lessons:[{id:'local'}],sessionState:{local:'entered'},sessionNotes:{local:'note'},sessionAudit:{a:1},idrisPhase:3,nativeSyncState:'cloud-ready',
   normalizeSchedule:clone,saveLocalState:()=>calls.save++,renderAll:()=>calls.render++,showToast:()=>calls.toast++,
   refreshLegacyOccurrenceMirrors:()=>{const state={},notes={};for(const r of Object.values(domain.data.records)){if(r.deleted)continue;if(r.status&&r.status!=='pending')state[r.id]=r.status;if(r.note)notes[r.id]=r.note}context.sessionState=state;context.sessionNotes=notes}
  };

@@ -11,7 +11,16 @@ el('studentSearch').oninput=e=>{selectedStudent='';renderStudents(e.target.value
 el('sessionStatePicker').innerHTML=domain.states.map(s=>`<button type="button" data-state="${s==='pending'?'':s}">${statusLabel(s)}</button>`).join('');el('sessionStatePicker').querySelectorAll('button').forEach(b=>b.onclick=()=>{el('sessionStatePicker').querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));markEditorDirty()});
 el('toggleIdrisPhase').onclick=()=>{idrisPhase=idrisPhase?0:1;const effective=domain.teacherNow().date;lessons=lessons.map(l=>{const current=domain.versionAt(l.id,effective)||l;return current?.repeat==='biweekly'?domain.saveSchedule({...current,phase:idrisPhase},effective):l});domainCommit();showToast('حُفظت مرحلة إدريس للمواعيد القادمة')};
 window.__miaadOpenNotification=key=>{domain.notifications();openNotification(key)};
-renderFeatureSettings();domain.notifications();saveLocalState();renderAll();syncNativeReminders();
+renderFeatureSettings();
+if(!startupRecoveryBlocked){domain.notifications();saveLocalState()}
+renderAll();
+if(startupRecoveryBlocked){
+ const notice=document.createElement('section');
+ notice.id='miaadStartupRecoveryBlock';notice.setAttribute('role','alertdialog');notice.setAttribute('aria-modal','true');
+ notice.style.cssText='position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:rgba(12,24,30,.94);color:white;text-align:center;font:600 20px/1.8 sans-serif';
+ notice.textContent='تعذّر التحقق من النسخ المحفوظة. أُوقِف الحفظ والمزامنة من هذه الجلسة لحماية بياناتك. لا تُدخِل بيانات جديدة قبل استعادة نسخة صحيحة.';
+ document.body.appendChild(notice);
+}else syncNativeReminders();
 setInterval(()=>{const before=JSON.stringify(domain.data.notifications);domain.notifications();if(before!==JSON.stringify(domain.data.notifications)){persist();renderAttention();if(el('notificationCenter'))openNotificationCenter()}if(!NATIVE&&'Notification'in window&&Notification.permission==='granted'){const fresh=Object.values(domain.data.notifications).filter(n=>n.active&&!n.read&&!n.deliveredAt&&n.snoozeUntil<=Date.now());if(fresh.length){const n=fresh[0],notice=new Notification(fresh.length>1?`${fresh.length} تنبيهات من مِيعاد`:n.title,{body:n.body,tag:'miaad-attention'});notice.onclick=()=>{window.focus();openNotification(n.id)};fresh.forEach(n=>n.deliveredAt=Date.now());persist()}}},60000);
 
 /* Final data-presentation invariants are installed after every later UI patch has loaded.

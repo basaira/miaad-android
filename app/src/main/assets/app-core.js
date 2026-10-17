@@ -62,7 +62,13 @@ const memoryStore=Object.create(null);
 const store={get(key){try{return window.localStorage.getItem(key)}catch{return Object.prototype.hasOwnProperty.call(memoryStore,key)?memoryStore[key]:null}},set(key,value){try{window.localStorage.setItem(key,String(value));return true}catch{memoryStore[key]=String(value);return false}}};
 function loadJSON(key,fallback){try{return JSON.parse(store.get(key)||'null')??fallback}catch{return fallback}}
 const NATIVE=typeof window.AndroidBridge!=='undefined'?window.AndroidBridge:null;
-function nativeSeed(){if(!NATIVE||typeof NATIVE.loadSnapshot!=='function')return null;try{const raw=NATIVE.loadSnapshot();return raw?JSON.parse(raw):null}catch{return null}}
+let nativeSnapshotParseFailed=false;
+function nativeSeed(){if(!NATIVE||typeof NATIVE.loadSnapshot!=='function')return null;
+ try{const raw=NATIVE.loadSnapshot();if(!raw)return null;const parsed=JSON.parse(raw);
+  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))nativeSnapshotParseFailed=true;
+  return parsed
+ }catch{nativeSnapshotParseFailed=true;return null}
+}
 function normalizeSchedule(items){return items.map(l=>{
  if(l.id?.startsWith('moh-sw-')&&l.start==='18:30'&&l.repeat==='flex'&&l.displayTime==='بعد المغرب'&&l.note==='الوقت بالدقيقة غير محدد؛ 18:30 للترتيب الداخلي فقط.')
    return {...l,start:'',note:'الوقت بالدقيقة غير محدد؛ يُعرض بعد المغرب حتى تحدد ساعة.'};
@@ -71,7 +77,7 @@ function normalizeSchedule(items){return items.map(l=>{
 function hasFixedTime(l){return /^([01]\d|2[0-3]):[0-5]\d$/.test(l.start||'')}
 const nativeInitial=nativeSeed();
 let lessons=Array.isArray(nativeInitial?.lessons)?nativeInitial.lessons:loadJSON(STORAGE.lessons,loadJSON('miadLessonsV1',BASE));
-lessons=normalizeSchedule(lessons);
+lessons=Array.isArray(lessons)&&lessons.every(l=>l&&typeof l==='object'&&!Array.isArray(l))?normalizeSchedule(lessons):[];
 let sessionState=nativeInitial?.sessionState&&typeof nativeInitial.sessionState==='object'?nativeInitial.sessionState:loadJSON(STORAGE.state,loadJSON('miadSessionStateV1',{}));
 let sessionNotes=nativeInitial?.sessionNotes&&typeof nativeInitial.sessionNotes==='object'?nativeInitial.sessionNotes:loadJSON(STORAGE.notes,loadJSON('miadSessionNotesV1',{}));
 let sessionAudit=nativeInitial?.sessionAudit&&typeof nativeInitial.sessionAudit==='object'?nativeInitial.sessionAudit:loadJSON(STORAGE.audit,{});
@@ -83,8 +89,8 @@ let currentView='today',freeWindowsExpanded=false,editorDirty=false;
 const viewScroll={today:0,week:0,students:0,report:0,settings:0};
 
 function snapshotData(){return{schemaVersion:4,updatedAt:lastUpdatedAt,lessons,sessionState,sessionNotes,sessionAudit,idrisPhase,domain:domain.data}}
-function saveLocalState(){store.set("miaadDomainV4",JSON.stringify(domain.data));store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
-function persist(){domain.notifications();lastUpdatedAt=Math.max(Date.now(),lastUpdatedAt+1);saveLocalState();if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){try{NATIVE.saveSnapshot(JSON.stringify(snapshotData()))}catch{}}syncNativeReminders()}
+function saveLocalState(){if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return false;store.set("miaadDomainV4",JSON.stringify(domain.data));store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
+function persist(){if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return false;domain.notifications();lastUpdatedAt=Math.max(Date.now(),lastUpdatedAt+1);saveLocalState();if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){try{NATIVE.saveSnapshot(JSON.stringify(snapshotData()))}catch{}}syncNativeReminders()}
 function cloudCivilDate(value){
  if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;
  const year=+value.slice(0,4),month=+value.slice(5,7),day=+value.slice(8,10),date=new Date(0);
@@ -130,7 +136,7 @@ function validCloudSettings(settings){
  if(present('periodMode')&&!['calendar','monthly','custom'].includes(settings.periodMode))return false;
  if(present('language')&&!['ar','en'].includes(settings.language))return false;
  if(present('teacherTimeZone')&&(typeof settings.teacherTimeZone!=='string'||
-  settings.teacherTimeZone.trim()!==''&&!domain.validTimeZone(settings.teacherTimeZone.trim())))return false;
+  settings.teacherTimeZone.trim()!==''&&!MiaadTemporal.validTimeZone(settings.teacherTimeZone.trim())))return false;
  const has=(key)=>Object.prototype.hasOwnProperty.call(settings,key);
  const time=/^([01]\d|2[0-3]):[0-5]\d$/;
  const endTime=(value)=>typeof value==='string'&&(time.test(value)||value==='24:00');
@@ -222,6 +228,10 @@ window.__miaadReceiveCloud=function(raw){
   if(classification==='invalid'||!Number.isFinite(incoming)||!Array.isArray(data.lessons)||incoming<=lastUpdatedAt)return;
   const nextLessons=normalizeSchedule(data.lessons);
   domain.replace(classification==='modern'?data.domain:domain.data,classification==='modern'?{}:data,{migrateLegacy:classification==='legacy'});
+  if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked){
+   startupRecoveryBlocked=false;
+   document.getElementById('miaadStartupRecoveryBlock')?.remove();
+  }
   lessons=nextLessons;
   sessionState=data.sessionState||{};
   sessionNotes=data.sessionNotes||{};
@@ -235,7 +245,7 @@ window.__miaadReceiveCloud=function(raw){
   if(typeof showToast==='function')showToast('تمت مزامنة بيانات مِيعاد')
  }catch{}
 };
-window.__miaadNativeStatus=function(status){nativeSyncState=status||'local-only';const el=document.getElementById('syncStatus');if(el){const labels={connecting:'جارٍ الاتصال…','cloud-ready':'Firebase جاهز',synced:'متزامن الآن','cloud-pending':'محفوظ محليًا · المزامنة معلقة','local-only':'محلي فقط',browser:'نسخة ويب','reminder-error':'مشكلة في جدولة التنبيه'};el.textContent=labels[nativeSyncState]||nativeSyncState}if(typeof renderHeader==='function')renderHeader()};
+window.__miaadNativeStatus=function(status){nativeSyncState=(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)?'recovery-required':status||'local-only';const el=document.getElementById('syncStatus');if(el){const labels={connecting:'جارٍ الاتصال…','cloud-ready':'Firebase جاهز',synced:'متزامن الآن','cloud-pending':'محفوظ محليًا · المزامنة معلقة','local-only':'محلي فقط',browser:'نسخة ويب','reminder-error':'مشكلة في جدولة التنبيه','recovery-required':'استعادة البيانات مطلوبة · لن تُحفظ التعديلات'};el.textContent=labels[nativeSyncState]||nativeSyncState}if(typeof renderHeader==='function')renderHeader()};
 function startOfDay(d){const x=new Date(d);x.setHours(0,0,0,0);return x}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
 function getSunday(d){const x=startOfDay(d);x.setDate(x.getDate()-x.getDay());return x}
