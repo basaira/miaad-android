@@ -77,7 +77,8 @@ function normalizeSchedule(items){return items.map(l=>{
 function hasFixedTime(l){return /^([01]\d|2[0-3]):[0-5]\d$/.test(l.start||'')}
 const nativeInitial=nativeSeed();
 let lessons=Array.isArray(nativeInitial?.lessons)?nativeInitial.lessons:loadJSON(STORAGE.lessons,loadJSON('miadLessonsV1',BASE));
-lessons=Array.isArray(lessons)&&lessons.every(l=>l&&typeof l==='object'&&!Array.isArray(l))?normalizeSchedule(lessons):[];
+// Defer normalization until initial snapshot provenance has been validated.
+lessons=Array.isArray(lessons)?lessons:[];
 let sessionState=nativeInitial?.sessionState&&typeof nativeInitial.sessionState==='object'?nativeInitial.sessionState:loadJSON(STORAGE.state,loadJSON('miadSessionStateV1',{}));
 let sessionNotes=nativeInitial?.sessionNotes&&typeof nativeInitial.sessionNotes==='object'?nativeInitial.sessionNotes:loadJSON(STORAGE.notes,loadJSON('miadSessionNotesV1',{}));
 let sessionAudit=nativeInitial?.sessionAudit&&typeof nativeInitial.sessionAudit==='object'?nativeInitial.sessionAudit:loadJSON(STORAGE.audit,{});
