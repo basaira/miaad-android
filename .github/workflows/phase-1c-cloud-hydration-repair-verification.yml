@@ -1,4 +1,4 @@
-name: Phase 1C V1R4 Boolean settings hydration verification
+name: Phase 1C V1R5 Complete Cloud settings contract verification
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - miaad/phase-1c-cloud-hydration-safety-repair-v1r2
       - miaad/phase-1c-cloud-settings-hydration-repair-v1r3
       - miaad/phase-1c-cloud-boolean-settings-repair-v1r4
+      - miaad/phase-1c-cloud-settings-contract-repair-v1r5
 
 permissions:
   contents: read
@@ -100,7 +101,7 @@ jobs:
       - name: Upload exact APK for installed runtime checks
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-phase-1c-v1r4-built-apk
+          name: miaad-phase-1c-v1r5-built-apk
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             audit/cloud-repair-apk-sha256.txt
@@ -119,7 +120,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: miaad-phase-1c-v1r4-built-apk
+          name: miaad-phase-1c-v1r5-built-apk
           path: runtime
       - name: Verify downloaded build identity and prepare emulator
         run: |
@@ -184,7 +185,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-phase-1c-v1r4-installed-api${{ matrix.api }}
+          name: miaad-phase-1c-v1r5-installed-api${{ matrix.api }}
           path: audit/
           if-no-files-found: warn
           retention-days: 90

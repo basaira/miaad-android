@@ -326,4 +326,121 @@ check('V1R4 accepts older partial Boolean settings and operates Domain',()=>{
  assert.equal(h.domain.counts({studentId:'student',status:'entered',deleted:false}),true)
 });
 
+
+// V1R5 — systematic Domain v4 settings contract, checked through the actual
+// Cloud receiver and Domain. The 420 frozen V1R4 tests above remain untouched.
+const contractScalars={
+ target:{bad:[null,'bad',0,-1,1.5,'0','-2','1.5',[],{},true],good:[1,12,'15']},
+ duration:{bad:[null,'bad',0,-1,1.5,'0','-2',[],{},true],good:[1,45,'30']},
+ minSlot:{bad:[null,'bad',0,-1,1.5,'0','-2',[],{},true],good:[1,30,'45']},
+ buffer:{bad:[null,'bad',-1,'-1',' ',[],{},true],good:[0,7,'2.5',2.5]},
+ periodDay:{bad:[null,'bad',0,32,-1,1.5,'0','32',[],{},true],good:[1,15,31,'15']},
+ periodMode:{bad:[null,'bad','weekly','',0,[],{},false],good:['calendar','monthly','custom']},
+ language:{bad:[null,'zz','',0,[],{},true],good:['ar','en']},
+ teacherTimeZone:{bad:[null,'Invalid/Zone',0,[],{},true],good:['UTC','Africa/Cairo','']}
+};
+const malformedSettings={
+ working:[null,[],{'1':null},{'1':[['24:00','01:00']]},{'1':[['11:00','11:00']]}],
+ blocked:[null,{},[null],[{date:'2026-02-30',start:'12:00',end:'13:00'}],[{day:7,start:'10:00',end:'11:00'}]],
+ rules:[null,[],{entered:null},{entered:'false'}],
+ notifications:[null,[],{dailyTime:'24:00'},{upcoming:'false'}]
+};
+const contractClone=x=>JSON.parse(JSON.stringify(x));
+const contractScopes=['global','student'];
+function contractSettings(v,scope){
+ if(scope==='global')return v.settings;
+ v.students.student.custom=true;
+ v.students.student.settings??={};
+ return v.students.student.settings;
+}
+function contractRejected(label,scope,key,bad){
+ invalidDomain('V1R5 no mutation '+label+' / '+scope,v=>{contractSettings(v,scope)[key]=contractClone(bad)})
+}
+function contractAccepted(label,scope,key,value,verify=()=>{}){
+ check('V1R5 accept '+label+' / '+scope,()=>{
+  const h=harness(),incoming=contractClone(fixture().data);
+  contractSettings(incoming,scope)[key]=contractClone(value);
+  const p={...legacy,domain:incoming};
+  assert.equal(h.context.classifyCloudDomainPayload(p),'modern');
+  h.receive(p);
+  assert.equal(h.context.nativeSyncState,'synced');
+  assert.equal(h.context.lastUpdatedAt,100);
+  assert.deepEqual(h.calls,{save:1,render:1,toast:1});
+  assert.deepEqual(contractClone(h.domain.data.records),contractClone(incoming.records));
+  assert.deepEqual(contractClone(h.domain.data.schedules),contractClone(incoming.schedules));
+  assert.equal(h.domain.data.records[date+'__tombstone'].deleted,true);
+  assert.doesNotThrow(()=>h.domain.availability(date));
+  assert.doesNotThrow(()=>h.domain.notifications());
+  const pr=h.domain.prefs('student');
+  if(key==='notifications'&&scope==='student'){
+   for(const [k,val] of Object.entries(value))assert.deepEqual(pr.notifications[k],val)
+  }else if(key==='teacherTimeZone'&&value===''&&scope==='global'){
+   assert.equal(pr.teacherTimeZone,'Africa/Cairo')
+  }else assert.deepEqual(contractClone(pr[key]),contractClone(scope==='global'?h.domain.data.settings[key]:value));
+  verify(h,pr)
+ })
+}
+for(const scope of contractScopes){
+ for(const [key,spec] of Object.entries(contractScalars)){
+  for(const [i,bad] of spec.bad.entries())contractRejected(key+' invalid '+i,scope,key,bad);
+  for(const [i,good] of spec.good.entries())contractAccepted(key+' valid '+i,scope,key,good,(h,p)=>{
+   if(key==='target')assert.equal(h.domain.cycle('student').target,p.target);
+   if(key==='periodMode'||key==='periodDay')assert.doesNotThrow(()=>h.domain.period('student'));
+   if(key==='language')assert.ok(['ar','en'].includes(p.language));
+   if(key==='teacherTimeZone'&&scope==='global')assert.ok(h.domain.validTimeZone(h.domain.teacherZone()));
+   if(key==='buffer'&&scope==='global')assert.doesNotThrow(()=>h.domain.schedulingConflict(date,14*60,30));
+  });
+  check('V1R5 omitted '+scope+' '+key,()=>{
+   const h=harness(),incoming=contractClone(fixture().data);
+   delete contractSettings(incoming,scope)[key];
+   const p={...legacy,domain:incoming};
+   assert.equal(h.context.classifyCloudDomainPayload(p),'modern');
+   h.receive(p);
+   assert.equal(h.context.nativeSyncState,'synced');
+   assert.doesNotThrow(()=>h.domain.notifications())
+  })
+ }
+ for(const [key,bads] of Object.entries(malformedSettings)){
+  for(const [i,bad] of bads.entries())contractRejected(key+' nested invalid '+i,scope,key,bad)
+ }
+}
+for(const scope of contractScopes)for(const target of [null,'bad',0])for(const auto of [false,true]){
+ invalidDomain('V1R5 cross invalid target '+JSON.stringify(target)+' auto='+auto+' scope='+scope,v=>{
+  const s=contractSettings(v,scope);s.target=target;s.autoCycle=auto
+ })
+}
+for(const scope of contractScopes)for(const target of [1,'1'])for(const enabled of [false,true]){
+ check('V1R5 counted cycle '+scope+' target='+target+' auto='+enabled,()=>{
+  const h=harness(),incoming=contractClone(fixture().data),s=contractSettings(incoming,scope);
+  s.target=target;s.autoCycle=enabled;
+  const p={...legacy,domain:incoming};
+  assert.equal(h.context.classifyCloudDomainPayload(p),'modern');h.receive(p);
+  const eligible=h.domain.data.records[date+'__historical'];
+  assert.equal(eligible.countOverride,false);
+  assert.equal(h.domain.counts({...eligible,countOverride:null}),true);
+  h.domain.record({studentId:'student',date:'2026-09-20',time:'16:00',duration:30,status:'entered',countOverride:null});
+  h.domain.notifications();
+  assert.equal(Object.keys(h.domain.data.cycles).length,enabled?2:1)
+ })
+}
+for(const scope of contractScopes){
+ contractAccepted('monthly period with midmonth boundary',scope,'periodMode','monthly',(h)=>{
+  const p=h.domain.period('student');assert.equal(p.mode,'monthly');assert.equal(p.end,'2026-09-30')
+ });
+ contractAccepted('valid overnight working',scope,'working',{'1':[['23:00','01:30']]},h=>{
+  if(scope==='global')assert.ok(h.domain.availability('2026-09-22').some(w=>w.start===0))
+ });
+ contractAccepted('valid overnight block',scope,'blocked',[{date:'2026-09-21',start:'23:00',end:'01:30'}]);
+ contractAccepted('daily notification valid time',scope,'notifications',{daily:true,dailyTime:'08:00'})
+}
+let contractSeed=0x1c05;
+const seededRandom=()=>((contractSeed=(Math.imul(contractSeed,1664525)+1013904223)>>>0)/4294967296);
+for(let i=0;i<48;i++){
+ const scope=contractScopes[Math.floor(seededRandom()*2)];
+ const fields=['target','duration','minSlot','periodDay'];
+ const key=fields[Math.floor(seededRandom()*fields.length)];
+ const n=[0,-1,1.5,32.5,'NaN'][Math.floor(seededRandom()*5)];
+ contractRejected('seed=0x1c05 mutation='+i+' '+key,scope,key,n)
+}
+
 console.log('CLOUD HYDRATION RECEIVER REGRESSION PASS: '+cases.length+'/'+cases.length);

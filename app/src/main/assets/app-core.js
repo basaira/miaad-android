@@ -116,6 +116,21 @@ function validCloudBooleanSettings(settings){
 }
 function validCloudSettings(settings){
  if(!validCloudBooleanSettings(settings))return false;
+ // Omitted v4 fields retain Domain defaults; do not mutate or coerce payloads.
+ // Numeric strings are compatible with the real positive()/periodBounds() consumers.
+ const present=key=>Object.prototype.hasOwnProperty.call(settings,key);
+ const number=value=>typeof value==='number'&&Number.isFinite(value)||
+  typeof value==='string'&&/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)&&Number.isFinite(+value);
+ const integer=value=>number(value)&&Number.isSafeInteger(+value);
+ for(const key of ['target','duration','minSlot']){
+  if(present(key)&&(!integer(settings[key])||+settings[key]<1))return false
+ }
+ if(present('buffer')&&(!number(settings.buffer)||+settings.buffer<0))return false;
+ if(present('periodDay')&&(!integer(settings.periodDay)||+settings.periodDay<1||+settings.periodDay>31))return false;
+ if(present('periodMode')&&!['calendar','monthly','custom'].includes(settings.periodMode))return false;
+ if(present('language')&&!['ar','en'].includes(settings.language))return false;
+ if(present('teacherTimeZone')&&(typeof settings.teacherTimeZone!=='string'||
+  settings.teacherTimeZone.trim()!==''&&!domain.validTimeZone(settings.teacherTimeZone.trim())))return false;
  const has=(key)=>Object.prototype.hasOwnProperty.call(settings,key);
  const time=/^([01]\d|2[0-3]):[0-5]\d$/;
  const endTime=(value)=>typeof value==='string'&&(time.test(value)||value==='24:00');
@@ -144,19 +159,13 @@ function validCloudSettings(settings){
      (typeof settings.notifications.dailyTime!=='string'||!time.test(settings.notifications.dailyTime)))return false;
  }
  if(has('rules')&&!isDomainMap(settings.rules))return false;
- if(has('teacherTimeZone')&&typeof settings.teacherTimeZone!=='string')return false;
- for(const key of ['target','duration','minSlot'])if(has(key)&&
-  !(typeof settings[key]==='number'||typeof settings[key]==='string'&&/^\d+$/.test(settings[key]))||
-  has(key)&&(!Number.isSafeInteger(+settings[key])||+settings[key]<1))return false;
- if(has('buffer')&&(!['string','number'].includes(typeof settings.buffer)||
-    !Number.isFinite(+settings.buffer)||+settings.buffer<0))return false;
  return true;
 }
 function validCloudStudent(key,student){
  return isDomainMap(student)&&cloudId(key)&&student.id===key&&
   cloudId(student.name)&&cloudCivilDate(student.startDate)&&
   (student.custom===undefined||typeof student.custom==='boolean')&&
-  (student.settings===undefined||validCloudBooleanSettings(student.settings))
+  (student.settings===undefined||validCloudSettings(student.settings))
 }
 function validCloudRecord(key,record,students){
  return isDomainMap(record)&&cloudId(key)&&record.id===key&&
