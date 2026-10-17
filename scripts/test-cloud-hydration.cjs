@@ -206,4 +206,121 @@ settingsAccepted('V1R3 partial notifications defaults',s=>{s.notifications={dail
 settingsAccepted('V1R3 empty timezone falls back to existing valid IANA',s=>{s.teacherTimeZone=''},h=>assert.equal(h.domain.data.settings.teacherTimeZone,'Africa/Cairo'));
 settingsAccepted('V1R3 valid numeric-string duration from older v4',s=>{s.duration='30'},h=>assert.equal(h.domain.data.settings.duration,'30'));
 
+
+// V1R4 Boolean contract derives from Domain defaults + actual settings UI writers.
+// Test both top-level and per-student custom overrides: exact booleans, omissions,
+// and every malformed JSON type. Receiver snapshots include all mirrors/UI effects.
+const v1r4Rules=['entered','absent','student_cancelled','missed','notheld','rescheduled','makeup'];
+const v1r4Notifications=['upcoming','cycle','period','pending','daily','availability'];
+const v1r4Fields=['autoCycle','autoPeriod','showNotes',...v1r4Rules.map(k=>'rules.'+k),...v1r4Notifications.map(k=>'notifications.'+k)];
+const v1r4Bad=[['null',null],['string true','true'],['string false','false'],['zero',0],['one',1],['array',[]],['object',{}]];
+function v1r4Settings(domainValue,scope){
+ if(scope==='global')return domainValue.settings;
+ domainValue.students.student.custom=true;
+ return domainValue.students.student.settings;
+}
+function v1r4Set(settings,field,value){
+ const [outer,inner]=field.split('.');
+ if(inner){settings[outer]??={};settings[outer][inner]=value}
+ else settings[outer]=value
+}
+function v1r4Delete(settings,field){
+ const [outer,inner]=field.split('.');
+ if(inner){if(settings[outer])delete settings[outer][inner]}
+ else delete settings[outer]
+}
+function v1r4Send(h,incoming){
+ const payload={...legacy,domain:incoming,sessionState:{stale:'absent'},sessionNotes:{stale:'wrong'}};
+ const classification=h.context.classifyCloudDomainPayload(payload);
+ h.receive(payload);
+ return classification
+}
+for(const scope of ['global','student'])for(const field of v1r4Fields)for(const [kind,bad] of v1r4Bad){
+ check('V1R4 rejects '+scope+' '+field+' '+kind+' without state or UI mutation',()=>{
+  const h=harness(),before=h.snapshot(),incoming=clone(fixture().data);
+  v1r4Set(v1r4Settings(incoming,scope),field,bad);
+  assert.equal(v1r4Send(h,incoming),'invalid');
+  assert.deepEqual(h.snapshot(),before)
+ })
+}
+for(const scope of ['global','student'])for(const field of v1r4Fields)for(const value of [true,false]){
+ check('V1R4 accepts '+scope+' '+field+' '+value+' with real consumer',()=>{
+  const h=harness(),incoming=clone(fixture().data);
+  v1r4Set(v1r4Settings(incoming,scope),field,value);
+  assert.equal(v1r4Send(h,incoming),'modern');
+  assert.equal(h.context.nativeSyncState,'synced');
+  assert.equal(h.context.lastUpdatedAt,100);
+  assert.deepEqual(h.calls,{save:1,render:1,toast:1});
+  assert.deepEqual(clone(h.domain.data.records),clone(incoming.records));
+  assert.deepEqual(clone(h.domain.data.schedules),clone(incoming.schedules));
+  const [a,b]=field.split('.'),prefs=h.domain.prefs('student');
+  assert.equal(b?prefs[a][b]:prefs[a],value);
+  if(a==='rules')assert.equal(h.domain.counts({studentId:'student',status:b,deleted:false}),value)
+ })
+}
+for(const scope of ['global','student'])for(const field of v1r4Fields){
+ check('V1R4 preserves optional v4 omission '+scope+' '+field,()=>{
+  const h=harness(),incoming=clone(fixture().data);
+  v1r4Delete(v1r4Settings(incoming,scope),field);
+  assert.equal(v1r4Send(h,incoming),'modern');
+  assert.doesNotThrow(()=>h.domain.availability(date));
+  const [a,b]=field.split('.'),prefs=h.domain.prefs('student');
+  assert.equal(typeof (b?prefs[a][b]:prefs[a]),'boolean')
+ })
+}
+for(const enabled of [false,true]){
+ check('V1R4 consumer autoCycle '+enabled,()=>{
+  const h=harness(),incoming=clone(fixture().data);
+  incoming.settings.autoCycle=enabled;incoming.settings.target=1;
+  assert.equal(v1r4Send(h,incoming),'modern');
+  h.domain.notifications();
+  assert.equal(Object.keys(h.domain.data.cycles).length,enabled?2:1)
+ });
+ check('V1R4 consumer student autoCycle '+enabled,()=>{
+  const h=harness(),incoming=clone(fixture().data);
+  incoming.students.student.custom=true;
+  incoming.students.student.settings={autoCycle:enabled,target:1};
+  assert.equal(v1r4Send(h,incoming),'modern');
+  h.domain.notifications();
+  assert.equal(Object.keys(h.domain.data.cycles).length,enabled?2:1)
+ });
+ check('V1R4 consumer autoPeriod '+enabled,()=>{
+  const h=harness(),incoming=clone(fixture().data);
+  incoming.settings.autoPeriod=enabled;
+  assert.equal(v1r4Send(h,incoming),'modern');
+  h.domain.createPeriod('student','2026-09-01','2026-09-20');
+  h.domain.notifications();
+  assert.equal(Object.keys(h.domain.data.periods).length,enabled?2:1)
+ });
+ check('V1R4 consumer archived showNotes '+enabled,()=>{
+  const h=harness(),incoming=clone(fixture().data);
+  incoming.settings.showNotes=enabled;
+  assert.equal(v1r4Send(h,incoming),'modern');
+  const p=h.domain.createPeriod('student','2026-09-01','2026-09-30');
+  assert.equal(h.domain.archive(p).showNotes,enabled)
+ });
+ for(const key of v1r4Notifications){
+  check('V1R4 actual notification '+key+' '+enabled,()=>{
+   const h=harness(),incoming=clone(fixture().data);
+   incoming.settings.notifications[key]=enabled;
+   if(key==='cycle')incoming.settings.target=1;
+   assert.equal(v1r4Send(h,incoming),'modern');
+   if(key==='period')h.domain.createPeriod('student','2026-09-01','2026-09-20');
+   if(key==='availability'){h.domain.data.availabilityDate=date;h.domain.data.availabilityFingerprint='different'}
+   if(key==='pending')h.domain.saveSchedule({id:'earlier',studentId:'student',name:'Student',day:1,start:'08:00',duration:30,repeat:'weekly'},date);
+   if(key==='upcoming')h.domain.saveSchedule({id:'soon',studentId:'student',name:'Student',day:1,start:'15:30',duration:30,repeat:'weekly',reminder:60},date);
+   const notices=h.domain.notifications(),seen=notices.some(n=>n.type===key&&(key==='daily'||key==='availability'||n.studentId==='student'));
+   assert.equal(seen,enabled)
+  })
+ }
+}
+check('V1R4 accepts older partial Boolean settings and operates Domain',()=>{
+ const h=harness(),incoming=clone(fixture().data);
+ for(const field of v1r4Fields)v1r4Delete(incoming.settings,field);
+ incoming.students.student.custom=true;incoming.students.student.settings={};
+ assert.equal(v1r4Send(h,incoming),'modern');
+ assert.doesNotThrow(()=>h.domain.notifications());
+ assert.equal(h.domain.counts(h.domain.data.records[date+'__historical']),true)
+});
+
 console.log('CLOUD HYDRATION RECEIVER REGRESSION PASS: '+cases.length+'/'+cases.length);

@@ -94,8 +94,28 @@ function cloudCivilDate(value){
 function cloudId(value){return typeof value==='string'&&!!value.trim()}
 // Validate present modern Cloud settings before Domain replacement or any sync side effect.
 // Absent optional settings retain the Domain v4 defaults (including old snapshots).
-function validCloudSettings(settings){
+// Only present, product-defined Boolean settings must be Boolean. Omitted
+// historical v4 keys inherit Domain defaults; no coercion or mutation.
+function validCloudBooleanSettings(settings){
  if(!isDomainMap(settings))return false;
+ const owns=(o,key)=>Object.prototype.hasOwnProperty.call(o,key);
+ for(const key of ['autoCycle','autoPeriod','showNotes']){
+  if(owns(settings,key)&&typeof settings[key]!=='boolean')return false;
+ }
+ for(const [group,names] of [
+  ['rules',['entered','absent','student_cancelled','missed','notheld','rescheduled','makeup']],
+  ['notifications',['upcoming','cycle','period','pending','daily','availability']]
+ ]){
+  if(!owns(settings,group))continue;
+  if(!isDomainMap(settings[group]))return false;
+  for(const key of names){
+   if(owns(settings[group],key)&&typeof settings[group][key]!=='boolean')return false;
+  }
+ }
+ return true
+}
+function validCloudSettings(settings){
+ if(!validCloudBooleanSettings(settings))return false;
  const has=(key)=>Object.prototype.hasOwnProperty.call(settings,key);
  const time=/^([01]\d|2[0-3]):[0-5]\d$/;
  const endTime=(value)=>typeof value==='string'&&(time.test(value)||value==='24:00');
@@ -136,7 +156,7 @@ function validCloudStudent(key,student){
  return isDomainMap(student)&&cloudId(key)&&student.id===key&&
   cloudId(student.name)&&cloudCivilDate(student.startDate)&&
   (student.custom===undefined||typeof student.custom==='boolean')&&
-  (student.settings===undefined||isDomainMap(student.settings))
+  (student.settings===undefined||validCloudBooleanSettings(student.settings))
 }
 function validCloudRecord(key,record,students){
  return isDomainMap(record)&&cloudId(key)&&record.id===key&&
