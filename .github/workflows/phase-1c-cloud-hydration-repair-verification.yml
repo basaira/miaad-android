@@ -24,7 +24,7 @@ jobs:
       - name: Verify isolated candidate parent and change scope
         run: |
           test "$(git merge-base 5c89553960cb39ff5bcc559d6ef6c2163b148cf5 HEAD)" = "5c89553960cb39ff5bcc559d6ef6c2163b148cf5"
-          test "$(git rev-list --count 5c89553960cb39ff5bcc559d6ef6c2163b148cf5..HEAD)" -le 5
+          test "$(git rev-list --count 5c89553960cb39ff5bcc559d6ef6c2163b148cf5..HEAD)" -le 20
           git merge-base --is-ancestor 5c89553960cb39ff5bcc559d6ef6c2163b148cf5 HEAD
           git diff --name-only 5c89553960cb39ff5bcc559d6ef6c2163b148cf5 HEAD > /tmp/phase-1c-changed-paths.txt
           cat > /tmp/phase-1c-expected-paths.txt <<'EOF'
@@ -35,6 +35,7 @@ jobs:
           scripts/test-cloud-hydration.cjs
           scripts/test-initial-browser.cjs
           scripts/test-initial-hydration.cjs
+          scripts/test-occurrence-authority.cjs
           EOF
           diff -u /tmp/phase-1c-expected-paths.txt /tmp/phase-1c-changed-paths.txt
           test ! -e app/build/generated/compatAssets

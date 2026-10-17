@@ -54,7 +54,7 @@ if(nativeSelected){
  lessons=Array.isArray(nativeInitial.lessons)?nativeInitial.lessons:canonicalStartupLessons(primaryDomainSeed);
  sessionState=isDomainMap(nativeInitial.sessionState)?nativeInitial.sessionState:{};
  sessionNotes=isDomainMap(nativeInitial.sessionNotes)?nativeInitial.sessionNotes:{};
- sessionAudit=isDomainMap(nativeInitial.sessionAudit)?nativeInitial.sessionAudit:{};
+ sessionAudit=isDomainMap(nativeInitial.sessionAudit)?nativeInitial.sessionAudit:isDomainMap(sessionAudit)?sessionAudit:{};
  idrisPhase=Number(nativeInitial.idrisPhase??0);
  lastUpdatedAt=Number(nativeInitial.updatedAt??0)
 }else if(localSelected){

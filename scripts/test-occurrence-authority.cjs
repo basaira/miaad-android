@@ -3,10 +3,17 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 const root=path.resolve(process.env.MIAAD_ASSET_ROOT||path.join(__dirname,'../app/src/main/assets'));
-const {createMiaadDomain,stabilizeMiaadTeacherTimeZoneSeed}=require(path.join(root,'app-domain.js'));
+const {createMiaadDomain,MiaadTemporal,stabilizeMiaadTeacherTimeZoneSeed}=require(path.join(root,'app-domain.js'));
 let now='2026-09-21T12:00:00.000Z';
 const clock=()=>new Date(now);
 const make=(seed={},legacy={},options)=>createMiaadDomain(seed,legacy,clock,options);
+// Extract only the actual pure Cloud admission predicates; run them with the
+// production initial integration script and the same temporal implementation.
+const admissionCore=fs.readFileSync(path.join(root,'app-core.js'),'utf8');
+const admissionStart=admissionCore.indexOf('function cloudCivilDate('),admissionEnd=admissionCore.indexOf('window.__miaadReceiveCloud',admissionStart);
+assert.ok(admissionStart>=0&&admissionEnd>admissionStart,'production Cloud classifier must be accessible');
+const admissionPredicates=admissionCore.slice(admissionStart,admissionEnd);
+const startupStoreKeys={lessons:'miadLessonsV2',state:'miadSessionStateV2',notes:'miadSessionNotesV2',audit:'miadSessionAuditV2',phase:'miadIdrisPhaseV2',updated:'miadUpdatedAtV1'};
 const cases=[];function plain(value){return JSON.parse(JSON.stringify(value))}function check(id,fn){try{fn();cases.push({id,ok:true})}catch(error){cases.push({id,ok:false,error:error.stack||error.message})}}
 function student(d,id='s',startDate='2026-09-01'){return d.saveStudent({id,name:id,startDate,custom:false,settings:{}})}
 function weekly(d,s,id='w',day=1,start='10:00',effective='2026-09-21'){return d.saveSchedule({id,studentId:s.id,name:s.name,day,start,duration:30,repeat:'weekly'},effective)}
@@ -19,7 +26,7 @@ check('C actualMinutes survives unrelated edit',()=>{const {d,s,id}=recordedFixt
 check('D countOverride survives unrelated edit',()=>{const {d,s,id}=recordedFixture();unrelatedEdit(d,s);assert.equal(d.data.records[id].countOverride,false)});
 check('E tombstone/cancellation survive',()=>{const d=make(),s=student(d);weekly(d,s,'dead');const r=d.resolveScheduleOccurrence('dead','2026-09-21');d.removeRecord(r);d.saveSchedule({id:'dead',studentId:s.id,name:s.name,day:1,start:'12:00',duration:45,repeat:'weekly'},'2026-09-21');assert.equal(d.data.records[r.id].deleted,true);assert.equal(d.occurrences('2026-09-21').some(x=>x.id===r.id),false);weekly(d,s,'cancel',1,'13:00');const c=d.resolveScheduleOccurrence('cancel','2026-09-21');d.record({...c,status:'student_cancelled'});assert.equal(d.data.records[c.id].status,'student_cancelled')});
 check('F newer record defeats stale mirrors',()=>{const {d,id}=recordedFixture(),again=make(JSON.parse(JSON.stringify(d.data)),{sessionState:{[id]:'absent'},sessionNotes:{[id]:'stale'}});assert.equal(again.data.records[id].status,'entered');assert.equal(again.data.records[id].note,'canonical')});
-check('G mirrors deterministically refresh',()=>{const seed=recordedFixture().d.data,context={createMiaadDomain,stabilizeMiaadTeacherTimeZoneSeed,nativeInitial:{domain:JSON.parse(JSON.stringify(seed))},loadJSON:()=>({}),lessons:[],sessionState:{orphan:'absent'},sessionNotes:{orphan:'stale'},sessionAudit:{audit:[{at:'x'}]},idrisPhase:0,persist:()=>{},renderAll:()=>{}};context.window=context;vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'app-integration.js'),'utf8'),context);assert.deepEqual(plain(vm.runInContext('sessionState',context)),{'2026-09-21__hist':'entered'});assert.deepEqual(plain(vm.runInContext('sessionNotes',context)),{'2026-09-21__hist':'canonical'});assert.ok(context.sessionAudit.audit)});
+check('G mirrors deterministically refresh',()=>{const seed=recordedFixture().d.data,context=integrationState({nativeInitial:{domain:JSON.parse(JSON.stringify(seed))},sessionState:{orphan:'absent'},sessionNotes:{orphan:'stale'},sessionAudit:{audit:[{at:'x'}]}});assert.deepEqual(plain(vm.runInContext('sessionState',context)),{'2026-09-21__hist':'entered'});assert.deepEqual(plain(vm.runInContext('sessionNotes',context)),{'2026-09-21__hist':'canonical'});assert.ok(context.sessionAudit.audit)});
 check('H real D creates exactly one record',()=>{const d=make(),s=student(d,'h');d.atomic(()=>{weekly(d,s,'real');const base=d.resolveScheduleOccurrence('real','2026-09-21');assert.ok(base);d.record({...base,status:'entered',note:'real'})});assert.equal(Object.values(d.data.records).filter(r=>r.id==='2026-09-21__real').length,1);assert.equal(d.data.records['2026-09-21__real'].note,'real')});
 check('I non-occurrence D fails atomically',()=>{const d=make(),s=student(d,'i'),before=JSON.stringify(d.data);assert.throws(()=>d.atomic(()=>{d.saveSchedule({id:'bad',studentId:s.id,name:s.name,day:2,start:'10:00',duration:30,repeat:'weekly'},'2026-09-21');const base=d.resolveScheduleOccurrence('bad','2026-09-21');if(!base)throw Error('not occurrence');d.record({...base,status:'entered'})}));assert.equal(JSON.stringify(d.data),before)});
 check('J weekly membership',()=>{const d=make(),s=student(d,'j');weekly(d,s,'j-w');assert.ok(d.resolveScheduleOccurrence('j-w','2026-09-21'));assert.equal(d.resolveScheduleOccurrence('j-w','2026-09-22'),null)});
@@ -38,8 +45,18 @@ check('atomic rolls back schedule record and activity',()=>{const d=make(),s=stu
 
 
 function integrationState({nativeInitial=null,localDomain={},lessons=[],sessionState={},sessionNotes={},sessionAudit={}}){
- const context={createMiaadDomain,stabilizeMiaadTeacherTimeZoneSeed,nativeInitial,loadJSON:key=>key==='miaadDomainV4'?localDomain:{},lessons:JSON.parse(JSON.stringify(lessons)),sessionState:{...sessionState},sessionNotes:{...sessionNotes},sessionAudit:JSON.parse(JSON.stringify(sessionAudit)),idrisPhase:0,persist:()=>{},renderAll:()=>{}};
- context.window=context;vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'app-integration.js'),'utf8'),context);return context
+ const localRaw=Object.keys(localDomain).length?JSON.stringify(localDomain):null;
+ const store={get:key=>key==='miaadDomainV4'?localRaw:null};
+ const context={createMiaadDomain,MiaadTemporal,stabilizeMiaadTeacherTimeZoneSeed,
+  nativeInitial,nativeSnapshotParseFailed:false,store,STORAGE:startupStoreKeys,NATIVE:null,BASE:[],normalizeSchedule:x=>x,
+  loadJSON:key=>key==='miaadDomainV4'?localDomain:{},
+  lessons:JSON.parse(JSON.stringify(lessons)),sessionState:{...sessionState},sessionNotes:{...sessionNotes},
+  sessionAudit:JSON.parse(JSON.stringify(sessionAudit)),idrisPhase:0,lastUpdatedAt:0,nativeSyncState:'browser',
+  persist:()=>{},renderAll:()=>{}};
+ context.window=context;vm.createContext(context);
+ vm.runInContext(admissionPredicates,context);
+ vm.runInContext(fs.readFileSync(path.join(root,'app-integration.js'),'utf8'),context);
+ return context
 }
 function modernSeedFor(id='w'){const d=make(),s=student(d,'modern');weekly(d,s,id);return JSON.parse(JSON.stringify(d.data))}
 check('RF1-A modern initial hydration does not replay stale mirrors',()=>{const seed=modernSeedFor('rf1-modern'),key='2026-09-21__rf1-modern',ctx=integrationState({nativeInitial:{domain:seed},lessons:[],sessionState:{[key]:'entered'},sessionNotes:{[key]:'stale'}});assert.equal(vm.runInContext(`domain.data.records[${JSON.stringify(key)}]`,ctx),undefined)});
