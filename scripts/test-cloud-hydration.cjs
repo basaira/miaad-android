@@ -10,7 +10,7 @@ const integration=fs.readFileSync(path.join(root,'app-integration.js'),'utf8');
 const start=core.indexOf('function cloudCivilDate(');
 const end=core.indexOf('window.__miaadNativeStatus',start);
 const classStart=integration.indexOf('function isDomainMap(');
-const classEnd=integration.indexOf('const initialOwn=',classStart);
+const classEnd=integration.search(/\bconst\s+initialOwn\s*=/);
 const classifiers=classStart>=0&&classEnd>classStart?integration.slice(classStart,classEnd):null;
 assert.ok(start>=0&&end>start&&classifiers,'actual receiver and Domain predicates must be present');
 const receiver=core.slice(start,end);
