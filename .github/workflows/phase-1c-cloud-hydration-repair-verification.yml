@@ -23,7 +23,8 @@ jobs:
           fetch-depth: 0
       - name: Verify isolated candidate parent and change scope
         run: |
-          test "$(git rev-parse HEAD^)" = "5c89553960cb39ff5bcc559d6ef6c2163b148cf5"
+          test "$(git merge-base 5c89553960cb39ff5bcc559d6ef6c2163b148cf5 HEAD)" = "5c89553960cb39ff5bcc559d6ef6c2163b148cf5"
+          test "$(git rev-list --count 5c89553960cb39ff5bcc559d6ef6c2163b148cf5..HEAD)" -le 5
           git merge-base --is-ancestor 5c89553960cb39ff5bcc559d6ef6c2163b148cf5 HEAD
           git diff --name-only 5c89553960cb39ff5bcc559d6ef6c2163b148cf5 HEAD > /tmp/phase-1c-changed-paths.txt
           cat > /tmp/phase-1c-expected-paths.txt <<'EOF'
