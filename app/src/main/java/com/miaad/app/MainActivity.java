@@ -272,6 +272,13 @@ public class MainActivity extends Activity {
     }
 
     private void authenticateForCloudSync() {
+        // Debug-only isolated verification never calls production Auth or Cloud.
+        // Release builds cannot enable this flag.
+        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                && getIntent().getBooleanExtra("miaad_isolated_no_firebase", false)) {
+            bridge.setUid(null);
+            return;
+        }
         FirebaseAuth auth = FirebaseAuth.getInstance();
         FirebaseUser user = auth.getCurrentUser();
         if (user != null) {

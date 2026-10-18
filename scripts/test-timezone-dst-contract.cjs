@@ -117,31 +117,33 @@ check('AD reopen initialized state in another device zone preserves established 
 // V1R6: the old AE fixture was an incomplete modern Domain; V1R5 Cloud
 // contract rightly rejects it. Preserve all AE assertions using genuine valid
 // v4 Native/Local snapshots; test timezone fallback without weakening admission.
-check('AE native primary missing zone inherits only established local timezone',()=>{
+// V1R7 conflict policy supersedes the older Native-wins assumption here.
+// The Native and Local v4 fixtures are both valid but have different students,
+// targets and time-zone authority; selecting either is now destructive.
+check('AE divergent valid Native/Local zones require non-destructive conflict',()=>{
  const date=()=>new Date('2026-09-21T12:00:00Z');
  const native=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo',target:9}},{},date).data;
  const local=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo',target:77}},{},date).data;
  native.students.native={id:'native',name:'Native',startDate:'2026-09-01',custom:false,settings:{}};
  local.students.local={id:'local',name:'Local',startDate:'2026-09-01',custom:false,settings:{}};
  delete native.settings.teacherTimeZone;
- let persists=0;
+ let persists=0;const rawLocal=JSON.stringify(local);
  const context={createMiaadDomain,MiaadTemporal,stabilizeMiaadTeacherTimeZoneSeed,
   nativeInitial:{domain:native},nativeSnapshotParseFailed:false,NATIVE:null,
   STORAGE:{lessons:'miadLessonsV2',state:'miadSessionStateV2',notes:'miadSessionNotesV2',audit:'miadSessionAuditV2',phase:'miadIdrisPhaseV2',updated:'miadUpdatedAtV1'},
-  store:{get:key=>key==='miaadDomainV4'?JSON.stringify(local):null},BASE:[],
+  store:{get:key=>key==='miaadDomainV4'?rawLocal:null},BASE:[],
   loadJSON:()=>local,normalizeSchedule:x=>x,lessons:[],sessionState:{},sessionNotes:{},sessionAudit:{},
   idrisPhase:0,lastUpdatedAt:0,nativeSyncState:'browser',persist:()=>persists++,renderAll:()=>{}};
  context.window=context;vm.createContext(context);
  const core=fs.readFileSync(path.join(root,'app-core.js'),'utf8');
  const a=core.indexOf('function cloudCivilDate('),b=core.indexOf('window.__miaadReceiveCloud',a);
- assert.ok(a>=0&&b>a,'real production Cloud classifier available');
- vm.runInContext(core.slice(a,b),context);
+ assert.ok(a>=0&&b>a);vm.runInContext(core.slice(a,b),context);
  vm.runInContext(fs.readFileSync(path.join(root,'app-integration.js'),'utf8'),context);
- const state=vm.runInContext('domain.data',context);
- assert.equal(state.settings.teacherTimeZone,'Africa/Cairo');
- assert.equal(state.settings.target,9);
- assert.ok(state.students.native);
- assert.equal(state.students.local,undefined);
+ assert.equal(vm.runInContext('selectedInitialSource',context),'conflict');
+ assert.equal(vm.runInContext('startupRecoveryBlocked',context),true);
+ assert.equal(vm.runInContext('startupPreservedEvidence.localDomainRaw',context),rawLocal);
+ assert.equal(vm.runInContext('startupPreservedEvidence.native.domain.settings.target',context),9);
+ assert.equal(vm.runInContext('domain.data.settings.target',context),12); // inert recovery Domain, not selected authority
  assert.equal(persists,0)
 });
 check('AF replace missing or blank timezone preserves current authority',()=>{for(const settings of [{target:7},{teacherTimeZone:'',target:8}]){const d=createMiaadDomain({settings:{teacherTimeZone:'Africa/Cairo'}},{},()=>new Date('2026-09-01T00:00Z'));d.replace({settings});assert.equal(d.teacherZone(),'Africa/Cairo')}});

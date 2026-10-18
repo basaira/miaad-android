@@ -29,12 +29,16 @@ jobs:
           git diff --name-only 79bc3cceb51b0fd84881daed4cc91d0f8450f3be HEAD > /tmp/phase-1c-changed-paths.txt
           cat > /tmp/phase-1c-expected-paths.txt <<'EOF'
           .github/workflows/phase-1c-cloud-hydration-repair-verification.yml
+          app/build.gradle
+          app/src/androidTest/java/com/miaad/app/NativeWriteBoundaryTest.java
           app/src/main/assets/app-boot.js
           app/src/main/assets/app-core.js
           app/src/main/assets/app-integration.js
+          app/src/main/java/com/miaad/app/MainActivity.java
           app/src/main/java/com/miaad/app/MiaadBridge.java
           app/src/main/java/com/miaad/app/SnapshotAdmission.java
           scripts/test-persistence-recovery.cjs
+          scripts/test-timezone-dst-contract.cjs
           EOF
           diff -u /tmp/phase-1c-expected-paths.txt /tmp/phase-1c-changed-paths.txt
           test ! -e app/build/generated/compatAssets
@@ -155,7 +159,7 @@ jobs:
           if test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" -ge 33; then
             adb shell pm grant com.miaad.app android.permission.POST_NOTIFICATIONS
           fi
-          adb shell am start -W -n com.miaad.app/.MainActivity
+          adb shell am start -W -n com.miaad.app/.MainActivity --ez miaad_isolated_no_firebase true
           for attempt in $(seq 1 60); do
             adb logcat -d -s MiaadStartup:I MiaadWeb:E AndroidRuntime:E > audit/runtime-log.txt
             if grep -q 'MiaadStartup: content-ready' audit/runtime-log.txt; then break; fi
@@ -175,7 +179,7 @@ jobs:
           before_frame="$(grep -c 'MiaadStartup: first-frame-ready' audit/runtime-log.txt)"
           before_content="$(grep -c 'MiaadStartup: content-ready' audit/runtime-log.txt)"
           adb shell am force-stop com.miaad.app
-          adb shell am start -W -n com.miaad.app/.MainActivity
+          adb shell am start -W -n com.miaad.app/.MainActivity --ez miaad_isolated_no_firebase true
           for attempt in $(seq 1 60); do
             adb logcat -d -s MiaadStartup:I MiaadWeb:E AndroidRuntime:E > audit/restart-log.txt
             if test "$(grep -c 'MiaadStartup: content-ready' audit/restart-log.txt || :)" -gt "$before_content"; then break; fi
@@ -202,6 +206,81 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: miaad-phase-1c-v1r7-installed-api${{ matrix.api }}
+          path: audit/
+          if-no-files-found: warn
+          retention-days: 90
+
+  native-persistence-instrumentation:
+    needs: targeted-verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: miaad-phase-1c-v1r7-built-apk
+          path: runtime
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install verification dependencies
+        run: |
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save --package-lock=false esbuild@0.28.2 acorn@8.18.0 @esbuild/linux-x64@0.28.2
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.6.0'
+      - name: Build isolated Native instrumentation APK
+        run: |
+          gradle :app:assembleDebugAndroidTest --stacktrace
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          mkdir -p audit
+          sha256sum app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk > audit/instrumentation-apk.sha256
+          expected="$(cut -d' ' -f1 runtime/audit/cloud-repair-apk-sha256.txt)"
+          test "$(sha256sum app/build/outputs/apk/debug/app-debug.apk | cut -d' ' -f1)" = "$expected"
+      - name: Start isolated Firebase Firestore Emulator
+        run: |
+          npm install -g firebase-tools@13.35.1
+          printf '%s\n' '{"emulators":{"firestore":{"host":"0.0.0.0","port":8080},"ui":{"enabled":false}}}' > "$RUNNER_TEMP/firebase-v1r7.json"
+          firebase emulators:start --only firestore --project demo-miaad-v1r7 --config "$RUNNER_TEMP/firebase-v1r7.json" > "$RUNNER_TEMP/firestore-emulator.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/firebase-pid"
+          for attempt in $(seq 1 180); do
+            if curl --max-time 2 -s -o /dev/null http://127.0.0.1:8080/; then break; fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/firebase-pid")" 2>/dev/null; then cat "$RUNNER_TEMP/firestore-emulator.log"; exit 1; fi
+            sleep 2
+          done
+          curl --max-time 5 -s -o /dev/null http://127.0.0.1:8080/
+      - name: Prepare isolated instrument script
+        run: |
+          cat > "$RUNNER_TEMP/run-native-v1r7.sh" <<'SH'
+          set -euo pipefail
+          adb wait-for-device
+          adb install -r runtime/app/build/outputs/apk/debug/app-debug.apk
+          adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          set -o pipefail
+          adb shell am instrument -w -r com.miaad.app.test/androidx.test.runner.AndroidJUnitRunner | tee audit/native-instrumentation.txt
+          grep -Eq 'OK \([0-9]+ tests?\)' audit/native-instrumentation.txt
+          if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|java.lang.AssertionError' audit/native-instrumentation.txt; then exit 1; fi
+          SH
+      - name: Execute Android Java + Firestore emulator qualification
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          script: bash "$RUNNER_TEMP/run-native-v1r7.sh"
+      - name: Retain native and emulator logs
+        if: always()
+        run: |
+          mkdir -p audit
+          cp "$RUNNER_TEMP/firestore-emulator.log" audit/ 2>/dev/null || :
+          (test -f "$RUNNER_TEMP/firebase-pid" && kill "$(cat "$RUNNER_TEMP/firebase-pid")") 2>/dev/null || :
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: miaad-phase-1c-v1r7-native-emulator-evidence
           path: audit/
           if-no-files-found: warn
           retention-days: 90
