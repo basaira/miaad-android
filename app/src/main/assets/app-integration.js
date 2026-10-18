@@ -56,6 +56,7 @@ const selectedInitialSource=corruptLegacyEvidence?'recovery-corrupt-legacy':
  nativeInitialClassification==='missing'&&localInitialState==='missing'?'fresh':'recovery';
 let startupRecoveryBlocked=['recovery','conflict','recovery-corrupt-legacy'].includes(selectedInitialSource);
 const startupPreservedEvidence=Object.freeze({native:nativeInitial,localDomainRaw,localLegacyKeys:localLegacyKeys.filter(k=>store.get(k)!==null),
+ legacyRaw:Object.fromEntries(localLegacyKeys.filter(k=>store.get(k)!==null).map(k=>[k,store.get(k)])),
  nativeTimestamp:nativeInitial?.updatedAt??null,localTimestamp:store.get(STORAGE.updated)});
 const startupInitialEvidence=Object.freeze({native:nativeInitialClassification,local:localInitialState,selected:selectedInitialSource});
 const nativeSelected=selectedInitialSource.startsWith('native-');

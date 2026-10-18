@@ -90,9 +90,28 @@ let currentView='today',freeWindowsExpanded=false,editorDirty=false;
 const viewScroll={today:0,week:0,students:0,report:0,settings:0};
 
 function snapshotData(){return{schemaVersion:4,updatedAt:lastUpdatedAt,lessons,sessionState,sessionNotes,sessionAudit,idrisPhase,domain:domain.data}}
-function saveLocalState(){if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return false;store.set("miaadDomainV4",JSON.stringify(domain.data));store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
+function saveLocalState(){
+ if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return false;
+ // Never discard evidence of a rejected Modern/Legacy source when a verified
+ // alternate is deliberately chosen. Backups are write-once and byte-exact.
+ if(typeof localInitialState!=='undefined'&&
+    (localInitialState==='invalid'||localInitialState==='legacy')&&
+    typeof startupPreservedEvidence!=='undefined'&&typeof localLegacyKeys!=='undefined'){
+   const originals=[['miaadDomainV4',startupPreservedEvidence.localDomainRaw],
+     ...localLegacyKeys.map(key=>[key,startupPreservedEvidence.legacyRaw?.[key]??null])];
+   for(const [key,bytes] of originals){
+    if(bytes===null||bytes===undefined)continue;
+    const backup='miaadRecoveryOriginalV1.'+key;
+    if(store.get(backup)===null&&!store.set(backup,bytes)){startupRecoveryBlocked=true;return false}
+    else if(store.get(backup)!==bytes){
+     let n=2;while(store.get(backup+'.'+n)!==null&&store.get(backup+'.'+n)!==bytes)n++;
+     if(store.get(backup+'.'+n)===null&&!store.set(backup+'.'+n,bytes)){startupRecoveryBlocked=true;return false}
+    }
+   }
+ }
+ store.set("miaadDomainV4",JSON.stringify(domain.data));store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
 function persist(){if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return false;
- domain.notifications();lastUpdatedAt=Math.max(Date.now(),lastUpdatedAt+1);saveLocalState();
+ domain.notifications();lastUpdatedAt=Math.max(Date.now(),lastUpdatedAt+1);if(saveLocalState()===false)return false;
  if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){
   try{const payload=JSON.stringify(snapshotData());NATIVE.saveSnapshot(payload);
    if(typeof NATIVE.requestVerifiedSync==='function'&&classifyCloudDomainPayload(JSON.parse(payload))==='modern')NATIVE.requestVerifiedSync(payload)

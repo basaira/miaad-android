@@ -12,7 +12,20 @@ el('sessionStatePicker').innerHTML=domain.states.map(s=>`<button type="button" d
 el('toggleIdrisPhase').onclick=()=>{idrisPhase=idrisPhase?0:1;const effective=domain.teacherNow().date;lessons=lessons.map(l=>{const current=domain.versionAt(l.id,effective)||l;return current?.repeat==='biweekly'?domain.saveSchedule({...current,phase:idrisPhase},effective):l});domainCommit();showToast('حُفظت مرحلة إدريس للمواعيد القادمة')};
 window.__miaadOpenNotification=key=>{domain.notifications();openNotification(key)};
 renderFeatureSettings();
-if(!startupRecoveryBlocked){domain.notifications();saveLocalState()}
+if(!startupRecoveryBlocked){
+ domain.notifications();
+ // Do not automatically overwrite a rejected or historical Local source
+ // when Native was selected; it remains recoverable in its original bytes.
+ const preserveUnselectedLocal=nativeSelected&&['invalid','legacy'].includes(localInitialState);
+ if(!preserveUnselectedLocal)saveLocalState();
+ // Purely derived startup changes must not make two previously equivalent
+ // valid sources diverge after reload. Local-only saves were the cause.
+ if(nativeSelected&&!preserveUnselectedLocal&&NATIVE&&typeof NATIVE.saveSnapshot==='function'){
+  try{const bytes=JSON.stringify(snapshotData());
+   if(classifyCloudDomainPayload(JSON.parse(bytes))==='modern')NATIVE.saveSnapshot(bytes)
+  }catch{}
+ }
+}
 renderAll();
 if(startupRecoveryBlocked){
  const notice=document.createElement('section');

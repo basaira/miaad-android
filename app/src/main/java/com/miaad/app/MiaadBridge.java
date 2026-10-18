@@ -85,6 +85,13 @@ public class MiaadBridge {
     @JavascriptInterface
     public void saveSnapshot(String json) {
         if (!SnapshotAdmission.valid(json)) { pushNativeStatus("cloud-pending"); return; }
+        String old = prefs.getString(SNAPSHOT, "");
+        if (old != null && !old.isEmpty() && !old.equals(json) && !SnapshotAdmission.valid(old)) {
+            String backup = "snapshot_recovery_" + remoteDigest(old);
+            if (!prefs.contains(backup) && !prefs.edit().putString(backup, old).commit()) {
+                pushNativeStatus("cloud-pending"); return;
+            }
+        }
         prefs.edit().putString(SNAPSHOT, json).apply();
     }
 
