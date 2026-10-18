@@ -250,7 +250,7 @@ window.__miaadReceiveCloud=function(raw){
   lastUpdatedAt=incoming;
   saveLocalState();
   nativeSyncState='synced';
-  if(NATIVE&&typeof NATIVE.confirmCloudSnapshot==='function')try{NATIVE.confirmCloudSnapshot(raw)}catch{}
+  if(typeof NATIVE!=='undefined'&&NATIVE&&typeof NATIVE.confirmCloudSnapshot==='function')try{NATIVE.confirmCloudSnapshot(raw)}catch{}
   if(typeof renderAll==='function')renderAll();
   if(typeof showToast==='function')showToast('تمت مزامنة بيانات مِيعاد')
  }catch{}
