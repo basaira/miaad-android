@@ -18,7 +18,7 @@ if(startupRecoveryBlocked){
  const notice=document.createElement('section');
  notice.id='miaadStartupRecoveryBlock';notice.setAttribute('role','alertdialog');notice.setAttribute('aria-modal','true');
  notice.style.cssText='position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:24px;background:rgba(12,24,30,.94);color:white;text-align:center;font:600 20px/1.8 sans-serif';
- notice.textContent='تعذّر التحقق من النسخ المحفوظة. أُوقِف الحفظ والمزامنة من هذه الجلسة لحماية بياناتك. لا تُدخِل بيانات جديدة قبل استعادة نسخة صحيحة.';
+ notice.textContent=selectedInitialSource==='conflict'?'نسختان أكاديميتان مختلفتان؛ أُوقف الحفظ والمزامنة وحُفظتا دون تغيير لحين حل التعارض.':selectedInitialSource==='recovery-corrupt-legacy'?'بيانات قديمة غير مقروءة؛ حُفظت بايتاتها الأصلية، وأُوقف الحفظ والمزامنة لحين استعادتها.':'تعذّر التحقق من النسخ المحفوظة. أُوقِف الحفظ والمزامنة من هذه الجلسة لحماية بياناتك. لا تُدخِل بيانات جديدة قبل استعادة نسخة صحيحة.';
  document.body.appendChild(notice);
 }else syncNativeReminders();
 setInterval(()=>{const before=JSON.stringify(domain.data.notifications);domain.notifications();if(before!==JSON.stringify(domain.data.notifications)){persist();renderAttention();if(el('notificationCenter'))openNotificationCenter()}if(!NATIVE&&'Notification'in window&&Notification.permission==='granted'){const fresh=Object.values(domain.data.notifications).filter(n=>n.active&&!n.read&&!n.deliveredAt&&n.snoozeUntil<=Date.now());if(fresh.length){const n=fresh[0],notice=new Notification(fresh.length>1?`${fresh.length} تنبيهات من مِيعاد`:n.title,{body:n.body,tag:'miaad-attention'});notice.onclick=()=>{window.focus();openNotification(n.id)};fresh.forEach(n=>n.deliveredAt=Date.now());persist()}}},60000);

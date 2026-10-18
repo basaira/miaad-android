@@ -91,7 +91,14 @@ const viewScroll={today:0,week:0,students:0,report:0,settings:0};
 
 function snapshotData(){return{schemaVersion:4,updatedAt:lastUpdatedAt,lessons,sessionState,sessionNotes,sessionAudit,idrisPhase,domain:domain.data}}
 function saveLocalState(){if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return false;store.set("miaadDomainV4",JSON.stringify(domain.data));store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
-function persist(){if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return false;domain.notifications();lastUpdatedAt=Math.max(Date.now(),lastUpdatedAt+1);saveLocalState();if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){try{NATIVE.saveSnapshot(JSON.stringify(snapshotData()))}catch{}}syncNativeReminders()}
+function persist(){if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return false;
+ domain.notifications();lastUpdatedAt=Math.max(Date.now(),lastUpdatedAt+1);saveLocalState();
+ if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){
+  try{const payload=JSON.stringify(snapshotData());NATIVE.saveSnapshot(payload);
+   if(typeof NATIVE.requestVerifiedSync==='function'&&classifyCloudDomainPayload(JSON.parse(payload))==='modern')NATIVE.requestVerifiedSync(payload)
+  }catch{}
+ }
+ syncNativeReminders()}
 function cloudCivilDate(value){
  if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;
  const year=+value.slice(0,4),month=+value.slice(5,7),day=+value.slice(8,10),date=new Date(0);
@@ -226,7 +233,8 @@ function classifyCloudDomainPayload(data){
 window.__miaadReceiveCloud=function(raw){
  try{
   const data=JSON.parse(raw),incoming=Number(data?.updatedAt),classification=classifyCloudDomainPayload(data);
-  if(classification==='invalid'||!Number.isFinite(incoming)||!Array.isArray(data.lessons)||incoming<=lastUpdatedAt)return;
+  if((typeof selectedInitialSource!=='undefined'&&['conflict','recovery-corrupt-legacy'].includes(selectedInitialSource))||
+     classification==='invalid'||!Number.isFinite(incoming)||!Array.isArray(data.lessons)||incoming<=lastUpdatedAt)return;
   const nextLessons=normalizeSchedule(data.lessons);
   domain.replace(classification==='modern'?data.domain:domain.data,classification==='modern'?{}:data,{migrateLegacy:classification==='legacy'});
   if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked){
@@ -242,11 +250,21 @@ window.__miaadReceiveCloud=function(raw){
   lastUpdatedAt=incoming;
   saveLocalState();
   nativeSyncState='synced';
+  if(NATIVE&&typeof NATIVE.confirmCloudSnapshot==='function')try{NATIVE.confirmCloudSnapshot(raw)}catch{}
   if(typeof renderAll==='function')renderAll();
   if(typeof showToast==='function')showToast('تمت مزامنة بيانات مِيعاد')
  }catch{}
 };
-window.__miaadNativeStatus=function(status){nativeSyncState=(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)?'recovery-required':status||'local-only';const el=document.getElementById('syncStatus');if(el){const labels={connecting:'جارٍ الاتصال…','cloud-ready':'Firebase جاهز',synced:'متزامن الآن','cloud-pending':'محفوظ محليًا · المزامنة معلقة','local-only':'محلي فقط',browser:'نسخة ويب','reminder-error':'مشكلة في جدولة التنبيه','recovery-required':'استعادة البيانات مطلوبة · لن تُحفظ التعديلات'};el.textContent=labels[nativeSyncState]||nativeSyncState}if(typeof renderHeader==='function')renderHeader()};
+window.__miaadCloudAbsent=function(){
+ if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return;
+ if(!NATIVE||typeof NATIVE.requestVerifiedSync!=='function')return;
+ try{
+  const payload=JSON.stringify(snapshotData());
+  if(classifyCloudDomainPayload(JSON.parse(payload))!=='modern')return;
+  NATIVE.saveSnapshot(payload);NATIVE.requestVerifiedSync(payload)
+ }catch{}
+};
+window.__miaadNativeStatus=function(status){nativeSyncState=(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)?'recovery-required':status||'local-only';if(typeof selectedInitialSource!=='undefined'&&selectedInitialSource==='conflict')nativeSyncState='conflict-required';const el=document.getElementById('syncStatus');if(el){const labels={connecting:'جارٍ الاتصال…','cloud-ready':'Firebase جاهز',synced:'متزامن الآن','cloud-pending':'محفوظ محليًا · المزامنة معلقة','local-only':'محلي فقط',browser:'نسخة ويب','reminder-error':'مشكلة في جدولة التنبيه','recovery-required':'استعادة البيانات مطلوبة · لن تُحفظ التعديلات','conflict-required':'نسختان مختلفتان · الحفظ والمزامنة معلقان'};el.textContent=labels[nativeSyncState]||nativeSyncState}if(typeof renderHeader==='function')renderHeader()};
 function startOfDay(d){const x=new Date(d);x.setHours(0,0,0,0);return x}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
 function getSunday(d){const x=startOfDay(d);x.setDate(x.getDate()-x.getDay());return x}

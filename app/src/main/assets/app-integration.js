@@ -25,14 +25,38 @@ function nativeInitialState(){
 }
 const localLegacyKeys=[STORAGE.lessons,STORAGE.state,STORAGE.notes,STORAGE.audit,STORAGE.phase,'miadLessonsV1','miadSessionStateV1','miadSessionNotesV1','miadIdrisPhaseV1'];
 const localHasLegacy=localLegacyKeys.some(key=>store.get(key)!==null);
-const localInitialState=localDomainRaw===null?(localHasLegacy?'legacy':'missing'):initialModernState(localDomainSeed);
+function validatedLegacyStore(){
+ for(const key of localLegacyKeys){
+  const raw=store.get(key);if(raw===null)continue;
+  let value;try{value=JSON.parse(raw)}catch{return false}
+  if(value===null)return false;
+  const array=key===STORAGE.lessons||key==='miadLessonsV1';
+  const phase=key===STORAGE.phase||key==='miadIdrisPhaseV1';
+  if(array?!validInitialLessons(value):phase?![0,1].includes(Number(value)):!isDomainMap(value))return false
+ }
+ return true
+}
+const corruptLegacyEvidence=localHasLegacy&&!validatedLegacyStore();
+const localInitialState=corruptLegacyEvidence?'invalid':
+ localDomainRaw===null?(localHasLegacy?'legacy':'missing'):initialModernState(localDomainSeed);
+function canonicalAcademic(value){
+ if(Array.isArray(value))return value.map(canonicalAcademic);
+ if(isDomainMap(value))return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonicalAcademic(value[key])]));
+ return value
+}
+const academicDivergence=(a,b)=>JSON.stringify(canonicalAcademic(a))!==JSON.stringify(canonicalAcademic(b));
 const nativeInitialClassification=nativeInitialState();
-const selectedInitialSource=nativeInitialClassification==='modern'?'native-modern':
+const modernConflict=nativeInitialClassification==='modern'&&localInitialState==='modern'&&academicDivergence(nativeInitial.domain,localDomainSeed);
+const selectedInitialSource=corruptLegacyEvidence?'recovery-corrupt-legacy':
+ modernConflict?'conflict':
+ nativeInitialClassification==='modern'?'native-modern':
  localInitialState==='modern'?'local-modern':
  nativeInitialClassification==='legacy'?'native-legacy':
  localInitialState==='legacy'?'local-legacy':
  nativeInitialClassification==='missing'&&localInitialState==='missing'?'fresh':'recovery';
-let startupRecoveryBlocked=selectedInitialSource==='recovery';
+let startupRecoveryBlocked=['recovery','conflict','recovery-corrupt-legacy'].includes(selectedInitialSource);
+const startupPreservedEvidence=Object.freeze({native:nativeInitial,localDomainRaw,localLegacyKeys:localLegacyKeys.filter(k=>store.get(k)!==null),
+ nativeTimestamp:nativeInitial?.updatedAt??null,localTimestamp:store.get(STORAGE.updated)});
 const startupInitialEvidence=Object.freeze({native:nativeInitialClassification,local:localInitialState,selected:selectedInitialSource});
 const nativeSelected=selectedInitialSource.startsWith('native-');
 const localSelected=selectedInitialSource.startsWith('local-');
@@ -73,7 +97,7 @@ if(nativeSelected){
 }else{
  // Do not invent a recovered Domain or persist it over invalid evidence.
  lessons=[];sessionState={};sessionNotes={};sessionAudit={};idrisPhase=0;lastUpdatedAt=0;
- nativeSyncState='recovery-required'
+ nativeSyncState=selectedInitialSource==='conflict'?'conflict-required':'recovery-required'
 }
 lessons=normalizeSchedule(lessons);
 if(!isDomainMap(sessionState))sessionState={};

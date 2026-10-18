@@ -1,4 +1,4 @@
-name: Phase 1C V1R6 Native/local initial hydration integrity verification
+name: Phase 1C V1R7 Persistence, Native guard and lossless recovery
 
 on:
   push:
@@ -9,6 +9,7 @@ on:
       - miaad/phase-1c-cloud-boolean-settings-repair-v1r4
       - miaad/phase-1c-cloud-settings-contract-repair-v1r5
       - miaad/phase-1c-initial-hydration-safety-repair-v1r6
+      - miaad/phase-1c-persistence-recovery-safety-v1r7
 
 permissions:
   contents: read
@@ -23,20 +24,17 @@ jobs:
           fetch-depth: 0
       - name: Verify isolated candidate parent and change scope
         run: |
-          test "$(git merge-base 5c89553960cb39ff5bcc559d6ef6c2163b148cf5 HEAD)" = "5c89553960cb39ff5bcc559d6ef6c2163b148cf5"
-          test "$(git rev-list --count 5c89553960cb39ff5bcc559d6ef6c2163b148cf5..HEAD)" -le 20
-          git merge-base --is-ancestor 5c89553960cb39ff5bcc559d6ef6c2163b148cf5 HEAD
-          git diff --name-only 5c89553960cb39ff5bcc559d6ef6c2163b148cf5 HEAD > /tmp/phase-1c-changed-paths.txt
+          test "$(git merge-base 79bc3cceb51b0fd84881daed4cc91d0f8450f3be HEAD)" = "79bc3cceb51b0fd84881daed4cc91d0f8450f3be"
+          test "$(git rev-list --count 79bc3cceb51b0fd84881daed4cc91d0f8450f3be..HEAD)" -le 20
+          git diff --name-only 79bc3cceb51b0fd84881daed4cc91d0f8450f3be HEAD > /tmp/phase-1c-changed-paths.txt
           cat > /tmp/phase-1c-expected-paths.txt <<'EOF'
           .github/workflows/phase-1c-cloud-hydration-repair-verification.yml
           app/src/main/assets/app-boot.js
           app/src/main/assets/app-core.js
           app/src/main/assets/app-integration.js
-          scripts/test-cloud-hydration.cjs
-          scripts/test-initial-browser.cjs
-          scripts/test-initial-hydration.cjs
-          scripts/test-occurrence-authority.cjs
-          scripts/test-timezone-dst-contract.cjs
+          app/src/main/java/com/miaad/app/MiaadBridge.java
+          app/src/main/java/com/miaad/app/SnapshotAdmission.java
+          scripts/test-persistence-recovery.cjs
           EOF
           diff -u /tmp/phase-1c-expected-paths.txt /tmp/phase-1c-changed-paths.txt
           test ! -e app/build/generated/compatAssets
@@ -50,6 +48,7 @@ jobs:
           python3 scripts/audit_brand.py
           node scripts/test-cloud-hydration.cjs
           node scripts/test-initial-hydration.cjs
+          node scripts/test-persistence-recovery.cjs
           node scripts/test-occurrence-authority.cjs
           node scripts/test-scheduling-contract.cjs
           node scripts/test-timezone-dst-contract.cjs
@@ -77,6 +76,7 @@ jobs:
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-shipping-compat.cjs
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-cloud-hydration.cjs
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-initial-hydration.cjs
+          MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-persistence-recovery.cjs
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-initial-browser.cjs
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-occurrence-authority.cjs
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-timezone-dst-contract.cjs
@@ -99,6 +99,7 @@ jobs:
           gradle :app:generateCompatAssets --rerun-tasks --stacktrace
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-cloud-hydration.cjs
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-initial-hydration.cjs
+          MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-persistence-recovery.cjs
           node scripts/compat-assets-manifest.cjs audit/cloud-repair-clean.json > audit/cloud-repair-clean.sha256
           cmp audit/cloud-repair-tested.sha256 audit/cloud-repair-clean.sha256
           gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --stacktrace
@@ -109,14 +110,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-phase-1c-v1r6-initial-hydration-evidence
+          name: miaad-phase-1c-v1r7-initial-hydration-evidence
           path: audit/
           if-no-files-found: warn
           retention-days: 90
       - name: Upload exact APK for installed runtime checks
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-phase-1c-v1r6-built-apk
+          name: miaad-phase-1c-v1r7-built-apk
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             audit/cloud-repair-apk-sha256.txt
@@ -135,7 +136,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: miaad-phase-1c-v1r6-built-apk
+          name: miaad-phase-1c-v1r7-built-apk
           path: runtime
       - name: Verify downloaded build identity and prepare emulator
         run: |
@@ -200,7 +201,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: miaad-phase-1c-v1r6-installed-api${{ matrix.api }}
+          name: miaad-phase-1c-v1r7-installed-api${{ matrix.api }}
           path: audit/
           if-no-files-found: warn
           retention-days: 90
