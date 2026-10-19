@@ -163,6 +163,11 @@ check('V1R6 valid Cloud payload releases quarantine only after admission',()=>{
  assert.equal(h.readState().blocked,false);
  assert.equal(h.readState().sync,'synced');assert.equal(h.readState().students.s.settings.target,1);
  assert.equal(h.readState().stamp,501);
- assert.equal(h.writes.length,0)
+ // The accepted Cloud state must be mirrored to Native LOCAL storage exactly
+ // once, preventing a synthetic conflict against the newer Local state on restart.
+ assert.equal(h.writes.length,1);
+ assert.equal(h.writes[0].updatedAt,501);
+ assert.equal(h.writes[0].domain.students.s.settings.target,1);
+ assert.equal(h.writes[0].domain.records[date+'__sched'].countOverride,false)
 });
 console.log('INITIAL HYDRATION CONTRACT PASS: '+n+'/'+n);

@@ -37,6 +37,7 @@ jobs:
           app/src/main/java/com/miaad/app/MainActivity.java
           app/src/main/java/com/miaad/app/MiaadBridge.java
           app/src/main/java/com/miaad/app/SnapshotAdmission.java
+          scripts/test-initial-hydration.cjs
           scripts/test-persistence-recovery.cjs
           scripts/test-timezone-dst-contract.cjs
           EOF
