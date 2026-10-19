@@ -173,7 +173,12 @@ jobs:
           test -n "$initial_pid"
           installed="$(adb shell pm path com.miaad.app | tr -d '\r' | sed -n 's/^package://p' | head -1)"
           test -n "$installed"
-          adb pull "$installed" audit/installed-base.apk
+          for attempt in 1 2 3; do
+            if timeout 90s adb pull "$installed" audit/installed-base.apk && test "$(sha256sum audit/installed-base.apk | cut -d' ' -f1)" = "$expected"; then break; fi
+            rm -f audit/installed-base.apk
+            sleep 5
+          done
+          test -s audit/installed-base.apk
           test "$(sha256sum audit/installed-base.apk | cut -d' ' -f1)" = "$expected"
           before_page="$(grep -c 'MiaadStartup: page-finished' audit/runtime-log.txt)"
           before_frame="$(grep -c 'MiaadStartup: first-frame-ready' audit/runtime-log.txt)"
@@ -259,7 +264,12 @@ jobs:
           adb install -r runtime/app/build/outputs/apk/debug/app-debug.apk
           adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           set -o pipefail
-          adb shell am instrument -w -r com.miaad.app.test/androidx.test.runner.AndroidJUnitRunner | tee audit/native-instrumentation.txt
+          set +e
+          timeout --signal=TERM --kill-after=20s 360s adb shell am instrument -w -r com.miaad.app.test/androidx.test.runner.AndroidJUnitRunner | tee audit/native-instrumentation.txt
+          result="${PIPESTATUS[0]}"
+          set -e
+          adb logcat -d -s AndroidRuntime:E FirebaseFirestore:W MiaadWeb:E MiaadStartup:I > audit/native-logcat.txt || :
+          if test "$result" -ne 0; then echo "Native instrumentation exit=${result}" >&2; exit "$result"; fi
           grep -Eq 'OK \([0-9]+ tests?\)' audit/native-instrumentation.txt
           if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|java.lang.AssertionError' audit/native-instrumentation.txt; then exit 1; fi
           SH

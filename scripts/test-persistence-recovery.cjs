@@ -19,12 +19,13 @@ alternative.records['2026-09-21__class'].status='absent';
 alternative.records['2026-09-21__class'].note='Local newer fact';
 const lesson={id:'class',studentId:'s',name:'Student',day:1,start:'10:00',duration:30,repeat:'weekly'};
 const snapshot=(domain,updatedAt=100)=>({schemaVersion:4,updatedAt,domain,lessons:[lesson],sessionState:{},sessionNotes:{},sessionAudit:{},idrisPhase:0});
-function startup({native,local,legacyRaw,localStamp=800}={}){
+function startup({native,local,legacyRaw,legacyOverrides={},localStamp=800}={}){
  const memory={},writes=[],remote=[];
  if(local!==undefined)memory.miaadDomainV4=JSON.stringify(local);
  if(legacyRaw!==undefined)memory.miadLessonsV2=legacyRaw;
  else if(local!==undefined)memory.miadLessonsV2=JSON.stringify([lesson]);
  if(local!==undefined)memory.miadUpdatedAtV1=String(localStamp);
+ for(const [key,raw] of Object.entries(legacyOverrides))memory[key]=raw;
  const original=clone(memory);
  const bridge={loadSnapshot:()=>native===undefined?'':JSON.stringify(native),
   saveSnapshot:x=>writes.push(x),requestVerifiedSync:x=>remote.push(x),confirmCloudSnapshot:()=>{},
@@ -74,14 +75,30 @@ check('identical academic content retains established Native precedence',()=>{
 });
 for(const key of ['miadLessonsV2','miadSessionStateV2','miadSessionNotesV2','miadSessionAuditV2','miadIdrisPhaseV2']){
  check('corrupt Legacy field '+key+' forces read-only recovery',()=>{
-  const h=startup({});h.memory[key]='{invalid-json';
-  // Restart with identical bytes and prove they remain in storage.
   const raw='{invalid-json';
-  const restart=startup({legacyRaw:key==='miadLessonsV2'?raw:JSON.stringify([lesson])});
-  if(key==='miadLessonsV2')assert.equal(restart.state().blocked,true);
-  assert.equal(h.memory[key],raw)
+  const h=startup({legacyOverrides:{[key]:raw}});
+  assert.equal(h.state().selected,'recovery-corrupt-legacy');
+  assert.equal(h.state().blocked,true);
+  assert.equal(h.evalJs('saveLocalState()'),false);
+  assert.equal(h.evalJs('persist()'),false);
+  assert.deepEqual(h.memory,h.original);
+  assert.equal(h.memory[key],raw);
+  assert.equal(h.writes.length,0);
+  assert.equal(h.remote.length,0)
  })
 }
+check('accepted newer Cloud payload updates Native local snapshot for safe restart',()=>{
+ const h=startup({native:snapshot(current,100)});
+ const incoming=snapshot(alternative,1200);
+ h.evalJs('window.__miaadReceiveCloud('+JSON.stringify(JSON.stringify(incoming))+')');
+ assert.equal(h.state().domain.records['2026-09-21__class'].status,'absent');
+ assert.ok(h.writes.length>=1,'accepted remote state was not mirrored to Native');
+ const saved=JSON.parse(h.writes.at(-1));
+ assert.equal(saved.domain.records['2026-09-21__class'].status,'absent');
+ assert.equal(saved.updatedAt,1200);
+ assert.equal(JSON.parse(h.memory.miaadDomainV4).records['2026-09-21__class'].status,'absent');
+ assert.equal(h.remote.length,0,'read acceptance must not cause a second cloud write')
+});
 check('valid legacy JSON [] is distinct from missing, and not corrupt',()=>{
  const h=startup({legacyRaw:'[]'});
  assert.equal(h.state().selected,'local-legacy');assert.equal(h.state().blocked,false)

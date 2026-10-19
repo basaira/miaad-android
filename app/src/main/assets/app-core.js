@@ -267,7 +267,16 @@ window.__miaadReceiveCloud=function(raw){
   idrisPhase=Number(data.idrisPhase||0);
   if(typeof refreshLegacyOccurrenceMirrors==='function')refreshLegacyOccurrenceMirrors();
   lastUpdatedAt=incoming;
-  saveLocalState();
+  if(saveLocalState()===false)return;
+  // The admitted Cloud state is now authoritative locally. Mirror the exact
+  // accepted modern state into Native local storage so the next restart cannot
+  // misclassify a stale Native/Local pair as a genuine academic conflict.
+  if(typeof NATIVE!=='undefined'&&NATIVE&&typeof NATIVE.saveSnapshot==='function'){
+   try{
+    const accepted=JSON.stringify(snapshotData());
+    if(classifyCloudDomainPayload(JSON.parse(accepted))==='modern')NATIVE.saveSnapshot(accepted)
+   }catch{}
+  }
   nativeSyncState='synced';
   if(typeof NATIVE!=='undefined'&&NATIVE&&typeof NATIVE.confirmCloudSnapshot==='function')try{NATIVE.confirmCloudSnapshot(raw)}catch{}
   if(typeof renderAll==='function')renderAll();

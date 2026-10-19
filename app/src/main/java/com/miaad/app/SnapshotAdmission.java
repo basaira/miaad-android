@@ -35,6 +35,16 @@ public final class SnapshotAdmission {
         return x instanceof String && NUMERIC.matcher((String)x).matches() &&
                 Double.isFinite(Double.parseDouble((String)x));
     }
+    // Domain v4 schedule writers historically accept nonblank numeric strings,
+    // including decimal forms and surrounding whitespace. This is deliberately
+    // separate from the narrower settings numeric-string contract.
+    private static boolean scheduleDuration(Object x){
+        if(x instanceof Number)return Double.isFinite(((Number)x).doubleValue()) &&
+             ((Number)x).doubleValue()>=0;
+        if(!(x instanceof String)||((String)x).trim().isEmpty())return false;
+        try{double d=Double.parseDouble(((String)x).trim());return Double.isFinite(d)&&d>=0;}
+        catch(Exception ex){return false;}
+    }
     private static boolean integer(Object x,int min,int max){
         if(!numeric(x))return false;
         double v=x instanceof Number?((Number)x).doubleValue():Double.parseDouble((String)x);
@@ -139,7 +149,7 @@ public final class SnapshotAdmission {
                         ||!integer(l.opt("day"),0,6)||!(l.opt("start") instanceof String)
                         ||(!time(l.opt("start"))&&!"".equals(l.opt("start")))
                         ||("".equals(l.opt("start"))&&!str(l.opt("displayTime")))
-                        ||!numeric(l.opt("duration"))||Double.parseDouble(String.valueOf(l.opt("duration")))<0
+                        ||!scheduleDuration(l.opt("duration"))
                         ||!oneOf(l.opt("repeat"),"weekly","biweekly","flex"))return false;
             }
         }
