@@ -238,7 +238,7 @@ jobs:
           mkdir -p audit
           sha256sum app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk > audit/instrumentation-apk.sha256
           expected="$(cut -d' ' -f1 runtime/audit/cloud-repair-apk-sha256.txt)"
-          test "$(sha256sum app/build/outputs/apk/debug/app-debug.apk | cut -d' ' -f1)" = "$expected"
+          test "$(sha256sum runtime/app/build/outputs/apk/debug/app-debug.apk | cut -d' ' -f1)" = "$expected"
       - name: Start isolated Firebase Firestore Emulator
         run: |
           npm install -g firebase-tools@13.35.1
