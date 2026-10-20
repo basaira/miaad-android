@@ -107,10 +107,18 @@ jobs:
           MIAAD_ASSET_ROOT="$GITHUB_WORKSPACE/app/build/generated/compatAssets" node scripts/test-persistence-recovery.cjs
           node scripts/compat-assets-manifest.cjs audit/cloud-repair-clean.json > audit/cloud-repair-clean.sha256
           cmp audit/cloud-repair-tested.sha256 audit/cloud-repair-clean.sha256
-          gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --stacktrace
+          gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
           node scripts/verify-apk-compat.cjs app/build/outputs/apk/debug/app-debug.apk
           sha256sum app/build/outputs/apk/debug/app-debug.apk > audit/cloud-repair-apk-sha256.txt
           stat -c '%s' app/build/outputs/apk/debug/app-debug.apk > audit/cloud-repair-apk-size.txt
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          sha256sum app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk > audit/instrumentation-apk.sha256
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          test -x "$apksigner"
+          app_cert="$("$apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          test_cert="$("$apksigner" verify --print-certs app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          test -n "$app_cert" && test "$app_cert" = "$test_cert"
+          printf 'MATCHED_SIGNER_SHA256=%s\n' "$app_cert" > audit/native-apk-signing.txt
       - name: Upload verification evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -127,6 +135,16 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             audit/cloud-repair-apk-sha256.txt
             audit/cloud-repair-apk-size.txt
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload paired Native instrumentation APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: miaad-phase-1c-v1r7-native-test-apk
+          path: |
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            audit/instrumentation-apk.sha256
+            audit/native-apk-signing.txt
           if-no-files-found: error
           retention-days: 90
 
@@ -226,25 +244,34 @@ jobs:
         with:
           name: miaad-phase-1c-v1r7-built-apk
           path: runtime
+      - uses: actions/download-artifact@v4
+        with:
+          name: miaad-phase-1c-v1r7-native-test-apk
+          path: runtime-tests
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install verification dependencies
+      - name: Prepare APK signature verifier
         run: |
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save --package-lock=false esbuild@0.28.2 acorn@8.18.0 @esbuild/linux-x64@0.28.2
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;36.0.0"
-      - uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: '9.6.0'
-      - name: Build isolated Native instrumentation APK
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "build-tools;36.0.0"
+      - name: Verify same-build application and test APKs
         run: |
-          gradle :app:assembleDebugAndroidTest --stacktrace
-          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          set -euo pipefail
+          app=runtime/app/build/outputs/apk/debug/app-debug.apk
+          tests=runtime-tests/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          test -s "$app" && test -s "$tests"
+          test "$(sha256sum "$app" | cut -d' ' -f1)" = "$(cut -d' ' -f1 runtime/audit/cloud-repair-apk-sha256.txt)"
+          test "$(sha256sum "$tests" | cut -d' ' -f1)" = "$(cut -d' ' -f1 runtime-tests/audit/instrumentation-apk.sha256)"
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          test -x "$apksigner"
+          app_cert="$("$apksigner" verify --print-certs "$app" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          test_cert="$("$apksigner" verify --print-certs "$tests" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          test -n "$app_cert" && test "$app_cert" = "$test_cert"
+          test "MATCHED_SIGNER_SHA256=$app_cert" = "$(cat runtime-tests/audit/native-apk-signing.txt)"
           mkdir -p audit
-          sha256sum app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk > audit/instrumentation-apk.sha256
-          expected="$(cut -d' ' -f1 runtime/audit/cloud-repair-apk-sha256.txt)"
-          test "$(sha256sum runtime/app/build/outputs/apk/debug/app-debug.apk | cut -d' ' -f1)" = "$expected"
+          sha256sum "$app" "$tests" > audit/native-apk-pair.sha256
+          printf 'MATCHED_SIGNER_SHA256=%s\n' "$app_cert" > audit/native-apk-signing.txt
       - name: Start isolated Firebase Firestore Emulator
         run: |
           npm install -g firebase-tools@13.35.1
@@ -263,7 +290,7 @@ jobs:
           set -euo pipefail
           adb wait-for-device
           adb install -r runtime/app/build/outputs/apk/debug/app-debug.apk
-          adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          adb install -r runtime-tests/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           set -o pipefail
           set +e
           timeout --signal=TERM --kill-after=20s 360s adb shell am instrument -w -r com.miaad.app.test/androidx.test.runner.AndroidJUnitRunner | tee audit/native-instrumentation.txt
