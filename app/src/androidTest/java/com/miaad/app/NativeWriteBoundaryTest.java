@@ -286,4 +286,59 @@ public class NativeWriteBoundaryTest {
         assertEquals(ownA,bridge.loadSnapshotOwned(bridge.sessionToken()));
     }
 
+    @Test public void uidSwitchDuringPendingTransactionCannotWriteIntoNewOwner() throws Exception {
+        String A=uniqueId("inflight-A"),B=uniqueId("inflight-B");
+        String snapshotA=snapshot(702);
+        bridge.setUid(A);
+        String sessionA=bridge.sessionToken();
+        assertTrue(bridge.saveSnapshotOwned(snapshotA,sessionA));
+        bridge.setPageReady(true);
+        deliver(bridge,read(doc(A)));  // Confirmed Cloud absence for A.
+        bridge.requestVerifiedSyncOwned(snapshotA,sessionA);
+        // A transaction may commit under A. It must never authorize a write
+        // into B after the UID and account generation have changed.
+        bridge.setUid(B);
+        String sessionB=bridge.sessionToken();
+        bridge.requestVerifiedSyncOwned(snapshotA,sessionA);
+        SystemClock.sleep(500);
+        absent(doc(B));
+        assertEquals("",bridge.loadSnapshotOwned(sessionB));
+        bridge.setUid(A);
+        assertEquals(snapshotA,bridge.loadSnapshotOwned(bridge.sessionToken()));
+    }
+    @Test public void delayedChunkedResponseFromSupersededUidCannotAuthorizeB() throws Exception {
+        String A=uniqueId("chunkA"),B=uniqueId("chunkB");
+        String original=snapshot(806),generation=UUID.randomUUID().toString();
+        Map<String,Object> mainDoc=new HashMap<>();
+        mainDoc.put("generation",generation);
+        mainDoc.put("chunkCount",1L);
+        mainDoc.put("updatedAt",806L);
+        Map<String,Object> part=new HashMap<>();
+        part.put("payload",original);
+        Tasks.await(doc(A).collection("snapshots").document(generation+"-0").set(part),20,TimeUnit.SECONDS);
+        Tasks.await(doc(A).set(mainDoc),20,TimeUnit.SECONDS);
+        bridge.setUid(A);
+        bridge.setPageReady(true);
+        java.lang.reflect.Field epochField=MiaadBridge.class.getDeclaredField("accountEpoch");
+        epochField.setAccessible(true);
+        long oldEpoch=epochField.getLong(bridge);
+        Method delayed=MiaadBridge.class.getDeclaredMethod(
+            "deliverCloudDocument",DocumentSnapshot.class,String.class,long.class);
+        delayed.setAccessible(true);
+        DocumentSnapshot oldResponse=read(doc(A));
+        delayed.invoke(bridge,oldResponse,A,oldEpoch);
+        bridge.setUid(B);
+        final String sessionB=bridge.sessionToken();
+        assertTrue(bridge.saveSnapshotOwned(snapshot(807),sessionB));
+        // Replaying the old chunk header after switching must also fail.
+        delayed.invoke(bridge,oldResponse,A,oldEpoch);
+        SystemClock.sleep(500);
+        java.lang.reflect.Field ownerField=MiaadBridge.class.getDeclaredField("remoteOwnerUid");
+        ownerField.setAccessible(true);
+        assertNull(ownerField.get(bridge));
+        bridge.requestVerifiedSyncOwned(snapshot(807),sessionB);
+        absent(doc(B));
+        assertEquals("",bridge.loadSnapshotOwned("superseded-A-token"));
+    }
+
 }
