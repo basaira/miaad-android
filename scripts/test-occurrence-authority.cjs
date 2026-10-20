@@ -48,6 +48,7 @@ function integrationState({nativeInitial=null,localDomain={},lessons=[],sessionS
  const localRaw=Object.keys(localDomain).length?JSON.stringify(localDomain):null;
  const store={get:key=>key==='miaadDomainV4'?localRaw:null};
  const context={createMiaadDomain,MiaadTemporal,stabilizeMiaadTeacherTimeZoneSeed,
+  ownershipEnabled:false,unownedOldData:false,ownerSessionValid:()=>true,
   nativeInitial,nativeSnapshotParseFailed:false,store,STORAGE:startupStoreKeys,NATIVE:null,BASE:[],normalizeSchedule:x=>x,
   loadJSON:key=>key==='miaadDomainV4'?localDomain:{},
   lessons:JSON.parse(JSON.stringify(lessons)),sessionState:{...sessionState},sessionNotes:{...sessionNotes},

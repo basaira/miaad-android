@@ -36,6 +36,8 @@ jobs:
           app/src/main/java/com/miaad/app/MainActivity.java
           app/src/main/java/com/miaad/app/MiaadBridge.java
           scripts/test-cloud-hydration.cjs
+          scripts/test-occurrence-authority.cjs
+          scripts/test-timezone-dst-contract.cjs
           scripts/test-uid-ownership.cjs
           EOF
           diff -u /tmp/phase-1c-expected-paths.txt /tmp/phase-1c-changed-paths.txt

@@ -129,6 +129,7 @@ check('AE divergent valid Native/Local zones require non-destructive conflict',(
  delete native.settings.teacherTimeZone;
  let persists=0;const rawLocal=JSON.stringify(local);
  const context={createMiaadDomain,MiaadTemporal,stabilizeMiaadTeacherTimeZoneSeed,
+  ownershipEnabled:false,unownedOldData:false,ownerSessionValid:()=>true,
   nativeInitial:{domain:native},nativeSnapshotParseFailed:false,NATIVE:null,
   STORAGE:{lessons:'miadLessonsV2',state:'miadSessionStateV2',notes:'miadSessionNotesV2',audit:'miadSessionAuditV2',phase:'miadIdrisPhaseV2',updated:'miadUpdatedAtV1'},
   store:{get:key=>key==='miaadDomainV4'?rawLocal:null},BASE:[],
