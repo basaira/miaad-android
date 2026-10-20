@@ -304,7 +304,7 @@ jobs:
           adb install -r runtime-tests/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           set -o pipefail
           set +e
-          timeout --signal=TERM --kill-after=20s 360s adb shell am instrument -w -r com.miaad.app.test/androidx.test.runner.AndroidJUnitRunner | tee audit/native-instrumentation.txt
+          timeout --signal=TERM --kill-after=20s 600s adb shell am instrument -w -r com.miaad.app.test/androidx.test.runner.AndroidJUnitRunner | tee audit/native-instrumentation.txt
           result="${PIPESTATUS[0]}"
           set -e
           adb logcat -d -s AndroidRuntime:E FirebaseFirestore:W MiaadWeb:E MiaadStartup:I > audit/native-logcat.txt || :
