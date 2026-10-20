@@ -16,6 +16,15 @@ public class ReminderReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
+        // Even a queued alarm from user A cannot display their student names
+        // after Firebase Authentication has switched to user B.
+        String owner=intent.getStringExtra("owner_uid");
+        com.google.firebase.auth.FirebaseUser active =
+                com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+        android.content.SharedPreferences p =
+                context.getSharedPreferences("miaad_native_v1",Context.MODE_PRIVATE);
+        if(owner==null||active==null||!owner.equals(active.getUid())||
+           !owner.equals(p.getString("reminder_owner","")))return;
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             return;
         }
@@ -60,8 +69,9 @@ public class ReminderReceiver extends BroadcastReceiver {
 
         manager.notify(id, notification);
         android.content.SharedPreferences prefs = context.getSharedPreferences("miaad_native_v1", Context.MODE_PRIVATE);
-        java.util.Set<String> delivered = new java.util.HashSet<>(prefs.getStringSet("delivered_reminders", new java.util.HashSet<>()));
+        String deliveredKey="delivered_reminders_owner_"+ReminderScheduler.ownerKey(owner);
+        java.util.Set<String> delivered = new java.util.HashSet<>(prefs.getStringSet(deliveredKey, new java.util.HashSet<>()));
         String dedup = intent.getStringExtra("dedup");
-        if (dedup != null) { delivered.add(dedup); prefs.edit().putStringSet("delivered_reminders", delivered).apply(); }
+        if (dedup != null) { delivered.add(dedup); prefs.edit().putStringSet(deliveredKey, delivered).apply(); }
     }
 }

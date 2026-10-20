@@ -59,7 +59,15 @@ const SmartScheduleEngine=(()=>{
 })();
 
 function buildOccurrences(daysAhead=21){const base=getSunday(new Date()),out=[];for(let i=0;i<=daysAhead+6;i++){const d=addDays(base,i);lessonsForDate(d).filter(hasFixedTime).forEach(l=>out.push({lesson:l,date:d,start:timeDate(d,l.start)}))}return out.sort((a,b)=>a.start-b.start)}
-function syncNativeReminders(){if(!NATIVE||typeof NATIVE.syncReminders!=='function')return;try{NATIVE.syncReminders(JSON.stringify(buildNativeReminders()))}catch{}}
+function syncNativeReminders(){
+ if(!NATIVE||(typeof ownerSessionValid==='function'&&!ownerSessionValid()))return;
+ try{
+  const data=JSON.stringify(buildNativeReminders());
+  if(typeof ownershipEnabled!=='undefined'&&ownershipEnabled){
+   if(typeof NATIVE.syncRemindersOwned==='function')NATIVE.syncRemindersOwned(data,ownerSession)
+  }else if(typeof NATIVE.syncReminders==='function')NATIVE.syncReminders(data)
+ }catch{}
+}
 function nextOccurrence(){const now=new Date();return buildOccurrences(21).find(x=>x.start>=new Date(now.getTime()-10*60000))||null}
 function currentOrNextOccurrence(){
  const now=new Date(),today=startOfDay(now),candidates=[];

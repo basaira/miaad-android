@@ -32,9 +32,13 @@ jobs:
           app/src/androidTest/java/com/miaad/app/NativeWriteBoundaryTest.java
           app/src/main/assets/app-boot.js
           app/src/main/assets/app-core.js
+          app/src/main/assets/app-engine.js
           app/src/main/assets/app-integration.js
           app/src/main/java/com/miaad/app/MainActivity.java
           app/src/main/java/com/miaad/app/MiaadBridge.java
+          app/src/main/java/com/miaad/app/ReminderReceiver.java
+          app/src/main/java/com/miaad/app/ReminderScheduler.java
+          app/src/main/java/com/miaad/app/RestoreRemindersReceiver.java
           scripts/test-cloud-hydration.cjs
           scripts/test-occurrence-authority.cjs
           scripts/test-timezone-dst-contract.cjs

@@ -341,4 +341,32 @@ public class NativeWriteBoundaryTest {
         assertEquals("",bridge.loadSnapshotOwned("superseded-A-token"));
     }
 
+    @Test public void uidChangeCancelsOldOwnerRemindersAndPreservesPlanBytes() throws Exception {
+        String A=uniqueId("reminder-A"),B=uniqueId("reminder-B");
+        bridge.setUid(A);
+        String sessionA=bridge.sessionToken();
+        long future=System.currentTimeMillis()+3600000;
+        String plan=new JSONArray().put(new JSONObject()
+            .put("id","confidential-academic-reminder")
+            .put("at",future)
+            .put("title","Private student belonging to A")
+            .put("body","CONFIDENTIAL_A")).toString();
+        bridge.syncRemindersOwned(plan,sessionA);
+        assertEquals(A,prefs.getString("reminder_owner",null));
+        assertEquals(plan,prefs.getString("reminder_plan",null));
+        assertFalse(prefs.getStringSet("reminder_codes",new java.util.HashSet<>()).isEmpty());
+        bridge.setUid(B);
+        assertNull(prefs.getString("reminder_owner",null));
+        assertNull(prefs.getString("reminder_plan",null));
+        assertTrue(prefs.getStringSet("reminder_codes",new java.util.HashSet<>()).isEmpty());
+        String backup="reminder_plan_preserved_"+ReminderScheduler.ownerKey(A)+"_"
+            +ReminderScheduler.ownerKey(plan);
+        assertEquals(plan,prefs.getString(backup,null));
+        bridge.syncRemindersOwned(plan,sessionA);
+        assertNull(prefs.getString("reminder_owner",null));
+        bridge.syncRemindersOwned("[]",bridge.sessionToken());
+        assertEquals(B,prefs.getString("reminder_owner",null));
+        assertEquals("[]",prefs.getString("reminder_plan",null));
+    }
+
 }

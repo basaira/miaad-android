@@ -73,6 +73,7 @@ public class MiaadBridge {
             writeInProgress = false; remoteOwnerUid = null;
             pageReady = false;
         }
+        ReminderScheduler.clearForAccountChange(activity);
     }
 
     private static String uidHash(String text) {
@@ -393,8 +394,20 @@ public class MiaadBridge {
 
     @JavascriptInterface
     public void syncReminders(String json) {
-        try { ReminderScheduler.sync(activity, json == null ? "[]" : json); }
-        catch (Exception e) { pushNativeStatus("reminder-error"); }
+        // Legacy unowned WebView code cannot schedule personally identifying
+        // notifications in an authenticated account.
+        pushNativeStatus("reminder-error");
+    }
+
+    @JavascriptInterface
+    public void syncRemindersOwned(String json,String session) {
+        final String owner=uid;
+        final long epoch=accountEpoch;
+        if (!validSession(session)||!activeIdentity(owner,epoch))return;
+        try {
+            if(!activeIdentity(owner,epoch))return;
+            ReminderScheduler.sync(activity,json,owner);
+        }catch(Exception ex){pushNativeStatus("reminder-error");}
     }
 
     private WebView printView;
