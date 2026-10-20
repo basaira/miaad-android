@@ -119,7 +119,7 @@ jobs:
           # The local Firebase emulators require cleartext on 10.0.2.2,
           # but the exception must never ship in release/production manifests.
           gradle :app:processReleaseMainManifest --stacktrace
-          release_manifest="$(find app/build/intermediates/merged_manifests/release -type f -name AndroidManifest.xml -print -quit)"
+          release_manifest="$(find app/build/intermediates -type f -name AndroidManifest.xml -path '*/release/*' -print -quit)"
           test -n "$release_manifest" && test -f "$release_manifest"
           grep -q 'android:usesCleartextTraffic="false"' "$release_manifest"
           if grep -q 'networkSecurityConfig' "$release_manifest"; then echo "Release network policy unexpectedly overridden"; exit 1; fi
