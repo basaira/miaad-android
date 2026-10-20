@@ -291,6 +291,10 @@ public class MainActivity extends Activity {
             android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
             getIntent().getBooleanExtra("miaad_isolated_no_firebase", false);
     }
+    boolean requiresIsolatedAuthVerification() {
+        return isIsolatedFirebaseTestMode() &&
+               getIntent().getBooleanExtra("miaad_test_auth_emulator",false);
+    }
 
     private void authenticateForCloudSync() {
         if (isIsolatedFirebaseTestMode()) {

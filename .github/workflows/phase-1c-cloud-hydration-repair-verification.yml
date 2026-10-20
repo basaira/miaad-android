@@ -281,8 +281,8 @@ jobs:
       - name: Start isolated Firebase Firestore Emulator
         run: |
           npm install -g firebase-tools@13.35.1
-          printf '%s\n' '{"emulators":{"firestore":{"host":"0.0.0.0","port":8080},"ui":{"enabled":false}}}' > "$RUNNER_TEMP/firebase-v1r7.json"
-          firebase emulators:start --only firestore --project demo-miaad-v1r7 --config "$RUNNER_TEMP/firebase-v1r7.json" > "$RUNNER_TEMP/firestore-emulator.log" 2>&1 &
+          printf '%s\n' '{"emulators":{"firestore":{"host":"0.0.0.0","port":8080},"auth":{"host":"0.0.0.0","port":9099},"ui":{"enabled":false}}}' > "$RUNNER_TEMP/firebase-v1r7.json"
+          firebase emulators:start --only firestore,auth --project demo-miaad-v1r7 --config "$RUNNER_TEMP/firebase-v1r7.json" > "$RUNNER_TEMP/firestore-emulator.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/firebase-pid"
           for attempt in $(seq 1 180); do
             if curl --max-time 2 -s -o /dev/null http://127.0.0.1:8080/; then break; fi
@@ -290,6 +290,11 @@ jobs:
             sleep 2
           done
           curl --max-time 5 -s -o /dev/null http://127.0.0.1:8080/
+          for attempt in $(seq 1 50); do
+            if curl --max-time 2 -s -o /dev/null http://127.0.0.1:9099/; then break; fi
+            sleep 2
+          done
+          curl --max-time 5 -s -o /dev/null http://127.0.0.1:9099/
       - name: Prepare isolated instrument script
         run: |
           cat > "$RUNNER_TEMP/run-native-v1r7.sh" <<'SH'

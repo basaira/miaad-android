@@ -89,7 +89,8 @@ public class MiaadBridge {
             if (!java.util.Objects.equals(uid, owner) || accountEpoch != epoch) return false;
         }
         // No production write authorization may be derived from JS session data.
-        if (!activity.isIsolatedFirebaseTestMode()) {
+        if (!activity.isIsolatedFirebaseTestMode() ||
+             activity.requiresIsolatedAuthVerification()) {
             com.google.firebase.auth.FirebaseUser user =
                 com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
             return user != null && owner.equals(user.getUid());

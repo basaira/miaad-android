@@ -11,6 +11,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
 import com.google.android.gms.tasks.Tasks;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.DocumentReference;
@@ -39,6 +41,7 @@ import static org.junit.Assert.*;
 @RunWith(AndroidJUnit4.class)
 public class NativeWriteBoundaryTest {
     private static volatile boolean emulatorConfigured=false;
+    private static volatile boolean authEmulatorConfigured=false;
     private FirebaseFirestore db;
     private ActivityScenario<MainActivity> scenario;
     private MiaadBridge bridge;
@@ -95,6 +98,10 @@ public class NativeWriteBoundaryTest {
             if(!emulatorConfigured) {
                 db.useEmulator("10.0.2.2",8080);
                 emulatorConfigured=true;
+            }
+            if(!authEmulatorConfigured) {
+                FirebaseAuth.getInstance().useEmulator("10.0.2.2",9099);
+                authEmulatorConfigured=true;
             }
         }
         Context context=InstrumentationRegistry.getInstrumentation().getTargetContext();
@@ -375,6 +382,48 @@ public class NativeWriteBoundaryTest {
         bridge.syncRemindersOwned("[]",bridge.sessionToken());
         assertEquals(B,prefs.getString("reminder_owner",null));
         assertEquals("[]",prefs.getString("reminder_plan",null));
+    }
+
+    @Test public void realFirebaseAuthEmulatorAtoBPreventsCrossUidRemoteWrites() throws Exception {
+        // Both UIDs are issued by the isolated Firebase Authentication emulator,
+        // not fabricated strings or JS-supplied user identity assertions.
+        FirebaseAuth auth=FirebaseAuth.getInstance();
+        auth.signOut();
+        FirebaseUser userA=Tasks.await(auth.signInAnonymously(),25,TimeUnit.SECONDS).getUser();
+        assertNotNull(userA);
+        String A=userA.getUid();
+        scenario.onActivity(a->a.getIntent().putExtra("miaad_test_auth_emulator",true));
+        bridge.setUid(A);
+        String payloadA=snapshot(1201),tokenA=bridge.sessionToken();
+        assertTrue(bridge.saveSnapshotOwned(payloadA,tokenA));
+        assertFalse(bridge.saveSnapshotOwned("{malformed",tokenA));
+        bridge.setPageReady(true);
+        deliver(bridge,read(doc(A))); // native SDK's actual document-absent proof
+        bridge.requestVerifiedSyncOwned(payloadA,tokenA);
+        until("authorized A write",()->read(doc(A)).exists());
+        assertEquals(payloadA,read(doc(A)).getString("payload"));
+        auth.signOut();
+        FirebaseUser userB=Tasks.await(auth.signInAnonymously(),25,TimeUnit.SECONDS).getUser();
+        assertNotNull(userB);
+        String B=userB.getUid();
+        assertNotEquals(A,B);
+        bridge.setUid(B);
+        assertEquals("",bridge.loadSnapshotOwned(bridge.sessionToken()));
+        bridge.requestVerifiedSyncOwned(payloadA,tokenA);
+        SystemClock.sleep(300);
+        absent(doc(B));
+        // Attempting to lie about Native UID while FirebaseAuth is B fails closed.
+        bridge.setUid(A);
+        assertFalse(bridge.saveSnapshotOwned(snapshot(1202),bridge.sessionToken()));
+        bridge.setUid(B);
+        String payloadB=snapshot(1300),tokenB=bridge.sessionToken();
+        assertTrue(bridge.saveSnapshotOwned(payloadB,tokenB));
+        deliver(bridge,read(doc(B)));
+        bridge.requestVerifiedSyncOwned(payloadB,tokenB);
+        until("authorized B write",()->read(doc(B)).exists());
+        assertEquals(payloadB,read(doc(B)).getString("payload"));
+        assertEquals(payloadA,read(doc(A)).getString("payload"));
+        auth.signOut();
     }
 
 }
