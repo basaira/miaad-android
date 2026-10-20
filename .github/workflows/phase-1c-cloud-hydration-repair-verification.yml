@@ -304,10 +304,14 @@ jobs:
       - name: Execute Android Java + Firestore emulator qualification
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 36
+          # Same APK pair qualified above. API 26 already booted successfully
+          # in the installed-runtime matrix of the exact previous CI run.
+          # Deliberately limit AVD resources after API 36 boot timeout.
+          api-level: 26
           target: google_apis
           arch: x86_64
           profile: pixel_2
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -cores 2
           script: bash "$RUNNER_TEMP/run-native-v1r7.sh"
       - name: Retain native and emulator logs
         if: always()
