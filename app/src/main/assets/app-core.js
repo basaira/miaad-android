@@ -93,7 +93,7 @@ function ownerConfirm(raw){
  else if(typeof NATIVE.confirmCloudSnapshot==='function')NATIVE.confirmCloudSnapshot(raw)
 }
 let nativeSnapshotParseFailed=false;
-function nativeSeed(){if(!NATIVE||typeof NATIVE.loadSnapshot!=='function')return null;
+function nativeSeed(){if(!NATIVE||(ownershipEnabled?typeof NATIVE.loadSnapshotOwned!=='function':typeof NATIVE.loadSnapshot!=='function'))return null;
  try{const raw=ownershipEnabled?(ownerSessionValid()?NATIVE.loadSnapshotOwned(ownerSession):''):NATIVE.loadSnapshot();if(!raw)return null;const parsed=JSON.parse(raw);
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))nativeSnapshotParseFailed=true;
   return parsed
