@@ -115,17 +115,28 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (url == null || !url.startsWith("file:///android_asset/index.html")) return;
-                android.util.Log.i("MiaadStartup", "page-finished");
-                bridge.setPageReady(true);
-                openNotificationIntent(getIntent());
-                bridge.pullCloudToWeb();
-                // The static HTML loads the final local theme and brand scripts.
-                // Reveal only after WebView confirms the frame can be drawn.
-                view.postVisualStateCallback(0, new WebView.VisualStateCallback() {
-                    @Override public void onComplete(long requestId) {
-                        android.util.Log.i("MiaadStartup", "first-frame-ready");
-                        hideSplash();
-                    }
+                // A superseded page may finish after Authentication moved
+                // from A to B. Never reveal that page or attach a B Cloud read
+                // until its JS bootstrap proves the current Native session.
+                final String expected=bridge.sessionToken();
+                final String ready="(function(){try{return typeof ownershipEnabled==='boolean'"+
+                    "&&(!ownershipEnabled||ownerSession==="+org.json.JSONObject.quote(expected)+
+                    ");}catch(e){return false;}})()";
+                view.evaluateJavascript(ready, response -> {
+                    if (!"true".equals(response) ||
+                            !expected.equals(bridge.sessionToken())) return;
+                    android.util.Log.i("MiaadStartup", "page-finished");
+                    bridge.setPageReady(true);
+                    openNotificationIntent(getIntent());
+                    bridge.pullCloudToWeb();
+                    view.postVisualStateCallback(0, new WebView.VisualStateCallback() {
+                        @Override public void onComplete(long requestId) {
+                            if (!expected.equals(bridge.sessionToken())) return;
+                            view.setVisibility(View.VISIBLE);
+                            android.util.Log.i("MiaadStartup", "first-frame-ready");
+                            hideSplash();
+                        }
+                    });
                 });
             }
 
@@ -296,6 +307,7 @@ public class MainActivity extends Activity {
                 if (!java.util.Objects.equals(loadedFirebaseUid,now)) {
                     // Stop rendering or saving the previous owner's DOM before
                     // a new owner's WebView is initialized.
+                    webView.setVisibility(View.INVISIBLE);
                     bridge.setUid(now);
                     bridge.setPageReady(false);
                     loadedFirebaseUid=now;
@@ -307,6 +319,7 @@ public class MainActivity extends Activity {
             }
             if (loadedFirebaseUid != null) {
                 loadedFirebaseUid=null;
+                webView.setVisibility(View.INVISIBLE);
                 bridge.setUid(null);
                 bridge.setPageReady(false);
                 webView.stopLoading();
