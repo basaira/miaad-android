@@ -133,13 +133,21 @@ public class NativeWriteBoundaryTest {
         String good=snapshot(System.currentTimeMillis());
         prefs.edit().putString("snapshot",good).commit();
         bridge.setUid(user);
-        bridge.saveSnapshotOwned("{broken",bridge.sessionToken());
-        assertEquals(good,bridge.loadSnapshotOwned(bridge.sessionToken()));
+        // The old fixture originally expected unowned historical bytes to be
+        // silently adopted as this new user's owned snapshot. That expectation
+        // is precisely the cross-UID defect. Preserve and quarantine instead.
+        assertEquals("",bridge.loadSnapshotOwned(bridge.sessionToken()));
+        assertEquals(good,prefs.getString("snapshot",""));
+        assertTrue(bridge.hasUnownedSnapshot());
+        assertFalse(bridge.saveSnapshotOwned("{broken",bridge.sessionToken()));
+        assertEquals("",bridge.loadSnapshotOwned(bridge.sessionToken()));
+        assertEquals(good,prefs.getString("snapshot",""));
         absent(main);
         String replacement=snapshot(System.currentTimeMillis()+100);
-        bridge.saveSnapshotOwned(replacement,bridge.sessionToken());
+        assertTrue(bridge.saveSnapshotOwned(replacement,bridge.sessionToken()));
         assertEquals(replacement,bridge.loadSnapshotOwned(bridge.sessionToken()));
-        absent(main); // saveSnapshot is always local-only, even authenticated.
+        assertEquals(good,prefs.getString("snapshot",""));
+        absent(main); // owner-bound save is local only; no Firebase write.
         assertFalse(SnapshotAdmission.valid(invalidTarget()));
         assertTrue(SnapshotAdmission.valid(replacement));
     }
