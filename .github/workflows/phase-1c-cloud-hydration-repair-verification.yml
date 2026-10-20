@@ -30,6 +30,8 @@ jobs:
           cat > /tmp/phase-1c-expected-paths.txt <<'EOF'
           .github/workflows/phase-1c-cloud-hydration-repair-verification.yml
           app/src/androidTest/java/com/miaad/app/NativeWriteBoundaryTest.java
+          app/src/debug/AndroidManifest.xml
+          app/src/debug/res/xml/miaad_emulator_network_security.xml
           app/src/main/assets/app-boot.js
           app/src/main/assets/app-core.js
           app/src/main/assets/app-engine.js
@@ -114,6 +116,14 @@ jobs:
           node scripts/compat-assets-manifest.cjs audit/cloud-repair-clean.json > audit/cloud-repair-clean.sha256
           cmp audit/cloud-repair-tested.sha256 audit/cloud-repair-clean.sha256
           gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+          # The local Firebase emulators require cleartext on 10.0.2.2,
+          # but the exception must never ship in release/production manifests.
+          gradle :app:processReleaseMainManifest --stacktrace
+          release_manifest="$(find app/build/intermediates/merged_manifests/release -type f -name AndroidManifest.xml -print -quit)"
+          test -n "$release_manifest" && test -f "$release_manifest"
+          grep -q 'android:usesCleartextTraffic="false"' "$release_manifest"
+          if grep -q 'networkSecurityConfig' "$release_manifest"; then echo "Release network policy unexpectedly overridden"; exit 1; fi
+          test ! -f app/src/main/res/xml/miaad_emulator_network_security.xml
           node scripts/verify-apk-compat.cjs app/build/outputs/apk/debug/app-debug.apk
           sha256sum app/build/outputs/apk/debug/app-debug.apk > audit/cloud-repair-apk-sha256.txt
           stat -c '%s' app/build/outputs/apk/debug/app-debug.apk > audit/cloud-repair-apk-size.txt

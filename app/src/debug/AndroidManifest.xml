@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Only Android debug builds may use the local Firebase emulators. -->
+    <application android:networkSecurityConfig="@xml/miaad_emulator_network_security" />
+</manifest>

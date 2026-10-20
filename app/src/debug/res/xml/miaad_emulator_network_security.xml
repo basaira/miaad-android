@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Deny all other cleartext traffic, including in debug builds. -->
+    <base-config cleartextTrafficPermitted="false" />
+    <!-- Android emulator's host loopback proxy; Firebase Auth :9099 / Firestore :8080. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>
