@@ -52,6 +52,8 @@ public class MiaadBridge {
     private volatile boolean remoteMissingVerified;
     private volatile boolean writeInProgress;
     private volatile String remoteOwnerUid;
+    private volatile long accountEpoch;
+    private volatile String webSessionToken="";
 
     MiaadBridge(MainActivity activity, WebView webView) {
         this.activity = activity;
@@ -61,13 +63,54 @@ public class MiaadBridge {
     }
 
     void setUid(String uid) {
-        this.uid = uid;
         synchronized (writeLock) {
+            if (java.util.Objects.equals(this.uid, uid) && !webSessionToken.isEmpty()) return;
+            this.uid = uid;
+            accountEpoch++;
+            webSessionToken = uid == null ? "" : java.util.UUID.randomUUID().toString();
             observedRemoteToken = null; pendingRemotePayload = null;
             pendingRemoteToken = null; remoteMissingVerified = false;
             writeInProgress = false; remoteOwnerUid = null;
+            pageReady = false;
         }
-        pushNativeStatus(uid == null ? "local-only" : "cloud-ready");
+    }
+
+    private static String uidHash(String text) {
+        return remoteDigest("owned-v1:" + text);
+    }
+    private String scopedKey(String owner) { return "snapshot_owner_" + uidHash(owner); }
+    private boolean validSession(String session) {
+        return uid != null && session != null && !session.isEmpty()
+            && session.equals(webSessionToken);
+    }
+    private boolean activeIdentity(String owner, long epoch) {
+        synchronized (writeLock) {
+            if (!java.util.Objects.equals(uid, owner) || accountEpoch != epoch) return false;
+        }
+        // No production write authorization may be derived from JS session data.
+        if (!activity.isIsolatedFirebaseTestMode()) {
+            com.google.firebase.auth.FirebaseUser user =
+                com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+            return user != null && owner.equals(user.getUid());
+        }
+        return true;
+    }
+    @JavascriptInterface
+    public String sessionToken() { return webSessionToken; }
+    @JavascriptInterface
+    public String storageScope(String session) {
+        if (!validSession(session)) return "";
+        return "miaadUidV1_" + uidHash(uid) + "_";
+    }
+    @JavascriptInterface
+    public boolean hasUnownedSnapshot() {
+        final String legacy = prefs.getString(SNAPSHOT, "");
+        return legacy != null && !legacy.isEmpty();
+    }
+    @JavascriptInterface
+    public String loadSnapshotOwned(String session) {
+        if (!validSession(session)) return "";
+        return prefs.getString(scopedKey(uid), "");
     }
 
     void setPageReady(boolean ready) {
@@ -77,22 +120,44 @@ public class MiaadBridge {
 
     @JavascriptInterface
     public String loadSnapshot() {
-        return prefs.getString(SNAPSHOT, "");
+        // Historical unowned bytes are preserved, never exposed as a signed-in
+        // owner's verified snapshot.
+        return uid == null ? prefs.getString(SNAPSHOT, "") : "";
     }
 
     // Local persistence is NOT remote write authorization.
     // Invalid input never overwrites the previous recoverable Native copy.
     @JavascriptInterface
     public void saveSnapshot(String json) {
-        if (!SnapshotAdmission.valid(json)) { pushNativeStatus("cloud-pending"); return; }
-        String old = prefs.getString(SNAPSHOT, "");
-        if (old != null && !old.isEmpty() && !old.equals(json) && !SnapshotAdmission.valid(old)) {
-            String backup = "snapshot_recovery_" + remoteDigest(old);
-            if (!prefs.contains(backup) && !prefs.edit().putString(backup, old).commit()) {
-                pushNativeStatus("cloud-pending"); return;
-            }
+        // Legacy API can never bind unknown historical data to a Firebase UID.
+        if (uid != null) { pushNativeStatus("cloud-pending"); return; }
+        if (!SnapshotAdmission.valid(json)) return;
+        prefs.edit().putString(SNAPSHOT, json).commit();
+    }
+
+    @JavascriptInterface
+    public boolean saveSnapshotOwned(String json, String session) {
+        if (!validSession(session) || !SnapshotAdmission.valid(json)) {
+            pushNativeStatus("cloud-pending"); return false;
         }
-        prefs.edit().putString(SNAPSHOT, json).apply();
+        final String owner = uid;
+        final long epoch = accountEpoch;
+        if (!activeIdentity(owner, epoch)) return false;
+        // Per-UID durable storage. Never overwrite unowned/foreign snapshots.
+        // Native serialization order and web session are checked again under
+        // the same lock before the write.
+        synchronized (writeLock) {
+            if (!activeIdentity(owner, epoch) || !validSession(session)) return false;
+            final String key = scopedKey(owner);
+            final String old = prefs.getString(key, "");
+            if (old != null && !old.isEmpty() && !old.equals(json) &&
+                !SnapshotAdmission.valid(old)) {
+                final String backup="snapshot_recovery_"+uidHash(owner)+"_"+remoteDigest(old);
+                if (!prefs.contains(backup) &&
+                    !prefs.edit().putString(backup, old).commit()) return false;
+            }
+            return prefs.edit().putString(key, json).commit();
+        }
     }
 
     private static String remoteToken(DocumentSnapshot doc) {
@@ -115,30 +180,43 @@ public class MiaadBridge {
     // an arbitrary remote version or mark a write successful.
     @JavascriptInterface
     public void confirmCloudSnapshot(String raw) {
+        // Obsolete unscoped bridge entry point cannot authorize Cloud writes.
+        pushNativeStatus("cloud-pending");
+    }
+    @JavascriptInterface
+    public void confirmCloudSnapshotOwned(String raw, String session) {
         synchronized (writeLock) {
-            if (uid == null || !uid.equals(remoteOwnerUid)
-                    || pendingRemotePayload == null || !pendingRemotePayload.equals(raw)) return;
+            if (!validSession(session)||uid==null||!uid.equals(remoteOwnerUid)
+                    ||pendingRemotePayload==null||!pendingRemotePayload.equals(raw)) return;
             observedRemoteToken = pendingRemoteToken;
             remoteMissingVerified = false;
-            pendingRemotePayload = null; pendingRemoteToken = null;
+            pendingRemotePayload=null;pendingRemoteToken=null;
         }
     }
 
     @JavascriptInterface
     public void requestVerifiedSync(String json) {
+        // Stale/unowned JS must not be able to upload under a new UID.
+        pushNativeStatus("cloud-pending");
+    }
+    @JavascriptInterface
+    public void requestVerifiedSyncOwned(String json, String session) {
         final String owner = uid;
-        if (owner == null || !SnapshotAdmission.valid(json)
-                || !json.equals(prefs.getString(SNAPSHOT, ""))) {
+        final long epoch = accountEpoch;
+        if (owner == null || !validSession(session) || !activeIdentity(owner, epoch)
+                || !SnapshotAdmission.valid(json)
+                || !json.equals(prefs.getString(scopedKey(owner), ""))) {
             pushNativeStatus("cloud-pending"); return;
         }
         final String expected;
         synchronized (writeLock) {
-            if (writeInProgress || !owner.equals(remoteOwnerUid)
-                    || (!remoteMissingVerified && observedRemoteToken == null)) {
+            if (!activeIdentity(owner,epoch)||!validSession(session)||writeInProgress
+                    ||!owner.equals(remoteOwnerUid)
+                    ||(!remoteMissingVerified && observedRemoteToken==null)) {
                 pushNativeStatus("cloud-pending"); return;
             }
-            expected = remoteMissingVerified ? "absent" : observedRemoteToken;
-            writeInProgress = true;
+            expected=remoteMissingVerified?"absent":observedRemoteToken;
+            writeInProgress=true;
         }
         final long revision;
         try { revision = new JSONObject(json).getLong("updatedAt"); }
@@ -156,7 +234,9 @@ public class MiaadBridge {
             pushNativeStatus("cloud-pending"); return;
         }
         firestore.runTransaction(tx -> {
+            if (!activeIdentity(owner,epoch)) throw new IllegalStateException("Firebase account changed before transaction");
             DocumentSnapshot current = tx.get(main);
+            if (!activeIdentity(owner,epoch)) throw new IllegalStateException("Firebase account changed during transaction");
             if (!expected.equals(remoteToken(current)))
                 throw new com.google.firebase.firestore.FirebaseFirestoreException(
                         "Academic snapshot changed remotely; refusing overwrite",
@@ -177,6 +257,7 @@ public class MiaadBridge {
                 state.put("chunkCount", parts);
                 state.put("platform", "android");
             }
+            if (!activeIdentity(owner,epoch)) throw new IllegalStateException("Firebase account changed before transaction write");
             tx.set(main, state);
             // This token describes exactly the published main document,
             // excluding the serverUpdatedAt presentation metadata.
@@ -185,15 +266,15 @@ public class MiaadBridge {
         }).addOnSuccessListener(token -> {
             synchronized (writeLock) {
                 writeInProgress = false;
-                if (owner.equals(uid)) {
+                if (activeIdentity(owner,epoch)) {
                     observedRemoteToken = token;
                     remoteMissingVerified = false;
                 }
             }
-            if (owner.equals(uid)) pushNativeStatus("synced");
+            if (activeIdentity(owner,epoch)) pushNativeStatus("synced");
         }).addOnFailureListener(error -> {
             synchronized (writeLock) { writeInProgress = false; }
-            if (owner.equals(uid)) pushNativeStatus("cloud-pending");
+            if (activeIdentity(owner,epoch)) pushNativeStatus("cloud-pending");
         });
     }
 
@@ -208,69 +289,91 @@ public class MiaadBridge {
     }
 
     void pullCloudToWeb() {
-        String currentUid = uid;
-        if (!pageReady || currentUid == null) return;
-
-        firestore.collection("users")
-                .document(currentUid)
-                .collection("state")
-                .document("main")
-                .get()
-                .addOnSuccessListener(this::deliverCloudDocument)
-                .addOnFailureListener(e -> pushNativeStatus("cloud-pending"));
+        final String owner = uid;
+        final long epoch=accountEpoch;
+        if (!pageReady || owner == null || !activeIdentity(owner,epoch)) return;
+        firestore.collection("users").document(owner).collection("state").document("main").get()
+                .addOnSuccessListener(doc -> {
+                    if (activeIdentity(owner,epoch)&&pageReady)
+                        deliverCloudDocument(doc,owner,epoch);
+                })
+                .addOnFailureListener(e -> {
+                    if (activeIdentity(owner,epoch))pushNativeStatus("cloud-pending");
+                });
     }
 
+    // Compatibility wrapper used only by controlled Java instrumentation.
     private void deliverCloudDocument(DocumentSnapshot doc) {
+        final String owner=uid;
+        final long epoch=accountEpoch;
+        deliverCloudDocument(doc,owner,epoch);
+    }
+
+    private void deliverCloudDocument(DocumentSnapshot doc,String owner,long epoch) {
+        if (!activeIdentity(owner,epoch))return;
         if (!doc.exists()) {
             synchronized (writeLock) {
-                remoteOwnerUid = uid; remoteMissingVerified = true;
-                observedRemoteToken = null; pendingRemotePayload = null; pendingRemoteToken = null;
+                if (!activeIdentity(owner,epoch))return;
+                remoteOwnerUid=owner;remoteMissingVerified=true;
+                observedRemoteToken=null;pendingRemotePayload=null;pendingRemoteToken=null;
             }
             pushNativeStatus("cloud-ready");
-            activity.runOnUiThread(() -> webView.evaluateJavascript(
-                    "window.__miaadCloudAbsent && window.__miaadCloudAbsent();", null));
+            final String session=webSessionToken;
+            activity.runOnUiThread(() -> {
+                if (activeIdentity(owner,epoch)&&session.equals(webSessionToken)&&pageReady)
+                    webView.evaluateJavascript("window.__miaadCloudAbsent && window.__miaadCloudAbsent("
+                            +JSONObject.quote(session)+");",null);
+            });
             return;
         }
         if (doc.contains("generation")) {
-            String generation = doc.getString("generation");
-            Long countValue = doc.getLong("chunkCount");
-            int count = countValue == null ? 0 : countValue.intValue();
-            if (count < 1 || count > 450) { pushNativeStatus("cloud-pending"); return; }
-            java.util.List<com.google.android.gms.tasks.Task<DocumentSnapshot>> tasks = new java.util.ArrayList<>();
-            for (int i = 0; i < count; i++) tasks.add(doc.getReference().collection("snapshots")
-                    .document(generation + "-" + i).get());
+            final String generation=doc.getString("generation");
+            final Long countValue=doc.getLong("chunkCount");
+            final int count=countValue==null?0:countValue.intValue();
+            if (generation==null||count<1||count>450){pushNativeStatus("cloud-pending");return;}
+            java.util.List<com.google.android.gms.tasks.Task<DocumentSnapshot>> tasks=new java.util.ArrayList<>();
+            for(int i=0;i<count;i++)tasks.add(doc.getReference().collection("snapshots")
+                    .document(generation+"-"+i).get());
             com.google.android.gms.tasks.Tasks.whenAllSuccess(tasks).addOnSuccessListener(results -> {
-                StringBuilder payload = new StringBuilder();
-                for (Object result : results) {
-                    String part = ((DocumentSnapshot) result).getString("payload");
-                    if (part == null) { pushNativeStatus("cloud-pending"); return; }
+                if (!activeIdentity(owner,epoch))return;
+                StringBuilder payload=new StringBuilder();
+                for(Object result:results) {
+                    String part=((DocumentSnapshot)result).getString("payload");
+                    if(part==null){pushNativeStatus("cloud-pending");return;}
                     payload.append(part);
                 }
-                deliverPayload(payload.toString(), doc);
-            }).addOnFailureListener(e -> pushNativeStatus("cloud-pending"));
-        } else {
-            deliverPayload(doc.getString("payload"), doc);
-        }
+                deliverPayload(payload.toString(),doc,owner,epoch);
+            }).addOnFailureListener(e -> {
+                if(activeIdentity(owner,epoch))pushNativeStatus("cloud-pending");
+            });
+        } else deliverPayload(doc.getString("payload"),doc,owner,epoch);
     }
 
-    private void deliverPayload(String payload, DocumentSnapshot doc) {
-        if (payload == null || payload.isEmpty()) return;
+    private void deliverPayload(String payload,DocumentSnapshot doc,String owner,long epoch) {
+        if (payload==null||payload.isEmpty()||!activeIdentity(owner,epoch))return;
+        final String session=webSessionToken;
         synchronized (writeLock) {
-            remoteOwnerUid = uid;
-            remoteMissingVerified = false;
-            observedRemoteToken = null;
-            pendingRemotePayload = payload;
-            pendingRemoteToken = remoteToken(doc);
+            if (!activeIdentity(owner,epoch)||!session.equals(webSessionToken))return;
+            remoteOwnerUid=owner;remoteMissingVerified=false;
+            observedRemoteToken=null;pendingRemotePayload=payload;pendingRemoteToken=remoteToken(doc);
         }
-        activity.runOnUiThread(() -> webView.evaluateJavascript(
-                "window.__miaadReceiveCloud && window.__miaadReceiveCloud(" + JSONObject.quote(payload) + ");", null));
+        activity.runOnUiThread(() -> {
+            if (!activeIdentity(owner,epoch)||!session.equals(webSessionToken)||!pageReady)return;
+            webView.evaluateJavascript("window.__miaadReceiveCloud && window.__miaadReceiveCloud("
+                    +JSONObject.quote(payload)+","+JSONObject.quote(session)+");",null);
+        });
     }
 
     void pushNativeStatus(String status) {
-        if (!pageReady) return;
-        activity.runOnUiThread(() -> webView.evaluateJavascript(
-                "window.__miaadNativeStatus && window.__miaadNativeStatus(" + JSONObject.quote(status) + ");",
-                null));
+        if (!pageReady)return;
+        final String owner=uid,session=webSessionToken;
+        final long epoch=accountEpoch;
+        activity.runOnUiThread(() -> {
+            if(!pageReady||!java.util.Objects.equals(owner,uid)||epoch!=accountEpoch||
+               !session.equals(webSessionToken))return;
+            webView.evaluateJavascript("window.__miaadNativeStatus && window.__miaadNativeStatus("
+                    +JSONObject.quote(status)+","+JSONObject.quote(session)+");",null);
+        });
     }
 
     @JavascriptInterface

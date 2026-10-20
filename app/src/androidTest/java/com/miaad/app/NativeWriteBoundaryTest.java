@@ -123,7 +123,9 @@ public class NativeWriteBoundaryTest {
         deliver(bridge,read(main));
         SystemClock.sleep(400);
         absent(main);
+        assertEquals("",bridge.loadSnapshotOwned(bridge.sessionToken()));
         assertFalse(SnapshotAdmission.valid(prefs.getString("snapshot","")));
+        assertTrue(bridge.hasUnownedSnapshot());
     }
     @Test public void localSaveDoesNotUploadAndInvalidSavePreservesBytes() throws Exception {
         String user=uniqueId("local-only");
@@ -131,12 +133,12 @@ public class NativeWriteBoundaryTest {
         String good=snapshot(System.currentTimeMillis());
         prefs.edit().putString("snapshot",good).commit();
         bridge.setUid(user);
-        bridge.saveSnapshot("{broken");
-        assertEquals(good,prefs.getString("snapshot",""));
+        bridge.saveSnapshotOwned("{broken",bridge.sessionToken());
+        assertEquals(good,bridge.loadSnapshotOwned(bridge.sessionToken()));
         absent(main);
         String replacement=snapshot(System.currentTimeMillis()+100);
-        bridge.saveSnapshot(replacement);
-        assertEquals(replacement,prefs.getString("snapshot",""));
+        bridge.saveSnapshotOwned(replacement,bridge.sessionToken());
+        assertEquals(replacement,bridge.loadSnapshotOwned(bridge.sessionToken()));
         absent(main); // saveSnapshot is always local-only, even authenticated.
         assertFalse(SnapshotAdmission.valid(invalidTarget()));
         assertTrue(SnapshotAdmission.valid(replacement));
@@ -146,13 +148,13 @@ public class NativeWriteBoundaryTest {
         DocumentReference main=doc(user);
         String good=snapshot(System.currentTimeMillis());
         bridge.setUid(user);
-        bridge.saveSnapshot(good);
-        bridge.requestVerifiedSync(good); // No remote observation => no write.
+        bridge.saveSnapshotOwned(good,bridge.sessionToken());
+        bridge.requestVerifiedSyncOwned(good,bridge.sessionToken()); // No remote observation => no write.
         SystemClock.sleep(200);
         absent(main);
         bridge.setPageReady(true);
         deliver(bridge,read(main)); // Real Android DocumentSnapshot from emulator.
-        bridge.requestVerifiedSync(good);
+        bridge.requestVerifiedSyncOwned(good,bridge.sessionToken());
         until("authorized first write",()->read(main).exists());
         assertEquals(good,read(main).getString("payload"));
     }
@@ -164,17 +166,17 @@ public class NativeWriteBoundaryTest {
         record.put("payload",old);record.put("updatedAt",100L);
         Tasks.await(main.set(record),20,TimeUnit.SECONDS);
         String candidate=snapshot(200);
-        bridge.setUid(user);bridge.saveSnapshot(candidate);
-        bridge.requestVerifiedSync(candidate); // no acknowledged remote baseline
+        bridge.setUid(user);bridge.saveSnapshotOwned(candidate,bridge.sessionToken());
+        bridge.requestVerifiedSyncOwned(candidate,bridge.sessionToken()); // no acknowledged remote baseline
         SystemClock.sleep(200);
         assertEquals(old,read(main).getString("payload"));
         DocumentSnapshot observed=read(main);deliver(bridge,observed);
-        bridge.confirmCloudSnapshot(old); // Exact delivered payload is required.
+        bridge.confirmCloudSnapshotOwned(old,bridge.sessionToken()); // Exact delivered payload is required.
         // Simulate another client changing the cloud after observation.
         Map<String,Object> external=new HashMap<>();
         external.put("payload",snapshot(150));external.put("updatedAt",150L);
         Tasks.await(main.set(external),20,TimeUnit.SECONDS);
-        bridge.requestVerifiedSync(candidate); // Transaction must abort.
+        bridge.requestVerifiedSyncOwned(candidate,bridge.sessionToken()); // Transaction must abort.
         SystemClock.sleep(600);
         assertEquals(external.get("payload"),read(main).getString("payload"));
     }
@@ -188,12 +190,100 @@ public class NativeWriteBoundaryTest {
         String large=payload.toString();
         assertTrue(large.length()>700000);
         assertTrue(SnapshotAdmission.valid(large));
-        bridge.setUid(user);bridge.saveSnapshot(large);bridge.setPageReady(true);
+        bridge.setUid(user);bridge.saveSnapshotOwned(large,bridge.sessionToken());bridge.setPageReady(true);
         deliver(bridge,read(main));
-        bridge.requestVerifiedSync(large);
+        bridge.requestVerifiedSyncOwned(large,bridge.sessionToken());
         until("chunked first sync",()->read(main).contains("generation"));
         DocumentSnapshot written=read(main);
         assertTrue(written.getLong("chunkCount")>=2);
         assertNull(written.getString("payload"));
     }
+    @Test public void ownerAIsNeverSilentlyUploadedAsBOnMissingCloud() throws Exception {
+        String A=uniqueId("ownerA"),B=uniqueId("ownerB");
+        String ownA=snapshot(345);
+        bridge.setUid(A);
+        assertTrue(bridge.saveSnapshotOwned(ownA,bridge.sessionToken()));
+        bridge.setUid(B);
+        assertEquals("",bridge.loadSnapshotOwned(bridge.sessionToken()));
+        bridge.setPageReady(true);
+        deliver(bridge,read(doc(B)));
+        bridge.requestVerifiedSyncOwned(ownA,bridge.sessionToken());
+        SystemClock.sleep(350);
+        absent(doc(B));
+        bridge.setUid(A);
+        assertEquals(ownA,bridge.loadSnapshotOwned(bridge.sessionToken()));
+    }
+    @Test public void delayedCloudResponseFromOldEpochCannotAuthorizeNewUid() throws Exception {
+        String A=uniqueId("stale-A"),B=uniqueId("stale-B");
+        String ownA=snapshot(100);
+        Map<String,Object> fields=new HashMap<>();
+        fields.put("payload",ownA);fields.put("updatedAt",100L);
+        Tasks.await(doc(A).set(fields),20,TimeUnit.SECONDS);
+        bridge.setUid(A);
+        java.lang.reflect.Field field=MiaadBridge.class.getDeclaredField("accountEpoch");
+        field.setAccessible(true);
+        long epoch=field.getLong(bridge);
+        DocumentSnapshot oldReply=read(doc(A));
+        bridge.setUid(B);
+        String activeToken=bridge.sessionToken();
+        assertTrue(bridge.saveSnapshotOwned(snapshot(200),activeToken));
+        Method delayed=MiaadBridge.class.getDeclaredMethod(
+             "deliverCloudDocument",DocumentSnapshot.class,String.class,long.class);
+        delayed.setAccessible(true);
+        delayed.invoke(bridge,oldReply,A,epoch);
+        bridge.requestVerifiedSyncOwned(snapshot(200),activeToken);
+        SystemClock.sleep(200);
+        absent(doc(B));
+        assertEquals("",bridge.loadSnapshotOwned("old-A-token"));
+    }
+    @Test public void accountRoundtripPersistsSeparatedOriginalBytes() throws Exception {
+        String A=uniqueId("round-A"),B=uniqueId("round-B");
+        String sA=snapshot(301),sB=snapshot(302);
+        bridge.setUid(A);
+        assertTrue(bridge.saveSnapshotOwned(sA,bridge.sessionToken()));
+        bridge.setUid(B);
+        assertTrue(bridge.saveSnapshotOwned(sB,bridge.sessionToken()));
+        assertEquals(sB,bridge.loadSnapshotOwned(bridge.sessionToken()));
+        bridge.setUid(A);
+        assertEquals(sA,bridge.loadSnapshotOwned(bridge.sessionToken()));
+        bridge.setUid(B);
+        assertEquals(sB,bridge.loadSnapshotOwned(bridge.sessionToken()));
+    }
+    @Test public void unownedHistoricalNativeBytesAreNeverBoundToCurrentUid() throws Exception {
+        String B=uniqueId("unowned-B");
+        String raw=snapshot(200);
+        prefs.edit().putString("snapshot",raw).commit();
+        bridge.setUid(B);
+        assertTrue(bridge.hasUnownedSnapshot());
+        assertEquals("",bridge.loadSnapshotOwned(bridge.sessionToken()));
+        bridge.requestVerifiedSyncOwned(raw,bridge.sessionToken());
+        SystemClock.sleep(200);
+        absent(doc(B));
+        assertEquals(raw,prefs.getString("snapshot",""));
+    }
+    @Test public void restoredBridgeKeepsOwnerBindingAcrossProcessLikeRestart() throws Exception {
+        String A=uniqueId("process-A"),B=uniqueId("process-B");
+        String ownA=snapshot(501);
+        bridge.setUid(A);assertTrue(bridge.saveSnapshotOwned(ownA,bridge.sessionToken()));
+        AtomicReference<MiaadBridge> restored=new AtomicReference<>();
+        scenario.onActivity(activity->restored.set(new MiaadBridge(activity,new WebView(activity))));
+        assertNotNull(restored.get());
+        restored.get().setUid(B);
+        assertEquals("",restored.get().loadSnapshotOwned(restored.get().sessionToken()));
+        restored.get().setUid(A);
+        assertEquals(ownA,restored.get().loadSnapshotOwned(restored.get().sessionToken()));
+    }
+    @Test public void sessionTransitionRevokesOldWriteAuthorization() throws Exception {
+        String A=uniqueId("oldtoken-A"),B=uniqueId("oldtoken-B");
+        bridge.setUid(A);
+        String tokenA=bridge.sessionToken(),ownA=snapshot(601);
+        assertTrue(bridge.saveSnapshotOwned(ownA,tokenA));
+        bridge.setUid(B);
+        assertFalse(bridge.saveSnapshotOwned(ownA,tokenA));
+        bridge.requestVerifiedSyncOwned(ownA,tokenA);
+        absent(doc(B));
+        bridge.setUid(A);
+        assertEquals(ownA,bridge.loadSnapshotOwned(bridge.sessionToken()));
+    }
+
 }

@@ -59,12 +59,42 @@ const BASE=[
 
 const STORAGE={lessons:'miadLessonsV2',state:'miadSessionStateV2',notes:'miadSessionNotesV2',audit:'miadSessionAuditV2',phase:'miadIdrisPhaseV2',updated:'miadUpdatedAtV1'};
 const memoryStore=Object.create(null);
-const store={get(key){try{return window.localStorage.getItem(key)}catch{return Object.prototype.hasOwnProperty.call(memoryStore,key)?memoryStore[key]:null}},set(key,value){try{window.localStorage.setItem(key,String(value));return true}catch{memoryStore[key]=String(value);return false}}};
-function loadJSON(key,fallback){try{return JSON.parse(store.get(key)||'null')??fallback}catch{return fallback}}
 const NATIVE=typeof window.AndroidBridge!=='undefined'?window.AndroidBridge:null;
+const ownershipEnabled=!!NATIVE&&typeof NATIVE.storageScope==='function'&&
+ typeof NATIVE.sessionToken==='function'&&!!NATIVE.sessionToken();
+const ownerSession=ownershipEnabled?NATIVE.sessionToken():'';
+const ownerPrefix=ownershipEnabled?NATIVE.storageScope(ownerSession):'';
+const ownerSessionValid=()=>!ownershipEnabled||(!!ownerSession&&!!ownerPrefix&&NATIVE.sessionToken()===ownerSession);
+const unownedOldData=ownershipEnabled&&(
+ !!(typeof NATIVE.hasUnownedSnapshot==='function'&&NATIVE.hasUnownedSnapshot())||
+ ['miaadDomainV4','miadLessonsV2','miadSessionStateV2','miadSessionNotesV2','miadSessionAuditV2','miadIdrisPhaseV2',
+  'miadLessonsV1','miadSessionStateV1','miadSessionNotesV1','miadIdrisPhaseV1']
+ .some(key=>{try{return window.localStorage.getItem(key)!==null}catch{return false}})
+);
+const store={
+ get(key){const k=ownerPrefix+key;try{return window.localStorage.getItem(k)}catch{return Object.prototype.hasOwnProperty.call(memoryStore,k)?memoryStore[k]:null}},
+ set(key,value){if(!ownerSessionValid())return false;const k=ownerPrefix+key;try{window.localStorage.setItem(k,String(value));return true}catch{memoryStore[k]=String(value);return false}}
+};
+function loadJSON(key,fallback){try{return JSON.parse(store.get(key)||'null')??fallback}catch{return fallback}}
+function ownerSave(payload){
+ if(!NATIVE||!ownerSessionValid())return false;
+ if(ownershipEnabled)return typeof NATIVE.saveSnapshotOwned==='function'&&NATIVE.saveSnapshotOwned(payload,ownerSession)===true;
+ if(typeof NATIVE.saveSnapshot==='function'){NATIVE.saveSnapshot(payload);return true}
+ return false
+}
+function ownerSync(payload){
+ if(!NATIVE||!ownerSessionValid())return;
+ if(ownershipEnabled){if(typeof NATIVE.requestVerifiedSyncOwned==='function')NATIVE.requestVerifiedSyncOwned(payload,ownerSession)}
+ else if(typeof NATIVE.requestVerifiedSync==='function')NATIVE.requestVerifiedSync(payload)
+}
+function ownerConfirm(raw){
+ if(!NATIVE||!ownerSessionValid())return;
+ if(ownershipEnabled){if(typeof NATIVE.confirmCloudSnapshotOwned==='function')NATIVE.confirmCloudSnapshotOwned(raw,ownerSession)}
+ else if(typeof NATIVE.confirmCloudSnapshot==='function')NATIVE.confirmCloudSnapshot(raw)
+}
 let nativeSnapshotParseFailed=false;
 function nativeSeed(){if(!NATIVE||typeof NATIVE.loadSnapshot!=='function')return null;
- try{const raw=NATIVE.loadSnapshot();if(!raw)return null;const parsed=JSON.parse(raw);
+ try{const raw=ownershipEnabled?(ownerSessionValid()?NATIVE.loadSnapshotOwned(ownerSession):''):NATIVE.loadSnapshot();if(!raw)return null;const parsed=JSON.parse(raw);
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))nativeSnapshotParseFailed=true;
   return parsed
  }catch{nativeSnapshotParseFailed=true;return null}
@@ -91,7 +121,7 @@ const viewScroll={today:0,week:0,students:0,report:0,settings:0};
 
 function snapshotData(){return{schemaVersion:4,updatedAt:lastUpdatedAt,lessons,sessionState,sessionNotes,sessionAudit,idrisPhase,domain:domain.data}}
 function saveLocalState(){
- if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return false;
+ if(!ownerSessionValid()||(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked))return false;
  // Never discard evidence of a rejected Modern/Legacy source when a verified
  // alternate is deliberately chosen. Backups are write-once and byte-exact.
  if(typeof localInitialState!=='undefined'&&
@@ -110,11 +140,11 @@ function saveLocalState(){
    }
  }
  store.set("miaadDomainV4",JSON.stringify(domain.data));store.set(STORAGE.lessons,JSON.stringify(lessons));store.set(STORAGE.state,JSON.stringify(sessionState));store.set(STORAGE.notes,JSON.stringify(sessionNotes));store.set(STORAGE.audit,JSON.stringify(sessionAudit));store.set(STORAGE.phase,String(idrisPhase));store.set(STORAGE.updated,String(lastUpdatedAt))}
-function persist(){if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return false;
+function persist(){if(!ownerSessionValid()||(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked))return false;
  domain.notifications();lastUpdatedAt=Math.max(Date.now(),lastUpdatedAt+1);if(saveLocalState()===false)return false;
- if(NATIVE&&typeof NATIVE.saveSnapshot==='function'){
-  try{const payload=JSON.stringify(snapshotData());NATIVE.saveSnapshot(payload);
-   if(typeof NATIVE.requestVerifiedSync==='function'&&classifyCloudDomainPayload(JSON.parse(payload))==='modern')NATIVE.requestVerifiedSync(payload)
+ if(NATIVE){
+  try{const payload=JSON.stringify(snapshotData());
+   if(classifyCloudDomainPayload(JSON.parse(payload))==='modern'&&ownerSave(payload))ownerSync(payload)
   }catch{}
  }
  syncNativeReminders()}
@@ -249,7 +279,8 @@ function classifyCloudDomainPayload(data){
  if(!validCloudSettings(value.settings)||value.activity.some(entry=>!isDomainMap(entry)))return'invalid';
  return'modern'
 }
-window.__miaadReceiveCloud=function(raw){
+window.__miaadReceiveCloud=function(raw,session){
+ if(!ownerSessionValid()||(ownershipEnabled&&session!==ownerSession))return;
  try{
   const data=JSON.parse(raw),incoming=Number(data?.updatedAt),classification=classifyCloudDomainPayload(data);
   if((typeof selectedInitialSource!=='undefined'&&['conflict','recovery-corrupt-legacy'].includes(selectedInitialSource))||
@@ -271,28 +302,27 @@ window.__miaadReceiveCloud=function(raw){
   // The admitted Cloud state is now authoritative locally. Mirror the exact
   // accepted modern state into Native local storage so the next restart cannot
   // misclassify a stale Native/Local pair as a genuine academic conflict.
-  if(typeof NATIVE!=='undefined'&&NATIVE&&typeof NATIVE.saveSnapshot==='function'){
-   try{
-    const accepted=JSON.stringify(snapshotData());
-    if(classifyCloudDomainPayload(JSON.parse(accepted))==='modern')NATIVE.saveSnapshot(accepted)
-   }catch{}
+  if(NATIVE){
+   try{const accepted=JSON.stringify(snapshotData());
+    if(classifyCloudDomainPayload(JSON.parse(accepted))!=='modern'||!ownerSave(accepted))return
+   }catch{return}
   }
   nativeSyncState='synced';
-  if(typeof NATIVE!=='undefined'&&NATIVE&&typeof NATIVE.confirmCloudSnapshot==='function')try{NATIVE.confirmCloudSnapshot(raw)}catch{}
+  ownerConfirm(raw);
   if(typeof renderAll==='function')renderAll();
   if(typeof showToast==='function')showToast('تمت مزامنة بيانات مِيعاد')
  }catch{}
 };
-window.__miaadCloudAbsent=function(){
+window.__miaadCloudAbsent=function(session){
+ if(!ownerSessionValid()||(ownershipEnabled&&session!==ownerSession))return;
  if(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)return;
- if(!NATIVE||typeof NATIVE.requestVerifiedSync!=='function')return;
- try{
-  const payload=JSON.stringify(snapshotData());
+ if(!NATIVE)return;
+ try{const payload=JSON.stringify(snapshotData());
   if(classifyCloudDomainPayload(JSON.parse(payload))!=='modern')return;
-  NATIVE.saveSnapshot(payload);NATIVE.requestVerifiedSync(payload)
+  if(ownerSave(payload))ownerSync(payload)
  }catch{}
 };
-window.__miaadNativeStatus=function(status){nativeSyncState=(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)?'recovery-required':status||'local-only';if(typeof selectedInitialSource!=='undefined'&&selectedInitialSource==='conflict')nativeSyncState='conflict-required';const el=document.getElementById('syncStatus');if(el){const labels={connecting:'جارٍ الاتصال…','cloud-ready':'Firebase جاهز',synced:'متزامن الآن','cloud-pending':'محفوظ محليًا · المزامنة معلقة','local-only':'محلي فقط',browser:'نسخة ويب','reminder-error':'مشكلة في جدولة التنبيه','recovery-required':'استعادة البيانات مطلوبة · لن تُحفظ التعديلات','conflict-required':'نسختان مختلفتان · الحفظ والمزامنة معلقان'};el.textContent=labels[nativeSyncState]||nativeSyncState}if(typeof renderHeader==='function')renderHeader()};
+window.__miaadNativeStatus=function(status,session){if(!ownerSessionValid()||(ownershipEnabled&&session!==ownerSession))return;nativeSyncState=(typeof startupRecoveryBlocked!=='undefined'&&startupRecoveryBlocked)?'recovery-required':status||'local-only';if(typeof selectedInitialSource!=='undefined'&&selectedInitialSource==='conflict')nativeSyncState='conflict-required';const el=document.getElementById('syncStatus');if(el){const labels={connecting:'جارٍ الاتصال…','cloud-ready':'Firebase جاهز',synced:'متزامن الآن','cloud-pending':'محفوظ محليًا · المزامنة معلقة','local-only':'محلي فقط',browser:'نسخة ويب','reminder-error':'مشكلة في جدولة التنبيه','recovery-required':'استعادة البيانات مطلوبة · لن تُحفظ التعديلات','conflict-required':'نسختان مختلفتان · الحفظ والمزامنة معلقان'};el.textContent=labels[nativeSyncState]||nativeSyncState}if(typeof renderHeader==='function')renderHeader()};
 function startOfDay(d){const x=new Date(d);x.setHours(0,0,0,0);return x}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x}
 function getSunday(d){const x=startOfDay(d);x.setDate(x.getDate()-x.getDay());return x}

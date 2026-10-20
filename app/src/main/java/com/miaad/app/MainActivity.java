@@ -42,6 +42,10 @@ public class MainActivity extends Activity {
     private View splashOverlay;
     private boolean splashHidden = false;
     private long splashStartedAt;
+    private FirebaseAuth firebaseAuth;
+    private FirebaseAuth.AuthStateListener authObserver;
+    private String loadedFirebaseUid;
+    private boolean authAttemptPending;
 
     @Override
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
@@ -110,6 +114,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                if (url == null || !url.startsWith("file:///android_asset/index.html")) return;
                 android.util.Log.i("MiaadStartup", "page-finished");
                 bridge.setPageReady(true);
                 openNotificationIntent(getIntent());
@@ -172,7 +177,6 @@ public class MainActivity extends Activity {
         }
 
         authenticateForCloudSync();
-        webView.loadUrl("file:///android_asset/index.html");
     }
 
     private void handleBackNavigation() {
@@ -271,30 +275,54 @@ public class MainActivity extends Activity {
                 .start();
     }
 
-    private void authenticateForCloudSync() {
-        // Debug-only isolated verification never calls production Auth or Cloud.
-        // Release builds cannot enable this flag.
-        if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-                && getIntent().getBooleanExtra("miaad_isolated_no_firebase", false)) {
-            bridge.setUid(null);
-            return;
-        }
-        FirebaseAuth auth = FirebaseAuth.getInstance();
-        FirebaseUser user = auth.getCurrentUser();
-        if (user != null) {
-            bridge.setUid(user.getUid());
-            bridge.pullCloudToWeb();
-            return;
-        }
+    boolean isIsolatedFirebaseTestMode() {
+        return (getApplicationInfo().flags &
+            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+            getIntent().getBooleanExtra("miaad_isolated_no_firebase", false);
+    }
 
-        auth.signInAnonymously().addOnCompleteListener(this, task -> {
-            if (task.isSuccessful() && auth.getCurrentUser() != null) {
-                bridge.setUid(auth.getCurrentUser().getUid());
-                bridge.pullCloudToWeb();
-            } else {
-                bridge.pushNativeStatus("local-only");
+    private void authenticateForCloudSync() {
+        if (isIsolatedFirebaseTestMode()) {
+            bridge.setUid(null);
+            webView.loadUrl("file:///android_asset/index.html");
+            return;
+        }
+        firebaseAuth=FirebaseAuth.getInstance();
+        authObserver=auth -> {
+            FirebaseUser current=auth.getCurrentUser();
+            if (current != null) {
+                authAttemptPending=false;
+                final String now=current.getUid();
+                if (!java.util.Objects.equals(loadedFirebaseUid,now)) {
+                    // Stop rendering or saving the previous owner's DOM before
+                    // a new owner's WebView is initialized.
+                    bridge.setUid(now);
+                    bridge.setPageReady(false);
+                    loadedFirebaseUid=now;
+                    webView.stopLoading();
+                    webView.loadUrl("about:blank");
+                    webView.loadUrl("file:///android_asset/index.html");
+                }
+                return;
             }
-        });
+            if (loadedFirebaseUid != null) {
+                loadedFirebaseUid=null;
+                bridge.setUid(null);
+                bridge.setPageReady(false);
+                webView.stopLoading();
+                webView.loadUrl("about:blank");
+            }
+            if (authAttemptPending) return;
+            authAttemptPending=true;
+            auth.signInAnonymously().addOnCompleteListener(this, task -> {
+                authAttemptPending=false;
+                if (!task.isSuccessful()) {
+                    bridge.pushNativeStatus("cloud-pending");
+                    android.util.Log.w("MiaadAuth","Sign-in unavailable; withholding owned academic view.");
+                }
+            });
+        };
+        firebaseAuth.addAuthStateListener(authObserver);
     }
 
     public void requestNotificationPermissionIfNeeded() {
@@ -329,6 +357,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (firebaseAuth != null && authObserver != null)
+            firebaseAuth.removeAuthStateListener(authObserver);
         if (webView != null) {
             webView.removeJavascriptInterface("AndroidBridge");
             webView.destroy();
