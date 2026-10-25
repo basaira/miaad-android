@@ -42,6 +42,7 @@ jobs:
           app/src/main/java/com/miaad/app/ReminderScheduler.java
           app/src/main/java/com/miaad/app/RestoreRemindersReceiver.java
           scripts/test-cloud-hydration.cjs
+          scripts/test-firestore-rules.py
           scripts/test-occurrence-authority.cjs
           scripts/test-timezone-dst-contract.cjs
           scripts/test-uid-ownership.cjs
