@@ -33,6 +33,7 @@ import org.junit.runner.RunWith;
 import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -86,7 +87,17 @@ public class NativeWriteBoundaryTest {
         return db.collection("users").document(id).collection("state").document("main");
     }
     private static DocumentSnapshot read(DocumentReference ref) throws Exception {
-        return Tasks.await(ref.get(),20,TimeUnit.SECONDS);
+        long started = SystemClock.elapsedRealtime();
+        Task<DocumentSnapshot> task = ref.get();
+        try {
+            return Tasks.await(task,20,TimeUnit.SECONDS);
+        } catch (Exception failure) {
+            Log.e("MiaadAuthProbe", "firestore.read.failed.type="
+                    + failure.getClass().getSimpleName()
+                    + " task.complete=" + task.isComplete()
+                    + " elapsed.ms=" + (SystemClock.elapsedRealtime()-started));
+            throw failure;
+        }
     }
     private static void absent(DocumentReference ref) throws Exception { assertFalse(read(ref).exists()); }
     private static void deliver(MiaadBridge bridge,DocumentSnapshot snapshot) throws Exception {
@@ -419,6 +430,28 @@ public class NativeWriteBoundaryTest {
             throw e;
         } finally {
             connection.disconnect();
+        }
+        // Guest-side sign-up POST separates Auth Emulator request transport from
+        // FirebaseAuth SDK task failures; do not log tokens or the resulting UID.
+        HttpURLConnection signup = (HttpURLConnection)
+                new URL("http://10.0.2.2:9099/identitytoolkit.googleapis.com/v1/accounts:signUp"
+                        + "?key=demo-emulator-only-not-a-production-key").openConnection();
+        signup.setConnectTimeout(5000);
+        signup.setReadTimeout(5000);
+        signup.setRequestMethod("POST");
+        signup.setDoOutput(true);
+        signup.setRequestProperty("Content-Type", "application/json");
+        long postStarted = SystemClock.elapsedRealtime();
+        try {
+            byte[] body = new JSONObject().put("returnSecureToken", true)
+                    .toString().getBytes(StandardCharsets.UTF_8);
+            signup.getOutputStream().write(body);
+            int result = signup.getResponseCode();
+            Log.i(AUTH_DIAG, "guest.auth.signup.status=" + result
+                    + " elapsed.ms=" + (SystemClock.elapsedRealtime() - postStarted));
+            assertEquals("Guest-to-host Auth Emulator sign-up request failed", 200, result);
+        } finally {
+            signup.disconnect();
         }
     }
     private static FirebaseUser emulatorSignIn(FirebaseAuth auth, String stage) throws Exception {

@@ -206,6 +206,36 @@ jobs:
           set -euo pipefail
           apk=runtime/app/build/outputs/apk/debug/app-debug.apk
           expected="$(cut -d' ' -f1 runtime/audit/cloud-repair-apk-sha256.txt)"
+          # Preserve all AndroidRuntime diagnostics. Do not misattribute system
+          # service crashes to MIAAD; reject every app-owned or unknown fatality.
+          check_app_crashes() {
+            python3 - "$1" <<'PY'
+import sys
+from pathlib import Path
+lines = Path(sys.argv[1]).read_text(errors="replace").splitlines()
+blocking, external = [], []
+for index, line in enumerate(lines):
+    if "AndroidRuntime: FATAL EXCEPTION" not in line and not (
+            "AndroidRuntime:" in line and " FATAL " in line):
+        continue
+    owner = None
+    for candidate in lines[index+1:index+7]:
+        if "AndroidRuntime: Process:" in candidate:
+            owner = candidate.split("AndroidRuntime: Process:", 1)[1].split(",", 1)[0].strip()
+            break
+        if "AndroidRuntime: FATAL EXCEPTION" in candidate:
+            break
+    if not owner or owner == "com.miaad.app" or owner.startswith("com.miaad.app:"):
+        blocking.append((index + 1, owner or "UNATTRIBUTED"))
+    else:
+        external.append((index + 1, owner))
+for line_no, owner in external:
+    print(f"EXTERNAL Android fatal at log line {line_no}: {owner} (retained in evidence)")
+for line_no, owner in blocking:
+    print(f"BLOCKING Android fatal at log line {line_no}: {owner}", file=sys.stderr)
+sys.exit(1 if blocking else 0)
+PY
+          }
           adb wait-for-device
           adb install -r "$apk"
           if test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" -ge 33; then
@@ -220,7 +250,7 @@ jobs:
           grep -q 'MiaadStartup: page-finished' audit/runtime-log.txt
           grep -q 'MiaadStartup: first-frame-ready' audit/runtime-log.txt
           grep -q 'MiaadStartup: content-ready' audit/runtime-log.txt
-          if grep -Eq 'FATAL EXCEPTION|AndroidRuntime:.*FATAL' audit/runtime-log.txt; then exit 1; fi
+          check_app_crashes audit/runtime-log.txt
           initial_pid="$(adb shell pidof com.miaad.app | tr -d '\r')"
           test -n "$initial_pid"
           installed="$(adb shell pm path com.miaad.app | tr -d '\r' | sed -n 's/^package://p' | head -1)"
@@ -245,7 +275,7 @@ jobs:
           test "$(grep -c 'MiaadStartup: page-finished' audit/restart-log.txt || :)" -gt "$before_page"
           test "$(grep -c 'MiaadStartup: first-frame-ready' audit/restart-log.txt || :)" -gt "$before_frame"
           test "$(grep -c 'MiaadStartup: content-ready' audit/restart-log.txt || :)" -gt "$before_content"
-          if grep -Eq 'FATAL EXCEPTION|AndroidRuntime:.*FATAL' audit/restart-log.txt; then exit 1; fi
+          check_app_crashes audit/restart-log.txt
           restarted_pid="$(adb shell pidof com.miaad.app | tr -d '\r')"
           test -n "$restarted_pid" && test "$restarted_pid" != "$initial_pid"
           printf 'API=%s\nAPK_SHA256=%s\nINSTALLED_SHA256=%s\nSTARTUP=PASS\nRESTART=PASS\n' "${{ matrix.api }}" "$expected" "$expected" > audit/installed-runtime.txt
