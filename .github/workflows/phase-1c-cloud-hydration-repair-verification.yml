@@ -361,14 +361,23 @@ jobs:
           adb install -r runtime-tests/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           adb logcat -G 4M || :
           adb logcat -c || :
+          # Execute true FirebaseAuth A-B-A first; if it fails, do not run the full suite.
           set -o pipefail
           set +e
-          timeout --signal=TERM --kill-after=20s 600s adb shell am instrument -w -r com.miaad.app.test/androidx.test.runner.AndroidJUnitRunner | tee audit/native-instrumentation.txt
+          timeout --signal=TERM --kill-after=20s 900s adb shell am instrument -w -r -e class com.miaad.app.NativeWriteBoundaryTest#realFirebaseAuthEmulatorAtoBPreventsCrossUidRemoteWrites com.miaad.app.test/androidx.test.runner.AndroidJUnitRunner | tee audit/native-auth-targeted.txt
+          targeted_result="${PIPESTATUS[0]}"
+          set -e
+          adb logcat -d -v threadtime -s MiaadAuthProbe:I AndroidRuntime:E FirebaseAuth:W FirebaseFirestore:W MiaadWeb:E MiaadStartup:I > audit/native-auth-targeted-logcat.txt || :
+          if test "$targeted_result" -ne 0; then echo "Real FirebaseAuth targeted test failed: ${targeted_result}" >&2; exit "$targeted_result"; fi
+          grep -Eq 'OK \(1 test\)' audit/native-auth-targeted.txt
+          if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|java.lang.AssertionError' audit/native-auth-targeted.txt; then exit 1; fi
+          set +e
+          timeout --signal=TERM --kill-after=20s 1200s adb shell am instrument -w -r com.miaad.app.test/androidx.test.runner.AndroidJUnitRunner | tee audit/native-instrumentation.txt
           result="${PIPESTATUS[0]}"
           set -e
           adb logcat -d -v threadtime -s MiaadAuthProbe:I AndroidRuntime:E FirebaseAuth:W FirebaseFirestore:W MiaadWeb:E MiaadStartup:I > audit/native-logcat.txt || :
           if test "$result" -ne 0; then echo "Native instrumentation exit=${result}" >&2; exit "$result"; fi
-          grep -Eq 'OK \([0-9]+ tests?\)' audit/native-instrumentation.txt
+          grep -Eq 'OK \(18 tests\)' audit/native-instrumentation.txt
           if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|java.lang.AssertionError' audit/native-instrumentation.txt; then exit 1; fi
           SH
       - name: Execute Android Java + Firestore emulator qualification

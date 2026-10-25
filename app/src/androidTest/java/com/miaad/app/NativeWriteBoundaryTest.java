@@ -525,34 +525,51 @@ public class NativeWriteBoundaryTest {
             signup.disconnect();
         }
     }
-    private static FirebaseUser emulatorSignIn(FirebaseAuth auth, String stage) throws Exception {
-        Task<AuthResult> operation = auth.signInAnonymously();
+    // Run 40176122279: genuine SDK Auth callback succeeded after 73.65 seconds;
+    // local emulator HTTP signup took 158 ms. Bound only the test, not app auth.
+    private static final long AUTH_EMULATOR_TASK_TIMEOUT_SECONDS = 120;
+    private static FirebaseUser awaitEmulatorAuth(FirebaseAuth auth, Task<AuthResult> operation,
+                                                  String stage, long started) throws Exception {
+        assertFalse("FirebaseAuth blocking wait must not run on Android main thread",
+                Looper.myLooper() == Looper.getMainLooper());
         AtomicBoolean callbackSeen = new AtomicBoolean(false);
-        long started = SystemClock.elapsedRealtime();
-        Log.i(AUTH_DIAG, "signin.start.stage=" + stage
+        Log.i(AUTH_DIAG, "auth.start.stage=" + stage
                 + " immediately-complete=" + operation.isComplete());
         operation.addOnCompleteListener(Runnable::run, task -> {
             callbackSeen.set(true);
             Exception error = task.getException();
-            Log.i(AUTH_DIAG, "signin.callback.stage=" + stage
+            Log.i(AUTH_DIAG, "auth.callback.stage=" + stage
                     + " success=" + task.isSuccessful()
                     + " error.type=" + (error == null ? "none" : error.getClass().getSimpleName())
                     + " elapsed.ms=" + (SystemClock.elapsedRealtime() - started));
         });
         try {
-            AuthResult result = Tasks.await(operation, 25, TimeUnit.SECONDS);
-            Log.i(AUTH_DIAG, "signin.await.success.stage=" + stage
+            AuthResult result = Tasks.await(operation, AUTH_EMULATOR_TASK_TIMEOUT_SECONDS,
+                    TimeUnit.SECONDS);
+            assertTrue("FirebaseAuth task failed: " + stage, operation.isSuccessful());
+            assertNotNull("FirebaseAuth result missing: " + stage, result);
+            FirebaseUser user = result.getUser();
+            assertNotNull("FirebaseAuth SDK returned no real user: " + stage, user);
+            FirebaseUser active = auth.getCurrentUser();
+            assertNotNull("FirebaseAuth has no active SDK user: " + stage, active);
+            assertEquals("FirebaseAuth result/active UID mismatch: " + stage,
+                    user.getUid(), active.getUid());
+            Log.i(AUTH_DIAG, "auth.await.success.stage=" + stage
                     + " callback.seen=" + callbackSeen.get()
                     + " elapsed.ms=" + (SystemClock.elapsedRealtime() - started));
-            return result.getUser();
-        } catch (Exception e) {
-            Log.e(AUTH_DIAG, "signin.await.error.stage=" + stage
-                    + " type=" + e.getClass().getSimpleName()
+            return user;
+        } catch (Exception failure) {
+            Log.e(AUTH_DIAG, "auth.await.error.stage=" + stage
+                    + " type=" + failure.getClass().getSimpleName()
                     + " task.complete=" + operation.isComplete()
                     + " callback.seen=" + callbackSeen.get()
                     + " elapsed.ms=" + (SystemClock.elapsedRealtime() - started));
-            throw e;
+            throw failure;
         }
+    }
+    private static FirebaseUser emulatorSignIn(FirebaseAuth auth, String stage) throws Exception {
+        long started = SystemClock.elapsedRealtime();
+        return awaitEmulatorAuth(auth, auth.signInAnonymously(), stage, started);
     }
 
     @Test public void realFirebaseAuthEmulatorAtoBPreventsCrossUidRemoteWrites() throws Exception {
@@ -571,9 +588,10 @@ public class NativeWriteBoundaryTest {
         // No arbitrary UID, mock token, or production identity is used.
         String emailA = "miaad-recovery-" + UUID.randomUUID() + "@example.test";
         String passwordA = "Miaad-Local-Emulator-" + UUID.randomUUID();
-        FirebaseUser linkedA = Tasks.await(
+        long linkStarted = SystemClock.elapsedRealtime();
+        FirebaseUser linkedA = awaitEmulatorAuth(auth,
                 userA.linkWithCredential(EmailAuthProvider.getCredential(emailA, passwordA)),
-                25, TimeUnit.SECONDS).getUser();
+                "link-A", linkStarted);
         assertNotNull(linkedA);
         assertEquals("Linking A must not change authenticated UID", A, linkedA.getUid());
         scenario.onActivity(a->a.getIntent().putExtra("miaad_test_auth_emulator",true));
@@ -587,6 +605,7 @@ public class NativeWriteBoundaryTest {
         until("authorized A write",()->read(doc(A)).exists());
         assertEquals(payloadA,read(doc(A)).getString("payload"));
         auth.signOut();
+        assertNull("A must be signed out before B starts", auth.getCurrentUser());
         FirebaseUser userB=emulatorSignIn(auth,"B");
         assertNotNull(userB);
         String B=userB.getUid();
@@ -608,9 +627,10 @@ public class NativeWriteBoundaryTest {
         assertEquals(payloadB,read(doc(B)).getString("payload"));
         assertEquals(payloadA,read(doc(A)).getString("payload"));
         auth.signOut();
-        FirebaseUser returnedA = Tasks.await(
-                auth.signInWithEmailAndPassword(emailA, passwordA),
-                25, TimeUnit.SECONDS).getUser();
+        assertNull("B must be signed out before A returns", auth.getCurrentUser());
+        long returnStarted = SystemClock.elapsedRealtime();
+        FirebaseUser returnedA = awaitEmulatorAuth(auth,
+                auth.signInWithEmailAndPassword(emailA, passwordA), "return-A", returnStarted);
         assertNotNull(returnedA);
         assertEquals("A->B->A must recover the actual original Firebase UID",
                 A, returnedA.getUid());
@@ -619,6 +639,10 @@ public class NativeWriteBoundaryTest {
                 payloadA, bridge.loadSnapshotOwned(bridge.sessionToken()));
         assertEquals("A original cloud bytes must survive the round trip",
                 payloadA, read(doc(A)).getString("payload"));
+        assertEquals("B Native session revoked after return to A",
+                "", bridge.loadSnapshotOwned(tokenB));
+        assertEquals("B original cloud bytes survive A restoration",
+                payloadB, read(doc(B)).getString("payload"));
         auth.signOut();
     }
 
