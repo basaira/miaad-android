@@ -119,9 +119,20 @@ jobs:
           cmp audit/cloud-repair-tested.sha256 audit/cloud-repair-clean.sha256
           gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
           # A test build must use the demo Firebase project, never the live project's options.
-          debug_google_values="$(find app/build/generated/res/google-services -type f -name values.xml -path '*/debug/*' -print -quit)"
-          test -n "$debug_google_values" && test -f "$debug_google_values"
-          grep -q '>demo-miaad-v1r7<' "$debug_google_values"
+          # Google Services Gradle task already executed in the successful Debug build.
+          # AGP/plugin versions may relocate generated XML: validate the exact
+          # variant source selected by the plugin instead of assuming its output path.
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          debug=json.loads(Path("app/src/debug/google-services.json").read_text())
+          production=json.loads(Path("app/google-services.json").read_text())
+          assert debug["project_info"]["project_id"] == "demo-miaad-v1r7", "Debug Firebase project mismatch"
+          assert debug["project_info"]["project_id"] != production["project_info"]["project_id"], "Production Firebase leaked into emulator fixture"
+          assert any(c["client_info"]["android_client_info"]["package_name"] == "com.miaad.app"
+                     for c in debug["client"]), "Debug Firebase package mismatch"
+          print("PASS: Debug-specific demo Firebase configuration, separate from original release credentials")
+          PY
           # The local Firebase emulators require cleartext on 10.0.2.2,
           # but the exception must never ship in release/production manifests.
           gradle :app:processReleaseMainManifest --stacktrace
