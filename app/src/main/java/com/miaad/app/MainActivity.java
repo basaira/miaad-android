@@ -41,6 +41,7 @@ public class MainActivity extends Activity {
     private FrameLayout root;
     private View splashOverlay;
     private boolean splashHidden = false;
+    private volatile boolean webViewDestroyed = false;
     private long splashStartedAt;
     private FirebaseAuth firebaseAuth;
     private FirebaseAuth.AuthStateListener authObserver;
@@ -114,7 +115,8 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (url == null || !url.startsWith("file:///android_asset/index.html")) return;
+                if (!isLiveWebView(view) || url == null ||
+                        !url.startsWith("file:///android_asset/index.html")) return;
                 // A superseded page may finish after Authentication moved
                 // from A to B. Never reveal that page or attach a B Cloud read
                 // until its JS bootstrap proves the current Native session.
@@ -123,7 +125,9 @@ public class MainActivity extends Activity {
                     "&&(!ownershipEnabled||ownerSession==="+org.json.JSONObject.quote(expected)+
                     ");}catch(e){return false;}})()";
                 view.evaluateJavascript(ready, response -> {
-                    if (!"true".equals(response) ||
+                    // The asynchronous JS result may arrive after Activity teardown.
+                    // Android WebView throws if postVisualStateCallback follows destroy().
+                    if (!isLiveWebView(view) || !"true".equals(response) ||
                             !expected.equals(bridge.sessionToken())) return;
                     android.util.Log.i("MiaadStartup", "page-finished");
                     bridge.setPageReady(true);
@@ -131,7 +135,8 @@ public class MainActivity extends Activity {
                     bridge.pullCloudToWeb();
                     view.postVisualStateCallback(0, new WebView.VisualStateCallback() {
                         @Override public void onComplete(long requestId) {
-                            if (!expected.equals(bridge.sessionToken())) return;
+                            if (!isLiveWebView(view) ||
+                                    !expected.equals(bridge.sessionToken())) return;
                             view.setVisibility(View.VISIBLE);
                             android.util.Log.i("MiaadStartup", "first-frame-ready");
                             hideSplash();
@@ -188,6 +193,13 @@ public class MainActivity extends Activity {
         }
 
         authenticateForCloudSync();
+    }
+
+    // Shared by all async page-readiness callbacks. onDestroy always invalidates
+    // this authority before destroying the WebView on the Android main thread.
+    boolean isLiveWebView(WebView candidate) {
+        return !webViewDestroyed && !isFinishing() && !isDestroyed()
+                && webView == candidate;
     }
 
     private void handleBackNavigation() {
@@ -374,6 +386,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        webViewDestroyed = true;
+        if (bridge != null) bridge.setPageReady(false);
         if (firebaseAuth != null && authObserver != null)
             firebaseAuth.removeAuthStateListener(authObserver);
         if (webView != null) {

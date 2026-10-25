@@ -404,6 +404,29 @@ public class NativeWriteBoundaryTest {
         assertEquals("[]",prefs.getString("reminder_plan",null));
     }
 
+    @Test public void webViewReadinessRejectsCallbacksAfterActivityDestruction() throws Exception {
+        final AtomicReference<MainActivity> heldActivity = new AtomicReference<>();
+        final AtomicReference<WebView> heldView = new AtomicReference<>();
+        scenario.onActivity(activity -> {
+            try {
+                java.lang.reflect.Field viewField = MainActivity.class.getDeclaredField("webView");
+                viewField.setAccessible(true);
+                WebView view = (WebView) viewField.get(activity);
+                assertNotNull(view);
+                assertTrue("Live WebView must accept readiness callbacks",
+                        activity.isLiveWebView(view));
+                heldActivity.set(activity);
+                heldView.set(view);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError(exception);
+            }
+        });
+        scenario.close();
+        scenario = null;
+        assertFalse("Late page readiness must not reuse a destroyed WebView",
+                heldActivity.get().isLiveWebView(heldView.get()));
+    }
+
     @Test public void staleWriteCompletionCannotClearNewAccountWriteGate() throws Exception {
         String ownerA = uniqueId("callback-old-A");
         String ownerB = uniqueId("callback-new-B");
