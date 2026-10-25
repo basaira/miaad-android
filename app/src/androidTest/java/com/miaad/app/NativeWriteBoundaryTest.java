@@ -4,13 +4,19 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.SystemClock;
+import android.os.Looper;
+import android.security.NetworkSecurityPolicy;
+import android.util.Log;
 import android.webkit.WebView;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
+import com.google.android.gms.tasks.Task;
 import com.google.android.gms.tasks.Tasks;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.auth.AuthResult;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentSnapshot;
@@ -25,10 +31,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.lang.reflect.Method;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
@@ -384,12 +393,73 @@ public class NativeWriteBoundaryTest {
         assertEquals("[]",prefs.getString("reminder_plan",null));
     }
 
+    // Diagnostic-only code for the real FirebaseAuth emulator gate; no production class changes.
+    private static final String AUTH_DIAG = "MiaadAuthProbe";
+    private static void checkGuestAuthEndpoint() throws Exception {
+        boolean permitted = NetworkSecurityPolicy.getInstance()
+                .isCleartextTrafficPermitted("10.0.2.2");
+        Log.i(AUTH_DIAG, "guest.cleartext.allowed=" + permitted
+                + " test-on-main=" + (Looper.myLooper() == Looper.getMainLooper()));
+        assertTrue("Local Auth Emulator HTTP not permitted by effective Android policy", permitted);
+        HttpURLConnection connection = (HttpURLConnection)
+                new URL("http://10.0.2.2:9099/").openConnection();
+        connection.setConnectTimeout(5000);
+        connection.setReadTimeout(5000);
+        connection.setRequestMethod("GET");
+        long started = SystemClock.elapsedRealtime();
+        try {
+            int code = connection.getResponseCode();
+            // Any HTTP response demonstrates Android guest-to-host connectivity.
+            // 404 at / is an acceptable response; this is not an auth success probe.
+            Log.i(AUTH_DIAG, "guest.auth.http.status=" + code
+                    + " elapsed.ms=" + (SystemClock.elapsedRealtime() - started));
+        } catch (Exception e) {
+            Log.e(AUTH_DIAG, "guest.auth.http.error=" + e.getClass().getSimpleName()
+                    + " elapsed.ms=" + (SystemClock.elapsedRealtime() - started));
+            throw e;
+        } finally {
+            connection.disconnect();
+        }
+    }
+    private static FirebaseUser emulatorSignIn(FirebaseAuth auth, String stage) throws Exception {
+        Task<AuthResult> operation = auth.signInAnonymously();
+        AtomicBoolean callbackSeen = new AtomicBoolean(false);
+        long started = SystemClock.elapsedRealtime();
+        Log.i(AUTH_DIAG, "signin.start.stage=" + stage
+                + " immediately-complete=" + operation.isComplete());
+        operation.addOnCompleteListener(Runnable::run, task -> {
+            callbackSeen.set(true);
+            Exception error = task.getException();
+            Log.i(AUTH_DIAG, "signin.callback.stage=" + stage
+                    + " success=" + task.isSuccessful()
+                    + " error.type=" + (error == null ? "none" : error.getClass().getSimpleName())
+                    + " elapsed.ms=" + (SystemClock.elapsedRealtime() - started));
+        });
+        try {
+            AuthResult result = Tasks.await(operation, 25, TimeUnit.SECONDS);
+            Log.i(AUTH_DIAG, "signin.await.success.stage=" + stage
+                    + " callback.seen=" + callbackSeen.get()
+                    + " elapsed.ms=" + (SystemClock.elapsedRealtime() - started));
+            return result.getUser();
+        } catch (Exception e) {
+            Log.e(AUTH_DIAG, "signin.await.error.stage=" + stage
+                    + " type=" + e.getClass().getSimpleName()
+                    + " task.complete=" + operation.isComplete()
+                    + " callback.seen=" + callbackSeen.get()
+                    + " elapsed.ms=" + (SystemClock.elapsedRealtime() - started));
+            throw e;
+        }
+    }
+
     @Test public void realFirebaseAuthEmulatorAtoBPreventsCrossUidRemoteWrites() throws Exception {
         // Both UIDs are issued by the isolated Firebase Authentication emulator,
         // not fabricated strings or JS-supplied user identity assertions.
+        checkGuestAuthEndpoint();
+        Log.i(AUTH_DIAG, "firebase.project.matches.demo="
+                + "demo-miaad-v1r7".equals(FirebaseApp.getInstance().getOptions().getProjectId()));
         FirebaseAuth auth=FirebaseAuth.getInstance();
         auth.signOut();
-        FirebaseUser userA=Tasks.await(auth.signInAnonymously(),25,TimeUnit.SECONDS).getUser();
+        FirebaseUser userA=emulatorSignIn(auth,"A");
         assertNotNull(userA);
         String A=userA.getUid();
         scenario.onActivity(a->a.getIntent().putExtra("miaad_test_auth_emulator",true));
@@ -403,7 +473,7 @@ public class NativeWriteBoundaryTest {
         until("authorized A write",()->read(doc(A)).exists());
         assertEquals(payloadA,read(doc(A)).getString("payload"));
         auth.signOut();
-        FirebaseUser userB=Tasks.await(auth.signInAnonymously(),25,TimeUnit.SECONDS).getUser();
+        FirebaseUser userB=emulatorSignIn(auth,"B");
         assertNotNull(userB);
         String B=userB.getUid();
         assertNotEquals(A,B);

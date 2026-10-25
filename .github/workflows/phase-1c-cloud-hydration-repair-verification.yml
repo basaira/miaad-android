@@ -312,12 +312,14 @@ jobs:
           adb wait-for-device
           adb install -r runtime/app/build/outputs/apk/debug/app-debug.apk
           adb install -r runtime-tests/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          adb logcat -G 4M || :
+          adb logcat -c || :
           set -o pipefail
           set +e
           timeout --signal=TERM --kill-after=20s 600s adb shell am instrument -w -r com.miaad.app.test/androidx.test.runner.AndroidJUnitRunner | tee audit/native-instrumentation.txt
           result="${PIPESTATUS[0]}"
           set -e
-          adb logcat -d -s AndroidRuntime:E FirebaseFirestore:W MiaadWeb:E MiaadStartup:I > audit/native-logcat.txt || :
+          adb logcat -d -v threadtime -s MiaadAuthProbe:I AndroidRuntime:E FirebaseAuth:W FirebaseFirestore:W MiaadWeb:E MiaadStartup:I > audit/native-logcat.txt || :
           if test "$result" -ne 0; then echo "Native instrumentation exit=${result}" >&2; exit "$result"; fi
           grep -Eq 'OK \([0-9]+ tests?\)' audit/native-instrumentation.txt
           if grep -E 'FAILURES!!!|INSTRUMENTATION_FAILED|java.lang.AssertionError' audit/native-instrumentation.txt; then exit 1; fi
