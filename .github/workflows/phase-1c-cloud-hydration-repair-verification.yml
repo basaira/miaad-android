@@ -210,31 +210,31 @@ jobs:
           # service crashes to MIAAD; reject every app-owned or unknown fatality.
           check_app_crashes() {
             python3 - "$1" <<'PY'
-import sys
-from pathlib import Path
-lines = Path(sys.argv[1]).read_text(errors="replace").splitlines()
-blocking, external = [], []
-for index, line in enumerate(lines):
-    if "AndroidRuntime: FATAL EXCEPTION" not in line and not (
-            "AndroidRuntime:" in line and " FATAL " in line):
-        continue
-    owner = None
-    for candidate in lines[index+1:index+7]:
-        if "AndroidRuntime: Process:" in candidate:
-            owner = candidate.split("AndroidRuntime: Process:", 1)[1].split(",", 1)[0].strip()
-            break
-        if "AndroidRuntime: FATAL EXCEPTION" in candidate:
-            break
-    if not owner or owner == "com.miaad.app" or owner.startswith("com.miaad.app:"):
-        blocking.append((index + 1, owner or "UNATTRIBUTED"))
-    else:
-        external.append((index + 1, owner))
-for line_no, owner in external:
-    print(f"EXTERNAL Android fatal at log line {line_no}: {owner} (retained in evidence)")
-for line_no, owner in blocking:
-    print(f"BLOCKING Android fatal at log line {line_no}: {owner}", file=sys.stderr)
-sys.exit(1 if blocking else 0)
-PY
+          import sys
+          from pathlib import Path
+          lines = Path(sys.argv[1]).read_text(errors="replace").splitlines()
+          blocking, external = [], []
+          for index, line in enumerate(lines):
+              if "AndroidRuntime: FATAL EXCEPTION" not in line and not (
+                      "AndroidRuntime:" in line and " FATAL " in line):
+                  continue
+              owner = None
+              for candidate in lines[index+1:index+7]:
+                  if "AndroidRuntime: Process:" in candidate:
+                      owner = candidate.split("AndroidRuntime: Process:", 1)[1].split(",", 1)[0].strip()
+                      break
+                  if "AndroidRuntime: FATAL EXCEPTION" in candidate:
+                      break
+              if not owner or owner == "com.miaad.app" or owner.startswith("com.miaad.app:"):
+                  blocking.append((index + 1, owner or "UNATTRIBUTED"))
+              else:
+                  external.append((index + 1, owner))
+          for line_no, owner in external:
+              print(f"EXTERNAL Android fatal at log line {line_no}: {owner} (retained in evidence)")
+          for line_no, owner in blocking:
+              print(f"BLOCKING Android fatal at log line {line_no}: {owner}", file=sys.stderr)
+          sys.exit(1 if blocking else 0)
+          PY
           }
           adb wait-for-device
           adb install -r "$apk"
