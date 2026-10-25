@@ -1,0 +1,24 @@
+{
+  "project_info": {
+    "project_number": "123456789012",
+    "firebase_url": "https://demo-miaad-v1r7.firebaseio.com",
+    "project_id": "demo-miaad-v1r7",
+    "storage_bucket": "demo-miaad-v1r7.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:123456789012:android:0123456789abcdef012345",
+        "android_client_info": {
+          "package_name": "com.miaad.app"
+        }
+      },
+      "api_key": [
+        {
+          "current_key": "demo-emulator-only-not-a-production-key"
+        }
+      ]
+    }
+  ],
+  "configuration_version": "1"
+}

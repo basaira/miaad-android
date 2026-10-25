@@ -31,6 +31,7 @@ jobs:
           .github/workflows/phase-1c-cloud-hydration-repair-verification.yml
           app/src/androidTest/java/com/miaad/app/NativeWriteBoundaryTest.java
           app/src/debug/AndroidManifest.xml
+          app/src/debug/google-services.json
           app/src/debug/res/xml/miaad_emulator_network_security.xml
           app/src/main/assets/app-boot.js
           app/src/main/assets/app-core.js
@@ -117,6 +118,10 @@ jobs:
           node scripts/compat-assets-manifest.cjs audit/cloud-repair-clean.json > audit/cloud-repair-clean.sha256
           cmp audit/cloud-repair-tested.sha256 audit/cloud-repair-clean.sha256
           gradle :app:lintDebug :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+          # A test build must use the demo Firebase project, never the live project's options.
+          debug_google_values="$(find app/build/generated/res/google-services -type f -name values.xml -path '*/debug/*' -print -quit)"
+          test -n "$debug_google_values" && test -f "$debug_google_values"
+          grep -q '>demo-miaad-v1r7<' "$debug_google_values"
           # The local Firebase emulators require cleartext on 10.0.2.2,
           # but the exception must never ship in release/production manifests.
           gradle :app:processReleaseMainManifest --stacktrace
