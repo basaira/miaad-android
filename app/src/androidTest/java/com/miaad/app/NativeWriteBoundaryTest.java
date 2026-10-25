@@ -404,6 +404,53 @@ public class NativeWriteBoundaryTest {
         assertEquals("[]",prefs.getString("reminder_plan",null));
     }
 
+    @Test public void staleWriteCompletionCannotClearNewAccountWriteGate() throws Exception {
+        String ownerA = uniqueId("callback-old-A");
+        String ownerB = uniqueId("callback-new-B");
+        java.lang.reflect.Field epochField = MiaadBridge.class.getDeclaredField("accountEpoch");
+        java.lang.reflect.Field writingField = MiaadBridge.class.getDeclaredField("writeInProgress");
+        java.lang.reflect.Field tokenField = MiaadBridge.class.getDeclaredField("observedRemoteToken");
+        epochField.setAccessible(true);
+        writingField.setAccessible(true);
+        tokenField.setAccessible(true);
+        bridge.setUid(ownerA);
+        long epochA = epochField.getLong(bridge);
+        bridge.setUid(ownerB);
+        long epochB = epochField.getLong(bridge);
+        writingField.setBoolean(bridge, true);  // B's in-flight transaction.
+        bridge.completeRemoteWriteForEpoch(ownerA, epochA, "stale-A-token", true);
+        assertTrue("A completion must not unlock B write", writingField.getBoolean(bridge));
+        assertNull("A completion must not become B remote baseline", tokenField.get(bridge));
+        bridge.completeRemoteWriteForEpoch(ownerA, epochA, null, false);
+        assertTrue("A failed completion must not unlock B write", writingField.getBoolean(bridge));
+        bridge.completeRemoteWriteForEpoch(ownerB, epochB, "verified-B-token", true);
+        assertFalse(writingField.getBoolean(bridge));
+        assertEquals("verified-B-token", tokenField.get(bridge));
+    }
+
+    @Test public void ownerReadAndStorageScopeRecheckActiveFirebaseIdentity() throws Exception {
+        FirebaseAuth.getInstance().signOut();
+        String owner = uniqueId("locally-owned");
+        bridge.setUid(owner);
+        String currentSession = bridge.sessionToken();
+        String original = snapshot(1808);
+        assertTrue(bridge.saveSnapshotOwned(original, currentSession));
+        assertEquals(original, bridge.loadSnapshotOwned(currentSession));
+        assertTrue(bridge.storageScope(currentSession).startsWith("miaadUidV1_"));
+        // Simulate the critical time between revocation in FirebaseAuth and
+        // delivery of the Activity's observer: the Native UID has not switched.
+        scenario.onActivity(a -> a.getIntent().putExtra("miaad_test_auth_emulator", true));
+        try {
+            assertEquals("Revoked/mismatched FirebaseAuth must not read per-UID data",
+                    "", bridge.loadSnapshotOwned(currentSession));
+            assertEquals("Revoked/mismatched FirebaseAuth must not reveal owner scope",
+                    "", bridge.storageScope(currentSession));
+        } finally {
+            scenario.onActivity(a -> a.getIntent().removeExtra("miaad_test_auth_emulator"));
+        }
+        assertEquals(original, bridge.loadSnapshotOwned(currentSession));
+    }
+
     // Diagnostic-only code for the real FirebaseAuth emulator gate; no production class changes.
     private static final String AUTH_DIAG = "MiaadAuthProbe";
     private static void checkGuestAuthEndpoint() throws Exception {

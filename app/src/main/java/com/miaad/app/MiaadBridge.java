@@ -101,8 +101,11 @@ public class MiaadBridge {
     public String sessionToken() { return webSessionToken; }
     @JavascriptInterface
     public String storageScope(String session) {
-        if (!validSession(session)) return "";
-        return "miaadUidV1_" + uidHash(uid) + "_";
+        synchronized (writeLock) {
+            final String owner = uid;
+            if (!validSession(session) || !activeIdentity(owner, accountEpoch)) return "";
+            return "miaadUidV1_" + uidHash(owner) + "_";
+        }
     }
     @JavascriptInterface
     public boolean hasUnownedSnapshot() {
@@ -111,8 +114,11 @@ public class MiaadBridge {
     }
     @JavascriptInterface
     public String loadSnapshotOwned(String session) {
-        if (!validSession(session)) return "";
-        return prefs.getString(scopedKey(uid), "");
+        synchronized (writeLock) {
+            final String owner = uid;
+            if (!validSession(session) || !activeIdentity(owner, accountEpoch)) return "";
+            return prefs.getString(scopedKey(owner), "");
+        }
     }
 
     void setPageReady(boolean ready) {
@@ -196,6 +202,30 @@ public class MiaadBridge {
         }
     }
 
+    // Bind asynchronous completion to the exact UID + epoch that began the
+    // transaction. A stale A callback must never release B's active write gate
+    // or publish a B-owned success/error status.
+    void completeRemoteWriteForEpoch(String owner, long epoch, String token, boolean success) {
+        final String session;
+        synchronized (writeLock) {
+            if (!activeIdentity(owner, epoch)) return;
+            writeInProgress = false;
+            if (success) {
+                observedRemoteToken = token;
+                remoteMissingVerified = false;
+            }
+            session = webSessionToken;
+        }
+        if (!pageReady) return;
+        final String status = success ? "synced" : "cloud-pending";
+        activity.runOnUiThread(() -> {
+            if (!pageReady || !activeIdentity(owner, epoch)
+                    || !session.equals(webSessionToken)) return;
+            webView.evaluateJavascript("window.__miaadNativeStatus && window.__miaadNativeStatus("
+                    + JSONObject.quote(status) + "," + JSONObject.quote(session) + ");", null);
+        });
+    }
+
     @JavascriptInterface
     public void requestVerifiedSync(String json) {
         // Stale/unowned JS must not be able to upload under a new UID.
@@ -223,8 +253,8 @@ public class MiaadBridge {
         final long revision;
         try { revision = new JSONObject(json).getLong("updatedAt"); }
         catch (Exception ex) {
-            synchronized (writeLock) { writeInProgress = false; }
-            pushNativeStatus("cloud-pending"); return;
+            completeRemoteWriteForEpoch(owner, epoch, null, false);
+            return;
         }
         final com.google.firebase.firestore.DocumentReference main = firestore.collection("users")
                 .document(owner).collection("state").document("main");
@@ -232,8 +262,8 @@ public class MiaadBridge {
         final int size = json.getBytes(StandardCharsets.UTF_8).length;
         final int parts = (json.length() + 119999) / 120000;
         if (parts > 450) {
-            synchronized (writeLock) { writeInProgress = false; }
-            pushNativeStatus("cloud-pending"); return;
+            completeRemoteWriteForEpoch(owner, epoch, null, false);
+            return;
         }
         firestore.runTransaction(tx -> {
             if (!activeIdentity(owner,epoch)) throw new IllegalStateException("Firebase account changed before transaction");
@@ -265,19 +295,10 @@ public class MiaadBridge {
             // excluding the serverUpdatedAt presentation metadata.
             String signature = size < 700000 ? "payload:"+json : "chunks:"+generation+":"+parts;
             return remoteDigest(signature + "|revision:" + revision);
-        }).addOnSuccessListener(token -> {
-            synchronized (writeLock) {
-                writeInProgress = false;
-                if (activeIdentity(owner,epoch)) {
-                    observedRemoteToken = token;
-                    remoteMissingVerified = false;
-                }
-            }
-            if (activeIdentity(owner,epoch)) pushNativeStatus("synced");
-        }).addOnFailureListener(error -> {
-            synchronized (writeLock) { writeInProgress = false; }
-            if (activeIdentity(owner,epoch)) pushNativeStatus("cloud-pending");
-        });
+        }).addOnSuccessListener(token ->
+                completeRemoteWriteForEpoch(owner, epoch, token, true))
+          .addOnFailureListener(error ->
+                completeRemoteWriteForEpoch(owner, epoch, null, false));
     }
 
     private static String remoteDigest(String state) {
