@@ -17,6 +17,7 @@ import com.google.android.gms.tasks.Task;
 import com.google.android.gms.tasks.Tasks;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.auth.AuthResult;
+import com.google.firebase.auth.EmailAuthProvider;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentSnapshot;
@@ -565,6 +566,16 @@ public class NativeWriteBoundaryTest {
         FirebaseUser userA=emulatorSignIn(auth,"A");
         assertNotNull(userA);
         String A=userA.getUid();
+        // Link A to a throwaway emulator-only email credential so the A->B->A
+        // return can prove genuine FirebaseAuth recovery of the original UID.
+        // No arbitrary UID, mock token, or production identity is used.
+        String emailA = "miaad-recovery-" + UUID.randomUUID() + "@example.test";
+        String passwordA = "Miaad-Local-Emulator-" + UUID.randomUUID();
+        FirebaseUser linkedA = Tasks.await(
+                userA.linkWithCredential(EmailAuthProvider.getCredential(emailA, passwordA)),
+                25, TimeUnit.SECONDS).getUser();
+        assertNotNull(linkedA);
+        assertEquals("Linking A must not change authenticated UID", A, linkedA.getUid());
         scenario.onActivity(a->a.getIntent().putExtra("miaad_test_auth_emulator",true));
         bridge.setUid(A);
         String payloadA=snapshot(1201),tokenA=bridge.sessionToken();
@@ -596,6 +607,18 @@ public class NativeWriteBoundaryTest {
         until("authorized B write",()->read(doc(B)).exists());
         assertEquals(payloadB,read(doc(B)).getString("payload"));
         assertEquals(payloadA,read(doc(A)).getString("payload"));
+        auth.signOut();
+        FirebaseUser returnedA = Tasks.await(
+                auth.signInWithEmailAndPassword(emailA, passwordA),
+                25, TimeUnit.SECONDS).getUser();
+        assertNotNull(returnedA);
+        assertEquals("A->B->A must recover the actual original Firebase UID",
+                A, returnedA.getUid());
+        bridge.setUid(A);
+        assertEquals("A original Native bytes must survive the round trip",
+                payloadA, bridge.loadSnapshotOwned(bridge.sessionToken()));
+        assertEquals("A original cloud bytes must survive the round trip",
+                payloadA, read(doc(A)).getString("payload"));
         auth.signOut();
     }
 
